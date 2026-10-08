@@ -25,4 +25,4 @@ export async function middleware(req: NextRequest) {
   return res;
 }
 
-export const config = { matcher: ["/((?!_next/static|_next/image|icons|logo.png|manifest.webmanifest|api/availability).*)"] };
+export const config = { matcher: ["/((?!_next/static|_next/image|icons|logo.png|manifest.webmanifest|api/availability|api/bookings).*)"] };
