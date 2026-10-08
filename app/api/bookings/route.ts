@@ -6,8 +6,10 @@ import { Booking, TimeOff, Trainer } from "@/lib/types";
 
 // Book a Closed Won HubSpot deal into a trainer's calendar (used by the Sales extension).
 // POST /api/bookings   header x-api-key: BOOKING_KEY
-// { trainer_id, client_name, dog_name, program, weeks, start_date, notes, hubspot_deal_id, force }
-//  201 { booking, trainer, url }
+// { trainer_id, client_name, hubspot_deal_id, notes, force,
+//   dogs: [{ dog_name, program, weeks, start_date, notes }] }      one booking (kennel) per dog
+// (Old single-dog shape { dog_name, program, weeks, start_date } still works.)
+//  201 { bookings, booking, trainer, url }
 //  409 { code: "already_booked" | "full", message, ... }   force: true books anyway when "full"
 
 const bad = (status: number, body: Record<string, unknown>) => NextResponse.json(body, { status });
@@ -18,10 +20,21 @@ export async function POST(req: Request) {
 
   const b = await req.json().catch(() => ({}));
   const trainerId = String(b.trainer_id || ""), client = String(b.client_name || "").trim();
-  const weeks = Math.round(Number(b.weeks) || 0), start = String(b.start_date || "");
   const dealId = b.hubspot_deal_id ? String(b.hubspot_deal_id) : null;
-  if (!trainerId || !client || !/^\d{4}-\d{2}-\d{2}$/.test(start)) return bad(400, { message: "Trainer, client name and start date are required." });
-  if (weeks < 1 || weeks > 12) return bad(400, { message: "Program length must be 1 to 12 weeks." });
+  const rawDogs: Record<string, unknown>[] = Array.isArray(b.dogs) && b.dogs.length
+    ? b.dogs
+    : [{ dog_name: b.dog_name, program: b.program, weeks: b.weeks, start_date: b.start_date, notes: b.notes }];
+  if (!trainerId || !client) return bad(400, { message: "Trainer and client name are required." });
+  if (rawDogs.length > 6) return bad(400, { message: "Book at most 6 dogs at once." });
+  const dogs = rawDogs.map((d, i) => ({
+    i, name: String(d.dog_name || "").trim().slice(0, 80), program: String(d.program || "").trim().slice(0, 120),
+    weeks: Math.round(Number(d.weeks) || 0), start: String(d.start_date || ""), notes: String(d.notes || "").trim().slice(0, 2000)
+  }));
+  for (const d of dogs) {
+    const label = d.name || `Dog ${d.i + 1}`;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d.start)) return bad(400, { message: `${label}: pick a start date.` });
+    if (d.weeks < 1 || d.weeks > 12) return bad(400, { message: `${label}: program length must be 1 to 12 weeks.` });
+  }
 
   const sb = serviceClient();
   const { data: t } = await sb.from("trainers").select("*").eq("id", trainerId).maybeSingle();
@@ -40,32 +53,43 @@ export async function POST(req: Request) {
     });
   }
 
-  const s = weekStart(start), end = addDays(s, weeks * 7 - 1);
+  // Rows to insert, one per dog
+  const rows = dogs.map((d) => {
+    const s = weekStart(d.start);
+    return {
+      trainer_id: trainerId, client_name: client.slice(0, 120), dog_name: d.name || null,
+      program: d.program || `${d.weeks}-week`, start_date: s, end_date: addDays(s, d.weeks * 7 - 1), weeks: d.weeks,
+      status: "confirmed", notes: [d.notes, String(b.notes || "").trim()].filter(Boolean).join("\n").slice(0, 2000) || null,
+      hubspot_deal_id: dealId, source: "sales-extension"
+    };
+  });
 
-  // Room every week?
+  // Room every week, counting the dogs in this same request too
   if (!b.force) {
+    const from = rows.reduce((m, r) => (r.start_date < m ? r.start_date : m), rows[0].start_date);
+    const to = rows.reduce((m, r) => (r.end_date > m ? r.end_date : m), rows[0].end_date);
     const [bk, off] = await Promise.all([
-      sb.from("bookings").select("*").eq("trainer_id", trainerId).neq("status", "cancelled").lte("start_date", end).gte("end_date", s),
-      sb.from("time_off").select("*").eq("trainer_id", trainerId).lte("start_date", end).gte("end_date", s)
+      sb.from("bookings").select("*").eq("trainer_id", trainerId).neq("status", "cancelled").lte("start_date", to).gte("end_date", from),
+      sb.from("time_off").select("*").eq("trainer_id", trainerId).lte("start_date", to).gte("end_date", from)
     ]);
-    const use = weekUsage(trainer, (bk.data || []) as Booking[], (off.data || []) as TimeOff[], weeksFrom(s, weeks));
-    const fullWeek = use.find((w) => w.free < 1);
-    if (fullWeek) return bad(409, {
-      code: "full",
-      message: `${trainer.name.split(" ")[0]} has no free kennel the week of ${short(fullWeek.week)}${fullWeek.blocked >= fullWeek.cap ? " (time off)" : ""}.`,
-      week: fullWeek.week
-    });
+    const taken = [...((bk.data || []) as Booking[])];
+    for (const [k, r] of rows.entries()) {
+      const use = weekUsage(trainer, taken, (off.data || []) as TimeOff[], weeksFrom(r.start_date, r.weeks));
+      const fullWeek = use.find((w) => w.free < 1);
+      if (fullWeek) return bad(409, {
+        code: "full",
+        message: `${trainer.name.split(" ")[0]} has no free kennel for ${r.dog_name || `dog ${k + 1}`} the week of ${short(fullWeek.week)}${fullWeek.blocked >= fullWeek.cap ? " (time off)" : ""}.`,
+        week: fullWeek.week, dog: k
+      });
+      taken.push({ ...(r as unknown as Booking), id: `new-${k}` });
+    }
   }
 
-  const { data: booking, error } = await sb.from("bookings").insert({
-    trainer_id: trainerId, client_name: client.slice(0, 120), dog_name: String(b.dog_name || "").trim().slice(0, 80) || null,
-    program: String(b.program || "").trim().slice(0, 120) || `${weeks}-week`, start_date: s, end_date: end, weeks,
-    status: "confirmed", notes: String(b.notes || "").trim().slice(0, 2000) || null, hubspot_deal_id: dealId, source: "sales-extension"
-  }).select("*").single();
+  const { data: created, error } = await sb.from("bookings").insert(rows).select("*");
   if (error) return bad(500, { message: error.message });
 
   return NextResponse.json({
-    booking, trainer: { id: trainer.id, name: trainer.name },
+    bookings: created, booking: created?.[0], trainer: { id: trainer.id, name: trainer.name },
     url: `${process.env.NEXT_PUBLIC_SITE_URL || ""}/a/trainers/${trainer.id}`
   }, { status: 201 });
 }
