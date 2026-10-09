@@ -39,6 +39,7 @@ create table if not exists bookings (
   status text not null default 'confirmed' check (status in ('pending', 'confirmed', 'in_training', 'completed', 'cancelled')),
   notes text,
   hubspot_deal_id text,
+  source text,                              -- e.g. 'sales-extension'
   sheet_color text,
   created_by uuid references auth.users on delete set null,
   created_at timestamptz not null default now(),
@@ -73,6 +74,7 @@ create table if not exists messages (
 create index if not exists bookings_trainer_dates on bookings (trainer_id, start_date, end_date);
 create index if not exists time_off_trainer_dates on time_off (trainer_id, start_date, end_date);
 create index if not exists messages_thread on messages (trainer_id, created_at);
+create index if not exists bookings_hubspot_deal on bookings (hubspot_deal_id);
 
 -- ── Helpers ───────────────────────────────────────────────────────────────
 create or replace function is_admin() returns boolean

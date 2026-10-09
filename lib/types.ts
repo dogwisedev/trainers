@@ -10,7 +10,7 @@ export type Trainer = {
 export type BookingStatus = "pending" | "confirmed" | "in_training" | "completed" | "cancelled";
 export type Booking = {
   id: string; trainer_id: string; client_name: string; dog_name: string | null; program: string | null;
-  start_date: string; end_date: string; weeks: number | null; status: BookingStatus; notes: string | null; hubspot_deal_id: string | null; source?: string | null;
+  start_date: string; end_date: string; weeks: number | null; status: BookingStatus; notes: string | null; hubspot_deal_id: string | null; source?: string | null; rehab?: boolean | null; extra_days?: number | null;
 };
 export type TimeOff = { id: string; trainer_id: string; start_date: string; end_date: string; slots_blocked: number | null; reason: string; note: string | null };
 export type Message = { id: string; trainer_id: string; sender_role: Role; sender_name: string | null; body: string; created_at: string; read_at: string | null };

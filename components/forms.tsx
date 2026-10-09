@@ -2,7 +2,7 @@
 import { useState, useTransition } from "react";
 import { useFormState, useFormStatus } from "react-dom";
 import { Trash2 } from "lucide-react";
-import { addTimeOff, deleteTimeOff, Result, saveBooking, saveTrainer, setPassword } from "@/app/actions";
+import { addTimeOff, deleteTimeOff, Result, saveBooking, saveTrainer, setExtraDays, setPassword } from "@/app/actions";
 import { Trainer } from "@/lib/types";
 
 function Submit({ children, className = "btn-ink w-full" }: { children: React.ReactNode; className?: string }) {
@@ -157,9 +157,13 @@ export function BookingForm({ trainers, defaultTrainer, defaultStart }: { traine
       <div className="grid grid-cols-2 gap-3">
         <F label="Start" hint="Rounded to that week's Sunday"><input type="date" name="start_date" required defaultValue={defaultStart} className="field" /></F>
         <F label="Program length">
-          <select name="weeks" defaultValue="3" className="field">{[1, 2, 3, 4, 5, 6, 8].map((w) => <option key={w} value={w}>{w} week{w > 1 ? "s" : ""}</option>)}</select>
+          <select name="weeks" defaultValue="3" className="field">{[1, 2, 3, 4, 5, 6, 7, 8].map((w) => <option key={w} value={w}>{w} week{w > 1 ? "s" : ""}</option>)}</select>
         </F>
       </div>
+      <F label="Extra days after the last full week" hint="Paid at the weekly rate ÷ 7 per day.">
+        <select name="extra_days" defaultValue="0" className="field">{[0, 1, 2, 3, 4, 5, 6].map((d) => <option key={d} value={d}>{d ? `+ ${d} day${d > 1 ? "s" : ""}` : "None"}</option>)}</select>
+      </F>
+      <label className="flex min-h-[44px] items-center gap-3 rounded-xl border border-line bg-white px-3.5 text-[15px]"><input type="checkbox" name="rehab" className="h-5 w-5 accent-[#1D3557]" />Rehab program (pays the rehab rate)</label>
       <F label="Status">
         <select name="status" defaultValue="confirmed" className="field"><option value="pending">Pending</option><option value="confirmed">Confirmed</option><option value="in_training">In training</option></select>
       </F>
@@ -168,5 +172,21 @@ export function BookingForm({ trainers, defaultTrainer, defaultStart }: { traine
       <Submit>Save booking</Submit>
       <Note r={r} />
     </form>
+  );
+}
+
+/** Change a booking's extra days (e.g. the dog stays 2 more days). */
+export function ExtraDays({ id, current }: { id: string; current: number }) {
+  const [pending, start] = useTransition();
+  const [msg, setMsg] = useState("");
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <label className="sr-only" htmlFor={`xd-${id}`}>Extra days</label>
+      <select id={`xd-${id}`} defaultValue={current} disabled={pending} className="h-9 rounded-lg border border-line bg-white px-2 text-[13px]"
+        onChange={(e) => start(async () => { const r = await setExtraDays(id, Number(e.target.value)); setMsg(r.ok ? "" : r.message); })}>
+        {[0, 1, 2, 3, 4, 5, 6].map((d) => <option key={d} value={d}>{d ? `+${d} day${d > 1 ? "s" : ""}` : "No extra days"}</option>)}
+      </select>
+      {msg && <span className="text-[12px] text-heart">{msg}</span>}
+    </span>
   );
 }

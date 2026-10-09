@@ -28,7 +28,8 @@ export async function POST(req: Request) {
   if (rawDogs.length > 6) return bad(400, { message: "Book at most 6 dogs at once." });
   const dogs = rawDogs.map((d, i) => ({
     i, name: String(d.dog_name || "").trim().slice(0, 80), program: String(d.program || "").trim().slice(0, 120),
-    weeks: Math.round(Number(d.weeks) || 0), start: String(d.start_date || ""), notes: String(d.notes || "").trim().slice(0, 2000)
+    weeks: Math.round(Number(d.weeks) || 0), start: String(d.start_date || ""), notes: String(d.notes || "").trim().slice(0, 2000), rehab: d.rehab === true,
+    extra: Math.min(13, Math.max(0, Math.round(Number(d.extra_days) || 0)))
   }));
   for (const d of dogs) {
     const label = d.name || `Dog ${d.i + 1}`;
@@ -58,9 +59,9 @@ export async function POST(req: Request) {
     const s = weekStart(d.start);
     return {
       trainer_id: trainerId, client_name: client.slice(0, 120), dog_name: d.name || null,
-      program: d.program || `${d.weeks}-week`, start_date: s, end_date: addDays(s, d.weeks * 7 - 1), weeks: d.weeks,
+      program: d.program || `${d.weeks}-week`, start_date: s, end_date: addDays(s, d.weeks * 7 - 1 + d.extra), weeks: d.weeks, extra_days: d.extra,
       status: "confirmed", notes: [d.notes, String(b.notes || "").trim()].filter(Boolean).join("\n").slice(0, 2000) || null,
-      hubspot_deal_id: dealId, source: "sales-extension"
+      hubspot_deal_id: dealId, source: "sales-extension", rehab: !!d.rehab || /rehab|\bRR\b/i.test(d.program)
     };
   });
 
@@ -74,7 +75,7 @@ export async function POST(req: Request) {
     ]);
     const taken = [...((bk.data || []) as Booking[])];
     for (const [k, r] of rows.entries()) {
-      const use = weekUsage(trainer, taken, (off.data || []) as TimeOff[], weeksFrom(r.start_date, r.weeks));
+      const use = weekUsage(trainer, taken, (off.data || []) as TimeOff[], weeksFrom(r.start_date, Math.ceil((r.weeks * 7 + r.extra_days) / 7)));
       const fullWeek = use.find((w) => w.free < 1);
       if (fullWeek) return bad(409, {
         code: "full",

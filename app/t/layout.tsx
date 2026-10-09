@@ -9,6 +9,7 @@ export default async function TrainerLayout({ children }: { children: React.Reac
       { href: "/t", label: "Home", icon: "home" },
       { href: "/t/calendar", label: "Calendar", icon: "calendar" },
       { href: "/t/messages", label: "Messages", icon: "messages", badge: unread },
+      { href: "/t/pay", label: "Pay", icon: "pay" },
       { href: "/t/profile", label: "Profile", icon: "profile" }
     ]}>{children}</Shell>
   );

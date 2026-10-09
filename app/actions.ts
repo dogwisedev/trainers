@@ -149,13 +149,14 @@ export async function saveBooking(_: Result | null, f: FormData): Promise<Result
   if (isDemo()) return DEMO;
   const v = await viewerOrThrow();
   if (v.role !== "admin") return { ok: false, message: "Admins only." };
-  const start = str(f, "start_date"), weeks = num(f, "weeks") || 3;
+  const start = str(f, "start_date"), weeks = num(f, "weeks") || 3, extra = Math.min(13, Math.max(0, num(f, "extra_days") || 0));
   if (!start || !str(f, "trainer_id") || !str(f, "client_name")) return { ok: false, message: "Trainer, client and start date are required." };
   const s = weekStart(start);
   const row = {
     trainer_id: str(f, "trainer_id"), client_name: str(f, "client_name"), dog_name: str(f, "dog_name"),
-    program: str(f, "program") || `${weeks}-week`, start_date: s, end_date: addDays(s, weeks * 7 - 1), weeks,
-    status: str(f, "status") || "confirmed", notes: str(f, "notes"), hubspot_deal_id: str(f, "hubspot_deal_id"), created_by: v.userId
+    program: str(f, "program") || `${weeks}-week`, start_date: s, end_date: addDays(s, weeks * 7 - 1 + extra), weeks, extra_days: extra,
+    status: str(f, "status") || "confirmed", notes: str(f, "notes"), hubspot_deal_id: str(f, "hubspot_deal_id"), created_by: v.userId,
+    rehab: f.get("rehab") === "on" || /rehab|\bRR\b/i.test(str(f, "program") || "")
   };
   const id = str(f, "id");
   const sb = serverClient();
@@ -163,6 +164,19 @@ export async function saveBooking(_: Result | null, f: FormData): Promise<Result
   if (error) return { ok: false, message: error.message };
   revalidatePath("/", "layout");
   redirect(`/a/trainers/${row.trainer_id}?saved=booking`);
+}
+
+export async function setExtraDays(id: string, extra: number): Promise<Result> {
+  if (isDemo()) return DEMO;
+  const v = await viewerOrThrow();
+  if (v.role !== "admin") return { ok: false, message: "Admins only." };
+  const sb = serverClient();
+  const { data: b } = await sb.from("bookings").select("start_date, weeks").eq("id", id).single();
+  if (!b) return { ok: false, message: "Booking not found." };
+  const n = Math.min(13, Math.max(0, Math.round(extra)));
+  const { error } = await sb.from("bookings").update({ extra_days: n, end_date: addDays(b.start_date, (b.weeks || 1) * 7 - 1 + n) }).eq("id", id);
+  revalidatePath("/", "layout");
+  return error ? { ok: false, message: error.message } : { ok: true, message: "Updated." };
 }
 
 export async function setBookingStatus(id: string, status: string): Promise<Result> {

@@ -6,15 +6,17 @@ import { soonestOpening, utilisation, weekUsage } from "@/lib/capacity";
 import { addDays, range, short, todayIso, weekStart, weeksFrom } from "@/lib/dates";
 import { clearFlag, inviteTrainer, setBookingStatus, setTrainerActive } from "@/app/actions";
 import { KennelLegend, KennelStrip } from "@/components/KennelStrip";
-import { ActionButton, DeleteTimeOff, TimeOffForm, TrainerForm } from "@/components/forms";
+import { ActionButton, DeleteTimeOff, ExtraDays, TimeOffForm, TrainerForm } from "@/components/forms";
 import { Avatar, Pill, Section } from "@/components/ui";
+import { PayRatesForm } from "@/components/PayRatesForm";
+import { getRates } from "@/lib/payrollData";
 
 export default async function TrainerDetail({ params, searchParams }: { params: { id: string }; searchParams: { saved?: string } }) {
   await requireRole("admin");
   const t = await getTrainer(params.id);
   if (!t) notFound();
   const today = todayIso();
-  const [bookings, off] = await Promise.all([listBookings({ trainerId: t.id, from: addDays(today, -30) }), listTimeOff({ trainerId: t.id, from: addDays(today, -7) })]);
+  const [bookings, off, rates] = await Promise.all([listBookings({ trainerId: t.id, from: addDays(today, -30) }), listTimeOff({ trainerId: t.id, from: addDays(today, -7) }), getRates(t.id)]);
   const use = weekUsage(t, bookings, off, weeksFrom(today, 16));
   const o2 = soonestOpening(use, 2), o3 = soonestOpening(use, 3);
   const when = (o: string | null) => (!o ? "None in 16 weeks" : o === weekStart(today) ? "Now" : short(o));
@@ -66,9 +68,10 @@ export default async function TrainerDetail({ params, searchParams }: { params: 
           <ul className="panel divide-y divide-line">
             {upcoming.map((b) => (
               <li key={b.id} className="flex flex-wrap items-center justify-between gap-3 p-4">
-                <div><p className="font-semibold">{b.dog_name || "Dog"} <span className="font-normal text-ink-soft">with {b.client_name}</span></p><p className="text-[14px] text-ink-soft">{range(b.start_date, b.end_date)}, {b.program || `${b.weeks}-week`}</p>
+                <div><p className="font-semibold">{b.dog_name || "Dog"} <span className="font-normal text-ink-soft">with {b.client_name}</span></p><p className="text-[14px] text-ink-soft">{range(b.start_date, b.end_date)}, {b.program || `${b.weeks}-week`}{b.extra_days ? ` + ${b.extra_days} day${b.extra_days > 1 ? "s" : ""}` : ""}{b.rehab ? ", rehab" : ""}</p>
                   {b.hubspot_deal_id && <a className="text-[13px] font-semibold text-fern underline" href={`https://app.hubspot.com/contacts/21869370/record/0-3/${b.hubspot_deal_id}`} target="_blank" rel="noopener">HubSpot deal</a>}</div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <ExtraDays id={b.id} current={b.extra_days || 0} />
                   <Pill tone={b.start_date <= today ? "biscuit" : b.status === "pending" ? "line" : "mint"}>{b.start_date <= today ? "In training" : b.status === "pending" ? "Pending" : "Confirmed"}</Pill>
                   <ActionButton className="btn-danger h-9 min-h-0 px-3 text-[13px]" confirm={`Cancel ${b.dog_name || "this booking"}? The kennel frees up straight away.`} action={setBookingStatus.bind(null, b.id, "cancelled")}>Cancel</ActionButton>
                 </div>
@@ -91,6 +94,9 @@ export default async function TrainerDetail({ params, searchParams }: { params: 
         )}
         <details className="panel p-4"><summary className="cursor-pointer font-semibold">Block dates for {t.name.split(" ")[0]}</summary><div className="mt-4"><TimeOffForm trainerId={id} capacity={t.capacity} /></div></details>
       </Section>
+
+
+      <Section title="Pay rates (admins only)"><div className="panel p-4 md:p-5"><PayRatesForm trainerId={id} rates={rates} /></div></Section>
 
       <Section title="Profile"><TrainerForm t={t} admin /></Section>
 

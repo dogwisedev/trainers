@@ -2,10 +2,10 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { CalendarDays, Home, LayoutGrid, LogOut, MessageCircle, UserRound, Users } from "lucide-react";
+import { CalendarDays, Home, LayoutGrid, LogOut, MessageCircle, UserRound, Users, Wallet } from "lucide-react";
 import { signOut } from "@/app/actions";
 
-const ICONS = { home: Home, calendar: CalendarDays, messages: MessageCircle, profile: UserRound, grid: LayoutGrid, users: Users };
+const ICONS = { home: Home, calendar: CalendarDays, messages: MessageCircle, profile: UserRound, grid: LayoutGrid, users: Users, pay: Wallet };
 export type NavItem = { href: string; label: string; icon: keyof typeof ICONS; badge?: number };
 
 export function Shell({ nav, who, children, demo }: { nav: NavItem[]; who: string; children: React.ReactNode; demo?: boolean }) {
@@ -51,7 +51,7 @@ export function Shell({ nav, who, children, demo }: { nav: NavItem[]; who: strin
             const on = isActive(n.href);
             return (
               <li key={n.href}>
-                <Link href={n.href} className="relative flex min-w-[64px] flex-col items-center gap-0.5 px-2 py-1 text-[11px] font-semibold">
+                <Link href={n.href} className="relative flex min-w-[58px] flex-col items-center gap-0.5 px-2 py-1 text-[11px] font-semibold">
                   <span className={`grid h-8 w-14 place-items-center rounded-full ${on ? "bg-mint text-ink" : "text-ink-faint"}`}><I size={20} /></span>
                   <span className={on ? "text-ink" : "text-ink-faint"}>{n.label}</span>
                   {!!n.badge && <span className="absolute right-2 top-0 rounded-full bg-heart px-1.5 text-[10px] font-bold text-white">{n.badge}</span>}
