@@ -17,15 +17,12 @@ export function PayslipBoard({ slips: initial, submit, label, paid, demo }: { sl
   const [armed, setArmed] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ ok: boolean; message: string } | null>(null);
   const [pending, start] = useTransition();
-
   const counts = { pending: slips.filter((s) => s.status === "draft").length, approved: slips.filter((s) => s.status === "approved").length, all: slips.length };
   const shown = useMemo(() => slips.filter((s) => filter === "all" || (filter === "pending" ? s.status === "draft" : s.status === "approved")), [slips, filter]);
   const ready = slips.filter((s) => s.status === "draft" && !s.missing);
   const total = slips.reduce((n, s) => n + Number(s.total || 0), 0);
-
   const mark = (id: string, ok: boolean, error?: string) =>
     setSlips((cur) => cur.map((s) => (s.id === id ? (ok ? { ...s, status: "approved", sent_at: new Date().toISOString(), send_error: null } : error?.startsWith("Approved") ? { ...s, status: "approved", send_error: error } : s) : s)));
-
   const approveOne = (s: BoardSlip) => {
     if (armed !== s.id) { setArmed(s.id); setTimeout(() => setArmed((a) => (a === s.id ? null : a)), 4000); return; }
     setArmed(null); setBusy((b) => ({ ...b, [s.id]: true }));
@@ -45,6 +42,20 @@ export function PayslipBoard({ slips: initial, submit, label, paid, demo }: { sl
     });
   };
 
+  const refreshDrafts = () => {
+    const drafts = slips.filter((s) => s.status === "draft");
+    if (demo || pending) return;
+    if (!window.confirm(
+      `Refresh drafts for this pay run? This will rebuild automatic training lines for ${drafts.length} draft payslip(s) using the saved rates. Manual lines are kept; approved payslips are skipped.`
+    )) return;
+
+    start(async () => {
+      const r = await buildDraftsAction(submit);
+      setMsg(r);
+      if (r.ok) window.location.reload();
+    });
+  };
+
   return (
     <div>
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -54,26 +65,30 @@ export function PayslipBoard({ slips: initial, submit, label, paid, demo }: { sl
         </div>
         <Link href="/a/payroll" className="text-[14px] font-semibold underline">Past pay runs</Link>
       </div>
-
       {slips.length > 0 && (
         <div className="mt-3 h-2 overflow-hidden rounded-full bg-paper" aria-label={`${counts.approved} of ${counts.all} approved`}>
           <div className="h-full rounded-full bg-fern transition-all" style={{ width: `${(counts.approved / Math.max(1, counts.all)) * 100}%` }} />
         </div>
       )}
-
       <div className="mt-3 flex flex-wrap items-center gap-2">
         {(["pending", "approved", "all"] as Filter[]).map((f) => (
           <button key={f} onClick={() => setFilter(f)} className={`rounded-full px-3.5 py-1.5 text-[13px] font-semibold ${filter === f ? "bg-ink text-white" : "border border-line bg-white"}`}>
             {f === "pending" ? "Pending" : f === "approved" ? "Approved" : "All"} <span className="opacity-70">{counts[f]}</span>
           </button>
         ))}
+        <button
+          onClick={refreshDrafts}
+          disabled={pending || demo || !slips.some((s) => s.status === "draft")}
+          className="btn-mint ml-auto h-9 min-h-0 px-3 text-[13px]"
+        >
+          {pending ? "Refreshing…" : "Refresh drafts"}
+        </button>
         {ready.length > 1 && filter !== "approved" && (
-          <button onClick={approveAll} disabled={pending || demo} className="btn-ink ml-auto h-9 min-h-0 px-3 text-[13px]"><Check size={15} />Approve all pending ({ready.length})</button>
+          <button onClick={approveAll} disabled={pending || demo} className="btn-ink h-9 min-h-0 px-3 text-[13px]"><Check size={15} />Approve all pending ({ready.length})</button>
         )}
       </div>
       {msg && <p role="status" className={`mt-3 rounded-xl px-3 py-2 text-[14px] ${msg.ok ? "bg-mint-wash text-fern" : "bg-heart-wash text-heart"}`}>{msg.message}</p>}
       {demo && <p className="mt-3 rounded-xl bg-biscuit-wash px-3 py-2 text-[13px] text-[#8A5A00]">Demo: example rates, approving is switched off.</p>}
-
       {!slips.length && (
         <div className="mt-4 rounded-[22px] border border-dashed border-line bg-white/60 p-6 text-center">
           <p className="font-semibold">No payslips for this run yet.</p>
@@ -81,7 +96,6 @@ export function PayslipBoard({ slips: initial, submit, label, paid, demo }: { sl
           <button className="btn-mint mt-4" disabled={pending} onClick={() => start(async () => { const r = await buildDraftsAction(submit); setMsg(r); if (r.ok) location.reload(); })}>Build drafts now</button>
         </div>
       )}
-
       <ul className="mt-4 grid gap-2.5 md:grid-cols-2 xl:grid-cols-3">
         {shown.map((s) => {
           const tone = s.status === "approved" ? (s.send_error ? "border-heart/40 bg-heart-wash" : "border-mint-deep bg-mint-wash") : "border-biscuit bg-biscuit-wash/50";
