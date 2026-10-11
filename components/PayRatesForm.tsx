@@ -17,18 +17,18 @@ export function PayRatesForm({ trainerId, rates }: { trainerId: string; rates: R
   return (
     <form action={act} className="space-y-4">
       <input type="hidden" name="trainer_id" value={trainerId} />
-      <p className="text-[13px] text-ink-soft">The weekly rate agreed with Sean for each program type. 7 and 8 week programs use the 6-week rate, and extra days are paid at the weekly rate ÷ 7. Only admins can see these.</p>
+      <p className="text-[13px] text-ink-soft">The amount agreed with Sean for each whole program, e.g. $2,000 for 4 weeks. It's paid by the day (amount ÷ program days) for the days trained in each pay period. Extra days use the same day rate; 7 and 8 week programs use the 6-week day rate. Only admins can see these.</p>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
         {RATE_FIELDS.map(([k, label]) => {
           const n = Number(vals[k as string]);
           return (
             <label key={k} className="block">
-              <span className="label">{label}, per week</span>
+              <span className="label">{label} program</span>
               <span className="relative block">
                 <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-faint">$</span>
                 <input name={k} inputMode="decimal" value={vals[k as string]} onChange={(e) => setVals({ ...vals, [k]: e.target.value })} className="field pl-7" placeholder="Not set" />
               </span>
-              <span className="mt-1 block text-[12px] text-ink-faint">{vals[k as string] && n > 0 ? `${money(n * WEEKS[k as string])} for the program, ${money(n / 7)} a day` : "\u00a0"}</span>
+              <span className="mt-1 block text-[12px] text-ink-faint">{vals[k as string] && n > 0 ? `${money(n / WEEKS[k as string])} a week, ${money(n / (WEEKS[k as string] * 7))} a day` : "\u00a0"}</span>
             </label>
           );
         })}

@@ -1,7 +1,9 @@
 // Payroll rules (pure functions, no database). Agreed with Anita, Oct 2026:
-//  - Each trainer has a WEEKLY rate per program type (agreed with Sean): 2, 3, 4 weeks, 4/5/6 weeks rehab.
-//    7–8 week programs use the 6-week rehab weekly rate.
-//  - Pay = weekly rate × weeks completed. Extra days past the last full week are paid at weekly rate ÷ 7 per day.
+//  - Each trainer has an agreed amount per program type (Sean): 2, 3, 4 weeks, 4/5/6 weeks rehab. e.g. $2,000 for 4 weeks.
+//  - Paid by the day: amount ÷ program days (4 weeks = 28 days) × days trained in the pay period.
+//    $2,000 for 4 weeks = $71.43 a day, so 14 days in a period = $1,000. Rounding is settled on the last day, so a
+//    program always adds up to its exact amount. Extra days after the program keep the same day rate.
+//  - 7 and 8 week programs use the 6-week rehab day rate (amount ÷ 42).
 //  - Pay runs every other Monday (submitted), paid that Friday. A run covers two program weeks:
 //    the week that started the Sunday 8 days before submission, and the week that started the day before.
 //  - Missed weekly report / late handover: up to $100 off each (the % is Sean's call).
@@ -38,26 +40,30 @@ export function runDates(submitDate: string) {
 }
 
 // ── Rates ───────────────────────────────────────────────────────────────
-/** Which weekly rate applies to a program. weekly null = no rate set. */
-export function rateFor(rates: Rates, weeks: number, rehab: boolean): { key: keyof Rates | null; label: string; weekly: number | null } {
-  const pick = (key: keyof Rates, label: string) => ({ key, label, weekly: (rates[key] as number | null) ?? null });
-  if (weeks >= 6) return pick("w6_rehab", weeks > 6 ? `${weeks} weeks (6-week rate)` : "6 weeks rehab");
-  if (weeks === 5) return pick("w5_rehab", "5 weeks rehab");
-  if (weeks === 4) return rehab ? pick("w4_rehab", "4 weeks rehab") : pick("w4", "4 weeks");
-  if (weeks === 3) return pick("w3", "3 weeks");
-  if (weeks === 2) return pick("w2", "2 weeks");
-  return { key: null, label: `${weeks} week${weeks === 1 ? "" : "s"}`, weekly: null };
+/** Which program amount applies, and its day rate. daily null = no amount set. */
+export function rateFor(rates: Rates, weeks: number, rehab: boolean): { key: keyof Rates | null; label: string; amount: number | null; programDays: number; daily: number | null } {
+  const pick = (key: keyof Rates, label: string, rateWeeks: number) => {
+    const amount = (rates[key] as number | null) ?? null;
+    return { key, label, amount, programDays: rateWeeks * 7, daily: amount == null ? null : amount / (rateWeeks * 7) };
+  };
+  if (weeks >= 6) return pick("w6_rehab", weeks > 6 ? `${weeks} weeks (6-week day rate)` : "6 weeks rehab", 6);
+  if (weeks === 5) return pick("w5_rehab", "5 weeks rehab", 5);
+  if (weeks === 4) return rehab ? pick("w4_rehab", "4 weeks rehab", 4) : pick("w4", "4 weeks", 4);
+  if (weeks === 3) return pick("w3", "3 weeks", 3);
+  if (weeks === 2) return pick("w2", "2 weeks", 2);
+  return { key: null, label: `${weeks} week${weeks === 1 ? "" : "s"}`, amount: null, programDays: weeks * 7, daily: null };
 }
 
-/** Pay for `count` full weeks of a program. */
-export function payForWeeks(rates: Rates, programWeeks: number, rehab: boolean, count: number): number | null {
-  const w = rateFor(rates, programWeeks, rehab).weekly;
-  return w == null ? null : round2(w * count);
-}
-/** Pay for extra days past the program's last full week: weekly ÷ 7 per day. */
-export function payForDays(rates: Rates, programWeeks: number, rehab: boolean, days: number): number | null {
-  const w = rateFor(rates, programWeeks, rehab).weekly;
-  return w == null ? null : round2((w / 7) * days);
+/**
+ * Pay for days `fromDay`..`fromDay+count-1` of a booking (0-based, counted from the booking's first day).
+ * Cumulative rounding: what's been paid after k days is round(daily × k), so the parts always add up
+ * to exactly the program amount (and the 6-week amount stays exact for 6 weeks).
+ */
+export function payForDays(rates: Rates, programWeeks: number, rehab: boolean, fromDay: number, count: number): number | null {
+  const r = rateFor(rates, programWeeks, rehab);
+  if (r.daily == null) return null;
+  const paidAfter = (k: number) => (k === r.programDays ? (r.amount as number) : round2(r.daily! * k));
+  return round2(paidAfter(fromDay + count) - paidAfter(fromDay));
 }
 
 // ── Building a draft from bookings ──────────────────────────────────────
@@ -71,37 +77,25 @@ export function programLabel(weeks: number, rehab: boolean, extraDays = 0) {
 const DAY = 86400000;
 const daysBetween = (a: string, b: string) => Math.round((toDate(b).getTime() - toDate(a).getTime()) / DAY);
 
-/** Lines for one trainer in one run: full program weeks inside the run's two weeks, plus any extra days that fall in it. */
+/** One line per booking: the days it was in training during the pay period (incl. extra days), paid by the day. */
 export function draftLines(bookings: BookingLike[], rates: Rates, runWeeks: string[]): DraftLine[] {
   const out: DraftLine[] = [];
-  const runEnd = addDays(runWeeks[runWeeks.length - 1], 6);
+  const periodStart = runWeeks[0], periodEnd = addDays(runWeeks[runWeeks.length - 1], 6); // 14 days, Sunday to Saturday
   for (const b of bookings) {
     if (b.status === "cancelled") continue;
     const programWeeks = b.weeks || Math.max(1, Math.floor((daysBetween(b.start_date, b.end_date) + 1) / 7));
     const extra = Math.max(0, b.extra_days ?? (daysBetween(b.start_date, b.end_date) + 1 - programWeeks * 7));
-    const rehab = !!b.rehab;
-    const program = programLabel(programWeeks, rehab, extra);
-
-    // Full weeks
-    const idx = runWeeks.map((w) => Math.round(daysBetween(b.start_date, w) / 7)).filter((i) => i >= 0 && i < programWeeks);
-    if (idx.length) {
-      const amount = payForWeeks(rates, programWeeks, rehab, idx.length);
-      out.push({ kind: "training", booking_id: b.id, weeks_completed: idx.length, days: null, week_from: Math.min(...idx) + 1,
-        client: b.client_name, dog: b.dog_name || "", program, amount: amount ?? 0, missingRate: amount == null });
-    }
-    // Extra days (after the last full week)
-    if (extra > 0) {
-      const extraStart = addDays(b.start_date, programWeeks * 7), extraEnd = addDays(extraStart, extra - 1);
-      const from = extraStart > runWeeks[0] ? extraStart : runWeeks[0], to = extraEnd < runEnd ? extraEnd : runEnd;
-      const n = from <= to ? daysBetween(from, to) + 1 : 0;
-      if (n > 0) {
-        const amount = payForDays(rates, programWeeks, rehab, n);
-        out.push({ kind: "training", booking_id: b.id, weeks_completed: null, days: n, week_from: null,
-          client: b.client_name, dog: b.dog_name || "", program, amount: amount ?? 0, missingRate: amount == null });
-      }
-    }
+    const from = b.start_date > periodStart ? b.start_date : periodStart;
+    const to = b.end_date < periodEnd ? b.end_date : periodEnd;
+    if (from > to) continue;
+    const days = daysBetween(from, to) + 1, fromDay = daysBetween(b.start_date, from);
+    const amount = payForDays(rates, programWeeks, !!b.rehab, fromDay, days);
+    out.push({
+      kind: "training", booking_id: b.id, weeks_completed: days % 7 === 0 ? days / 7 : null, days, week_from: Math.floor(fromDay / 7) + 1,
+      client: b.client_name, dog: b.dog_name || "", program: programLabel(programWeeks, !!b.rehab, extra), amount: amount ?? 0, missingRate: amount == null
+    });
   }
-  return out.sort((a, b) => a.client.localeCompare(b.client) || (a.days ? 1 : 0) - (b.days ? 1 : 0));
+  return out.sort((a, b) => a.client.localeCompare(b.client));
 }
 
 export const deductionAmount = (rates: Rates, pct: number) => -round2((rates.report_deduction || 100) * (pct / 100));

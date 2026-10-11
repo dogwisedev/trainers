@@ -24,7 +24,7 @@ export async function buildDraftsAction(submitDate: string): Promise<Result> {
   try {
     const r = await buildDrafts(serverClient(), submitDate);
     revalidatePath("/a/payroll");
-    return { ok: true, message: `${r.built} draft${r.built === 1 ? "" : "s"} built from bookings${r.skipped ? `, ${r.skipped} approved left as they are` : ""}${r.missingRates ? `. ${r.missingRates} line${r.missingRates === 1 ? "" : "s"} need a pay rate.` : "."}` };
+    return { ok: true, message: `${r.built ? `${r.built} payslip${r.built === 1 ? "" : "s"} updated from bookings` : "Everything already up to date"}${r.skipped ? `, ${r.skipped} approved left as they are` : ""}${r.missingRates ? `. ${r.missingRates} line${r.missingRates === 1 ? "" : "s"} need a pay rate.` : "."}` };
   } catch (e) { return { ok: false, message: (e as Error).message }; }
 }
 

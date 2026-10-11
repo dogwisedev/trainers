@@ -12,7 +12,7 @@ const esc = (s: unknown) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "
 export const NAVY = "#2A1971", VIOLET = "#6B4FE0", LAVENDER = "#F4F1FF", LINE = "#E7E3F3", MUTED = "#6B6880", ROSE = "#C2415D", INK = "#1C1734";
 
 /** First column of a line: weeks completed, extra days, deduction %, or blank. */
-export const lineLead = (l: SlipLine) => (l.kind === "deduction" ? (l.pct != null ? `${l.pct}%` : "") : l.days ? `${l.days} day${l.days === 1 ? "" : "s"}` : l.weeks_completed ?? "");
+export const lineLead = (l: SlipLine) => (l.kind === "deduction" ? (l.pct != null ? `${l.pct}%` : "") : l.days ? (l.days % 7 === 0 ? l.days / 7 : `${l.days} day${l.days === 1 ? "" : "s"}`) : l.weeks_completed ?? "");
 /** Client column: deductions and "other" lines put their description here. */
 export const lineClient = (l: SlipLine) => (l.kind === "deduction" || l.kind === "other" ? l.description || "" : l.client || "");
 export const lineProgram = (l: SlipLine) => (l.kind === "route" ? "Route" : l.kind === "training" ? l.program || "" : "");

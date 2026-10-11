@@ -3,7 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import seed from "./demo-seed.json";
 import { isDemo, serverClient } from "./supabase";
 import { addDays, todayIso } from "./dates";
-import { BookingLike, EMPTY_RATES, Rates, draftLines, payMondayOnOrBefore, runDates, sumLines } from "./payroll";
+import { BookingLike, EMPTY_RATES, Rates, draftLines, payMondayOnOrAfter, payMondayOnOrBefore, runDates, sumLines } from "./payroll";
 import { SlipData, SlipLine } from "./payslipDoc";
 import { Trainer } from "./types";
 
@@ -15,11 +15,25 @@ export type Slip = {
 };
 export type Run = { id: string; submit_date: string; period_start: string; period_end: string; paid_date: string };
 
-/** Run on screen: the latest pay Monday, until the next one comes round. */
+/** Run on screen when nothing is chosen: the oldest run that still has payslips waiting for approval;
+ *  once every payslip in it is approved it's archived and the next pay Monday's run takes its place. */
+export async function currentRunDate(): Promise<string> {
+  const upcoming = payMondayOnOrAfter(todayIso());
+  if (isDemo()) return upcoming;
+  const { data } = await serverClient().from("pay_runs").select("submit_date, payslips(status)").order("submit_date");
+  const runs = (data || []) as { submit_date: string; payslips: { status: string }[] }[];
+  const open = runs.find((r) => r.payslips.some((p) => p.status === "draft"));
+  if (open) return open.submit_date;
+  // Everything approved: move on to the first pay Monday after the newest finished run (or the upcoming one)
+  const done = runs.filter((r) => r.payslips.length && r.payslips.every((p) => p.status === "approved")).map((r) => r.submit_date);
+  const lastDone = done.length ? done[done.length - 1] : null;
+  return lastDone && lastDone >= upcoming ? addDays(lastDone, 14) : upcoming;
+}
+/** Kept for the archive page: the pay Monday that's current by date. */
 export const defaultRunDate = () => payMondayOnOrBefore(todayIso());
 
 // ── Demo (no database): drafts computed on the fly with example rates ───
-const DEMO_RATES: Rates = { w2: 470, w3: 466.67, w4: 470, w4_rehab: 470, w5_rehab: 500, w6_rehab: 550, report_deduction: 100 };
+const DEMO_RATES: Rates = { w2: 940, w3: 1400, w4: 2000, w4_rehab: 2000, w5_rehab: 2500, w6_rehab: 3300, report_deduction: 100 };
 const demo = seed as unknown as { trainers: Trainer[]; bookings: BookingLike[] };
 function demoRun(submit: string) {
   const r = runDates(submit);
@@ -53,17 +67,33 @@ export async function buildDrafts(sb: SupabaseClient, submitDate: string) {
     sb.from("trainers").select("id, name, address"),
     sb.from("bookings").select("id, trainer_id, client_name, dog_name, start_date, end_date, weeks, extra_days, rehab, status").neq("status", "cancelled").lte("start_date", lastDay).gte("end_date", r.weeks[0]),
     sb.from("trainer_rates").select("*"),
-    sb.from("payslips").select("id, trainer_id, status, adjustments").eq("pay_run_id", run.id)
+    sb.from("payslips").select("id, trainer_id, status, adjustments, total, payslip_lines(booking_id, kind, auto, days, weeks_completed, amount, program, client, dog)").eq("pay_run_id", run.id)
   ]);
   const rateOf = (id: string) => { const x = (rateRows || []).find((q) => q.trainer_id === id); return x ? { ...EMPTY_RATES, ...x, report_deduction: Number(x.report_deduction ?? 100) } as Rates : EMPTY_RATES; };
-  let built = 0, skipped = 0, missingRates = 0;
+  let built = 0, skipped = 0, missingRates = 0, unchanged = 0;
+  type L = { booking_id: string | null; kind: string; auto: boolean; days?: number | null; amount: number | string; program?: string | null; client?: string | null; dog?: string | null };
+  const sig = (l: L) => [l.booking_id, l.days ?? "", Number(l.amount ?? 0).toFixed(2), l.program ?? "", l.client ?? "", l.dog ?? ""].join("|");
 
   for (const t of trainers || []) {
-    const lines = draftLines(((bookings || []) as BookingLike[]).filter((b) => b.trainer_id === t.id), rateOf(t.id), r.weeks);
-    const prev = (existing || []).find((p) => p.trainer_id === t.id);
+    const prev = (existing || []).find((p) => p.trainer_id === t.id) as { id: string; status: string; payslip_lines?: L[] } | undefined;
+    // A booking line edited by hand stays as it is: don't add an automatic one next to it.
+    const handEdited = new Set((prev?.payslip_lines || []).filter((l) => l.kind === "training" && !l.auto && l.booking_id).map((l) => l.booking_id));
+    const lines = draftLines(((bookings || []) as BookingLike[]).filter((b) => b.trainer_id === t.id && !handEdited.has(b.id)), rateOf(t.id), r.weeks);
     if (prev?.status === "approved") { skipped++; continue; }
     if (!lines.length && !prev) continue;
     missingRates += lines.filter((l) => l.missingRate).length;
+    // Nothing changed since the last refresh: leave it alone (keeps refreshing fast)
+    if (prev) {
+      const before = (prev.payslip_lines || []).filter((l) => l.auto).map(sig).sort().join("\n");
+      const after = lines.map((l) => sig({ ...l, auto: true })).sort().join("\n");
+      if (before === after) {
+        // Lines unchanged; just make sure the stored total still matches them
+        const p = prev as unknown as { total?: number; adjustments?: number };
+        const sum = Math.round((sumLines(prev.payslip_lines || []) + Number(p.adjustments || 0)) * 100) / 100;
+        if (Number(p.total ?? NaN) !== sum) await recalc(sb, prev.id);
+        unchanged++; continue;
+      }
+    }
 
     let slipId = prev?.id;
     if (!slipId) {
@@ -83,7 +113,7 @@ export async function buildDrafts(sb: SupabaseClient, submitDate: string) {
     await recalc(sb, slipId!);
     built++;
   }
-  return { run, built, skipped, missingRates };
+  return { run, built, skipped, missingRates, unchanged };
 }
 
 export async function recalc(sb: SupabaseClient, slipId: string) {
@@ -96,7 +126,8 @@ export async function recalc(sb: SupabaseClient, slipId: string) {
 }
 
 // ── Reading ─────────────────────────────────────────────────────────────
-export async function getRun(submitDate: string) {
+export type RunSlip = Slip & { name: string; lines: Line[]; lineCount: number; missing: number };
+export async function getRun(submitDate: string): Promise<{ run: Run | null; slips: RunSlip[] }> {
   if (isDemo()) {
     const d = demoRun(submitDate);
     return { run: d.run, slips: d.slips.map((x) => ({ ...x.slip, name: x.trainer.name, lines: x.lines as Line[], lineCount: x.lines.length, missing: x.lines.filter((l) => l.missingRate).length })) };

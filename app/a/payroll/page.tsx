@@ -1,20 +1,21 @@
 import Link from "next/link";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { requireRole } from "@/lib/data";
-import { defaultRunDate, listRuns } from "@/lib/payrollData";
+import { currentRunDate, listRuns } from "@/lib/payrollData";
 import { money, periodLabel, usDate } from "@/lib/payroll";
 import { Empty } from "@/components/ui";
 
 // Archive: every past pay run. The current one lives in Trainers → Payslips.
 export default async function PayRuns() {
   await requireRole("admin");
-  const current = defaultRunDate();
-  const runs = (await listRuns()).filter((r) => r.submit_date < current);
+  const current = await currentRunDate();
+  // Archived = every payslip approved (or an older run with nothing in it)
+  const runs = (await listRuns()).filter((r) => r.submit_date !== current && (r.count === 0 ? r.submit_date < current : r.approved === r.count));
   return (
     <>
       <Link href="/a/trainers?view=pay" className="mb-3 inline-flex items-center gap-1 font-semibold"><ChevronLeft size={18} />Current payslips</Link>
       <h1 className="text-[30px] font-extrabold">Past pay runs</h1>
-      <p className="mb-5 mt-1 text-ink-soft">Each run moves here once the next pay Monday comes round.</p>
+      <p className="mb-5 mt-1 text-ink-soft">A pay run moves here once every payslip in it is approved.</p>
       {runs.length ? (
         <ul className="panel divide-y divide-line">
           {runs.map((r) => (

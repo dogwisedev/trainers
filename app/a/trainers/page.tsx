@@ -5,14 +5,21 @@ import { soonestOpening, weekUsage } from "@/lib/capacity";
 import { short, todayIso, weekStart, weeksFrom } from "@/lib/dates";
 import { Row, TrainerList } from "./TrainerList";
 import { PayslipBoard } from "@/components/PayslipBoard";
-import { defaultRunDate, getRun } from "@/lib/payrollData";
+import { buildDrafts, currentRunDate, getRun } from "@/lib/payrollData";
+import { serverClient } from "@/lib/supabase";
 import { isPayMonday, periodLabel, runDates, usDate } from "@/lib/payroll";
 import { isDemo } from "@/lib/supabase";
 
 export default async function Trainers({ searchParams }: { searchParams: { view?: string; run?: string } }) {
   await requireRole("admin");
   const payView = searchParams.view === "pay";
-  const submit = searchParams.run && isPayMonday(searchParams.run) ? searchParams.run : defaultRunDate();
+  const current = await currentRunDate();
+  const submit = searchParams.run && isPayMonday(searchParams.run) ? searchParams.run : current;
+  // The current run refreshes itself whenever the Payslips view opens: every booked day in its two weeks,
+  // trained yet or not. Approved payslips and hand edits are left alone; archived runs are never touched.
+  if (payView && !isDemo() && submit === current) {
+    try { await buildDrafts(serverClient(), submit); } catch { /* shows what's there; Refresh drafts can retry */ }
+  }
   const pay = await getRun(submit);
   const pendingCount = pay.slips.filter((s) => s.status === "draft").length;
   const header = (

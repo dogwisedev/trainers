@@ -55,13 +55,13 @@ export function PayslipEditor(props: {
         {lines.map((l) => (
           <li key={l.key} className={`panel p-3.5 ${l.kind === "deduction" ? "border-heart/30" : ""}`}>
             <div className="mb-2 flex items-center justify-between gap-2">
-              <span className="text-[12px] font-bold uppercase tracking-wide text-ink-faint">{l.kind === "training" && l.days ? "Extra days" : { training: "Training", route: "Route", deduction: "Deduction", other: "Other" }[l.kind]}{l.auto ? " · from bookings" : ""}</span>
+              <span className="text-[12px] font-bold uppercase tracking-wide text-ink-faint">{{ training: "Training", route: "Route", deduction: "Deduction", other: "Other" }[l.kind]}{l.auto ? " · from bookings" : ""}</span>
               {!locked && <button type="button" onClick={() => setLines((ls) => ls.filter((x) => x.key !== l.key))} className="grid h-9 w-9 place-items-center rounded-full text-ink-faint hover:bg-heart-wash hover:text-heart" aria-label="Remove line"><Trash2 size={16} /></button>}
             </div>
             {l.kind === "training" && (
               <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
-                {l.days ? (
-                  <Field label="Extra days"><input disabled={locked} type="number" min={0} max={13} value={l.days ?? ""} onChange={(e) => set(l.key, { days: Number(e.target.value) })} className="field" /></Field>
+                {l.days != null ? (
+                  <Field label={`Days${l.days && l.days % 7 === 0 ? ` (${l.days / 7} wk)` : ""}`}><input disabled={locked} type="number" min={0} max={31} value={l.days ?? ""} onChange={(e) => set(l.key, { days: Number(e.target.value), weeks_completed: Number(e.target.value) % 7 === 0 ? Number(e.target.value) / 7 : null })} className="field" /></Field>
                 ) : (
                   <Field label="Weeks done"><input disabled={locked} type="number" min={0} value={l.weeks_completed ?? ""} onChange={(e) => set(l.key, { weeks_completed: Number(e.target.value) })} className="field" /></Field>
                 )}
@@ -108,7 +108,7 @@ export function PayslipEditor(props: {
         <div className="flex flex-wrap gap-2">
           <button type="button" className="btn-ghost h-10 min-h-0 px-3 text-[14px]" onClick={() => { const b = props.bookings[0]; add({ kind: "route", client: b?.client || "", dog: b?.dog || "", amount: 0 }); }}><Plus size={16} />Route</button>
           <button type="button" className="btn-ghost h-10 min-h-0 px-3 text-[14px]" onClick={() => add({ kind: "deduction", description: DEDUCTIONS[0], pct: 100, amount: deductionAmount(props.rates, 100) })}><Plus size={16} />Deduction</button>
-          <button type="button" className="btn-ghost h-10 min-h-0 px-3 text-[14px]" onClick={() => add({ kind: "training", weeks_completed: 1, client: "", dog: "", program: "", amount: 0 })}><Plus size={16} />Training</button>
+          <button type="button" className="btn-ghost h-10 min-h-0 px-3 text-[14px]" onClick={() => add({ kind: "training", days: 7, weeks_completed: 1, client: "", dog: "", program: "", amount: 0 })}><Plus size={16} />Training</button>
           <button type="button" className="btn-ghost h-10 min-h-0 px-3 text-[14px]" onClick={() => add({ kind: "other", description: "", amount: 0 })}><Plus size={16} />Other</button>
         </div>
       )}
