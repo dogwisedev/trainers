@@ -4,7 +4,7 @@ import { listTrainers } from "@/lib/data";
 import { LoginForm } from "./LoginForm";
 import { Brand } from "@/components/Shell";
 
-export default async function Login() {
+export default async function Login({ searchParams }: { searchParams: { error?: string } }) {
   const demo = isDemo();
   const trainers = demo ? (await listTrainers()).map((t) => ({ id: t.id, name: t.name })) : [];
   return (
@@ -15,6 +15,9 @@ export default async function Login() {
         <Brand />
         <h1 className="mt-14 text-[40px] font-extrabold leading-[1.02]">Every kennel,<br />every dog,<br />one calendar.</h1>
         <p className="mt-4 text-[16px] text-ink-soft">Sign in to see your dogs, block time off and message the Dogwise team.</p>
+        {searchParams.error === "link" && (
+          <p role="alert" className="mt-6 rounded-xl bg-white/80 px-4 py-3 text-[14px] text-heart">That link has expired or was already used. Enter your email below, leave the password empty, and we&apos;ll send a fresh one.</p>
+        )}
         <div className="mt-8 rounded-[26px] bg-white p-5 shadow-[0_20px_50px_-24px_rgba(29,53,87,.45)]">
           <LoginForm demo={demo} trainers={trainers} />
         </div>
