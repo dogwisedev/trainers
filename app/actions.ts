@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { getViewer } from "@/lib/data";
 import { isDemo, serverClient, serviceClient } from "@/lib/supabase";
 import { addDays, weekStart } from "@/lib/dates";
+import { notifyBookings, notifySummary } from "@/lib/bookingEmail";
 
 export type Result = { ok: boolean; message: string };
 const DEMO: Result = { ok: false, message: "Demo mode: connect Supabase to save changes." };
@@ -160,10 +161,13 @@ export async function saveBooking(_: Result | null, f: FormData): Promise<Result
   };
   const id = str(f, "id");
   const sb = serverClient();
-  const { error } = id ? await sb.from("bookings").update(row).eq("id", id) : await sb.from("bookings").insert(row);
+  const { data: saved, error } = id
+    ? await sb.from("bookings").update(row).eq("id", id).select("id").single()
+    : await sb.from("bookings").insert(row).select("id").single();
   if (error) return { ok: false, message: error.message };
+  const n = await notifyBookings(sb, [saved.id], id ? "changed" : "new");
   revalidatePath("/", "layout");
-  redirect(`/a/trainers/${row.trainer_id}?saved=booking`);
+  redirect(`/a/trainers/${row.trainer_id}?saved=booking${n.sent ? "&emailed=1" : n.skipped ? "&emailed=off" : n.errors.length ? "&emailed=failed" : ""}`);
 }
 
 export async function setExtraDays(id: string, extra: number): Promise<Result> {
@@ -176,16 +180,21 @@ export async function setExtraDays(id: string, extra: number): Promise<Result> {
   const n = Math.min(13, Math.max(0, Math.round(extra)));
   const { error } = await sb.from("bookings").update({ extra_days: n, end_date: addDays(b.start_date, (b.weeks || 1) * 7 - 1 + n) }).eq("id", id);
   revalidatePath("/", "layout");
-  return error ? { ok: false, message: error.message } : { ok: true, message: "Updated." };
+  if (error) return { ok: false, message: error.message };
+  const sentNote = notifySummary(await notifyBookings(sb, [id], "changed"));
+  return { ok: true, message: `Updated.${sentNote}` };
 }
 
 export async function setBookingStatus(id: string, status: string): Promise<Result> {
   if (isDemo()) return DEMO;
   const v = await viewerOrThrow();
   if (v.role !== "admin") return { ok: false, message: "Admins only." };
-  const { error } = await serverClient().from("bookings").update({ status }).eq("id", id);
+  const sb = serverClient();
+  const { error } = await sb.from("bookings").update({ status }).eq("id", id);
   revalidatePath("/", "layout");
-  return error ? { ok: false, message: error.message } : { ok: true, message: status === "cancelled" ? "Booking cancelled." : "Booking updated." };
+  if (error) return { ok: false, message: error.message };
+  const sentNote = notifySummary(await notifyBookings(sb, [id], status === "cancelled" ? "cancelled" : "changed"));
+  return { ok: true, message: `${status === "cancelled" ? "Booking cancelled." : "Booking updated."}${sentNote}` };
 }
 
 // ── Messages ──────────────────────────────────────────────────────────────

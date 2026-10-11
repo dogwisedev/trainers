@@ -3,6 +3,7 @@ import { isDemo, serviceClient } from "@/lib/supabase";
 import { weekUsage } from "@/lib/capacity";
 import { addDays, short, weekStart, weeksFrom } from "@/lib/dates";
 import { Booking, TimeOff, Trainer } from "@/lib/types";
+import { notifyBookings } from "@/lib/bookingEmail";
 
 // Book a Closed Won HubSpot deal into a trainer's calendar (used by the Sales extension).
 // POST /api/bookings   header x-api-key: BOOKING_KEY
@@ -88,9 +89,10 @@ export async function POST(req: Request) {
 
   const { data: created, error } = await sb.from("bookings").insert(rows).select("*");
   if (error) return bad(500, { message: error.message });
+  const emailed = await notifyBookings(sb, (created || []).map((c: { id: string }) => c.id), "new");
 
   return NextResponse.json({
-    bookings: created, booking: created?.[0], trainer: { id: trainer.id, name: trainer.name },
+    bookings: created, booking: created?.[0], trainer: { id: trainer.id, name: trainer.name }, emailed,
     url: `${process.env.NEXT_PUBLIC_SITE_URL || ""}/a/trainers/${trainer.id}`
   }, { status: 201 });
 }

@@ -11,7 +11,7 @@ import { Avatar, Pill, Section } from "@/components/ui";
 import { PayRatesForm } from "@/components/PayRatesForm";
 import { getRates } from "@/lib/payrollData";
 
-export default async function TrainerDetail({ params, searchParams }: { params: { id: string }; searchParams: { saved?: string } }) {
+export default async function TrainerDetail({ params, searchParams }: { params: { id: string }; searchParams: { saved?: string; emailed?: string } }) {
   await requireRole("admin");
   const t = await getTrainer(params.id);
   if (!t) notFound();
@@ -25,7 +25,11 @@ export default async function TrainerDetail({ params, searchParams }: { params: 
 
   return (
     <>
-      {searchParams.saved === "booking" && <p className="mb-4 rounded-xl bg-mint-wash px-3 py-2 text-[14px] text-fern">Booking saved.</p>}
+      {searchParams.saved === "booking" && (
+        <p className={`mb-4 rounded-xl px-3 py-2 text-[14px] ${searchParams.emailed === "failed" ? "bg-heart-wash text-heart" : "bg-mint-wash text-fern"}`}>
+          Booking saved.{searchParams.emailed === "1" ? " The trainer has been emailed with a calendar invite." : searchParams.emailed === "off" ? " Email isn't set up yet, so the trainer wasn't emailed." : searchParams.emailed === "failed" ? " The email to the trainer failed: check their email address." : ""}
+        </p>
+      )}
       <div className="flex items-start gap-4">
         <Avatar name={t.name} size={64} />
         <div className="min-w-0 flex-1">
