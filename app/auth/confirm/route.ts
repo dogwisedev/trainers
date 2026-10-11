@@ -15,8 +15,11 @@ export async function GET(req: NextRequest) {
   const next = nextRaw.startsWith("/") && !nextRaw.startsWith("//") ? nextRaw : "/"; // only ever redirect inside the app
 
   if (token_hash && type && TYPES.includes(type)) {
-    const { error } = await serverClient().auth.verifyOtp({ type, token_hash });
-    if (!error) return NextResponse.redirect(new URL(type === "recovery" ? "/t/profile" : next, req.url));
+    const sb = serverClient();
+    let { error } = await sb.auth.verifyOtp({ type, token_hash });
+    // "magiclink" and "email" are the same kind of link; older and newer Supabase versions name it differently
+    if (error && (type === "magiclink" || type === "email")) ({ error } = await sb.auth.verifyOtp({ type: type === "magiclink" ? "email" : "magiclink", token_hash }));
+    if (!error) return NextResponse.redirect(new URL(type === "recovery" ? "/" : next, req.url));
   }
   return NextResponse.redirect(new URL("/login?error=link", req.url));
 }

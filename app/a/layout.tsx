@@ -5,7 +5,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const v = await requireRole("admin");
   const unread = (await listThreads()).reduce((n, t) => n + t.unread, 0);
   return (
-    <Shell who={v.name} demo={v.demo} nav={[
+    <Shell who={v.name} demo={v.demo} accountHref="/a/account" needsPassword={v.passwordSet === false} nav={[
       { href: "/a", label: "Overview", icon: "grid" },
       { href: "/a/trainers", label: "Trainers", icon: "users" },
       { href: "/a/messages", label: "Messages", icon: "messages", badge: unread }

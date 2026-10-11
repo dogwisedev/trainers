@@ -14,4 +14,4 @@ export type Booking = {
 };
 export type TimeOff = { id: string; trainer_id: string; start_date: string; end_date: string; slots_blocked: number | null; reason: string; note: string | null };
 export type Message = { id: string; trainer_id: string; sender_role: Role; sender_name: string | null; body: string; created_at: string; read_at: string | null };
-export type Viewer = { userId: string; role: Role; trainerId: string | null; name: string; demo: boolean };
+export type Viewer = { userId: string; role: Role; trainerId: string | null; name: string; demo: boolean; passwordSet?: boolean; email?: string };

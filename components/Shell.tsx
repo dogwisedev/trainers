@@ -2,13 +2,14 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { CalendarDays, Home, LayoutGrid, LogOut, MessageCircle, UserRound, Users, Wallet } from "lucide-react";
+import { CalendarDays, Home, KeyRound, LayoutGrid, LogOut, MessageCircle, UserRound, Users, Wallet } from "lucide-react";
+import { PasswordForm } from "@/components/forms";
 import { signOut } from "@/app/actions";
 
 const ICONS = { home: Home, calendar: CalendarDays, messages: MessageCircle, profile: UserRound, grid: LayoutGrid, users: Users, pay: Wallet };
 export type NavItem = { href: string; label: string; icon: keyof typeof ICONS; badge?: number };
 
-export function Shell({ nav, who, children, demo }: { nav: NavItem[]; who: string; children: React.ReactNode; demo?: boolean }) {
+export function Shell({ nav, who, children, demo, accountHref, needsPassword }: { nav: NavItem[]; who: string; children: React.ReactNode; demo?: boolean; accountHref: string; needsPassword?: boolean }) {
   const path = usePathname();
   const isActive = (href: string) => (href === nav[0].href ? path === href : path.startsWith(href));
   return (
@@ -29,6 +30,7 @@ export function Shell({ nav, who, children, demo }: { nav: NavItem[]; who: strin
         </nav>
         <div className="mt-auto border-t border-line pt-4 text-[13px] text-ink-soft">
           <p className="truncate font-semibold text-ink">{who}</p>
+          <Link href={accountHref} className="mt-2 flex items-center gap-2 hover:text-ink"><KeyRound size={15} />Password</Link>
           <form action={signOut}><button className="mt-2 inline-flex items-center gap-2 hover:text-ink"><LogOut size={15} />Sign out</button></form>
         </div>
       </aside>
@@ -37,10 +39,22 @@ export function Shell({ nav, who, children, demo }: { nav: NavItem[]; who: strin
         {/* Mobile top bar */}
         <header className="sticky top-0 z-20 flex items-center justify-between border-b border-line bg-paper/90 px-4 pb-2.5 pt-[max(10px,env(safe-area-inset-top))] backdrop-blur md:hidden">
           <Brand small />
-          <form action={signOut}><button className="grid h-10 w-10 place-items-center rounded-full text-ink-soft" aria-label="Sign out"><LogOut size={18} /></button></form>
+          <div className="flex items-center">
+            <Link href={accountHref} className="grid h-10 w-10 place-items-center rounded-full text-ink-soft" aria-label="Password"><KeyRound size={18} /></Link>
+            <form action={signOut}><button className="grid h-10 w-10 place-items-center rounded-full text-ink-soft" aria-label="Sign out"><LogOut size={18} /></button></form>
+          </div>
         </header>
         {demo && <DemoNote />}
-        <main className="mx-auto w-full max-w-5xl px-4 pb-32 pt-5 md:px-8 md:pb-12 md:pt-8">{children}</main>
+        <main className="mx-auto w-full max-w-5xl px-4 pb-32 pt-5 md:px-8 md:pb-12 md:pt-8">
+          {needsPassword && !path.startsWith("/a/account") && (
+            <div className="mb-5 rounded-[22px] border border-biscuit bg-biscuit-wash p-4 md:p-5">
+              <p className="font-bold">Set a password</p>
+              <p className="mb-3 text-[14px] text-ink-soft">You signed in with an email link. Choose a password so you can sign in with your email and password next time.</p>
+              <div className="max-w-sm"><PasswordForm /></div>
+            </div>
+          )}
+          {children}
+        </main>
       </div>
 
       {/* Mobile tab bar */}

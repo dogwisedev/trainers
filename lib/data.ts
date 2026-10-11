@@ -24,14 +24,14 @@ export async function getViewer(): Promise<Viewer | null> {
   const sb = serverClient();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) return null;
-  const { data: p } = await sb.from("profiles").select("role, trainer_id, display_name").eq("id", user.id).maybeSingle();
+  const { data: p } = await sb.from("profiles").select("*").eq("id", user.id).maybeSingle();
   if (!p) return null;
   let name = p.display_name || user.email || "";
   if (p.role === "trainer" && p.trainer_id) {
     const { data: t } = await sb.from("trainers").select("name").eq("id", p.trainer_id).maybeSingle();
     name = t?.name || name;
   }
-  return { userId: user.id, role: p.role, trainerId: p.trainer_id, name, demo: false };
+  return { userId: user.id, role: p.role, trainerId: p.trainer_id, name, demo: false, passwordSet: p.password_set !== false, email: user.email || "" };
 }
 
 export async function requireRole(role: "admin" | "trainer"): Promise<Viewer> {

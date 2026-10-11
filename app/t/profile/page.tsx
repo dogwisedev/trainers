@@ -19,7 +19,7 @@ export default async function TrainerProfile() {
       </div>
       <p className="mt-3 text-[13px] text-ink-faint">Need your capacity, range or programs changed? Message the Dogwise team.</p>
       <Section title="Your details"><TrainerForm t={t} admin={false} /></Section>
-      <Section title="Password"><div className="panel p-4"><PasswordForm /></div></Section>
+      <Section title="Password" className="scroll-mt-20"><div id="password" className="panel p-4"><PasswordForm /></div></Section>
     </>
   );
 }

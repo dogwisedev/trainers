@@ -6,6 +6,7 @@ import { getViewer } from "@/lib/data";
 import { isDemo, serverClient, serviceClient } from "@/lib/supabase";
 import { addDays, weekStart } from "@/lib/dates";
 import { notifyBookings, notifySummary } from "@/lib/bookingEmail";
+import { sendInvite, sendSignInLink } from "@/lib/authEmail";
 
 export type Result = { ok: boolean; message: string };
 const DEMO: Result = { ok: false, message: "Demo mode: connect Supabase to save changes." };
@@ -26,9 +27,11 @@ export async function signIn(_: Result | null, f: FormData): Promise<Result> {
   }
   const sb = serverClient();
   const email = String(f.get("email") || "").trim(), password = String(f.get("password") || "");
+  if (!email) return { ok: false, message: "Enter your email." };
   if (!password) {
-    const { error } = await sb.auth.signInWithOtp({ email, options: { shouldCreateUser: false, emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback` } });
-    return error ? { ok: false, message: error.message } : { ok: true, message: "Check your email for a sign-in link." };
+    try { await sendSignInLink(email); }
+    catch (e) { return { ok: false, message: `Couldn't send the link: ${(e as Error).message}` }; }
+    return { ok: true, message: "If that email has an account, a sign-in link is on its way from info@dogwiseacademy.com. It works in any browser." };
   }
   const { error } = await sb.auth.signInWithPassword({ email, password });
   if (error) return { ok: false, message: "That email and password don't match. Leave the password empty to get a sign-in link instead." };
@@ -44,8 +47,13 @@ export async function setPassword(_: Result | null, f: FormData): Promise<Result
   if (isDemo()) return DEMO;
   const p = String(f.get("password") || "");
   if (p.length < 8) return { ok: false, message: "Use at least 8 characters." };
-  const { error } = await serverClient().auth.updateUser({ password: p });
-  return error ? { ok: false, message: error.message } : { ok: true, message: "Password saved." };
+  const sb = serverClient();
+  const { data: { user } } = await sb.auth.getUser();
+  const { error } = await sb.auth.updateUser({ password: p });
+  if (error) return { ok: false, message: error.message };
+  if (user) await serviceClient().from("profiles").update({ password_set: true }).eq("id", user.id);
+  revalidatePath("/", "layout");
+  return { ok: true, message: "Password saved. Next time, sign in with your email and this password." };
 }
 
 // ── Trainers ──────────────────────────────────────────────────────────────
@@ -106,16 +114,12 @@ export async function inviteTrainer(id: string): Promise<Result> {
   const { data: t } = await admin.from("trainers").select("email, dogwise_email, name").eq("id", id).single();
   const email = t?.email || t?.dogwise_email;
   if (!email) return { ok: false, message: "Add an email to the profile first." };
-  const { data, error } = await admin.auth.admin.inviteUserByEmail(email, { redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback?next=/t/profile` });
-  let userId = data?.user?.id;
-  if (error) {
-    // Already invited or signed up: send a sign-in link instead and find their user id.
-    const { data: list } = await admin.auth.admin.listUsers({ perPage: 1000 });
-    userId = list?.users.find((u) => u.email?.toLowerCase() === email.toLowerCase())?.id;
-    if (!userId) return { ok: false, message: error.message };
-    await admin.auth.signInWithOtp({ email, options: { emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL}/auth/callback` } });
-  }
-  await admin.from("profiles").upsert({ id: userId, role: "trainer", trainer_id: id, display_name: t?.name });
+  let userId: string;
+  try { ({ userId } = await sendInvite(email, t?.name || "")); }
+  catch (e) { return { ok: false, message: `Login not sent: ${(e as Error).message}` }; }
+  // Link the login to this trainer (never downgrades an admin who shares the email)
+  const { data: existing } = await admin.from("profiles").select("role").eq("id", userId).maybeSingle();
+  if (existing?.role !== "admin") await admin.from("profiles").upsert({ id: userId, role: "trainer", trainer_id: id, display_name: t?.name });
   return { ok: true, message: `Login sent to ${email}.` };
 }
 

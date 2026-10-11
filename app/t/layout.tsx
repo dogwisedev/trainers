@@ -5,7 +5,7 @@ export default async function TrainerLayout({ children }: { children: React.Reac
   const v = await requireRole("trainer");
   const unread = v.trainerId ? await unreadForTrainer(v.trainerId) : 0;
   return (
-    <Shell who={v.name} demo={v.demo} nav={[
+    <Shell who={v.name} demo={v.demo} accountHref="/t/profile#password" needsPassword={v.passwordSet === false} nav={[
       { href: "/t", label: "Home", icon: "home" },
       { href: "/t/calendar", label: "Calendar", icon: "calendar" },
       { href: "/t/messages", label: "Messages", icon: "messages", badge: unread },
