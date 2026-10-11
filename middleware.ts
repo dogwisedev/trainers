@@ -2,9 +2,22 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
 // Keeps the Supabase session fresh and sends signed-out visitors to /login.
+// Also catches sign-in links that land on the wrong page (e.g. "/?code=…" when Supabase falls back to the
+// Site URL) and forwards them to the right handler, so a link can never just bounce back to the login screen.
 export async function middleware(req: NextRequest) {
+  const { pathname, searchParams } = req.nextUrl;
+  if (!pathname.startsWith("/auth/")) {
+    const code = searchParams.get("code"), tokenHash = searchParams.get("token_hash");
+    if (code || tokenHash) {
+      const to = new URL(tokenHash ? "/auth/confirm" : "/auth/callback", req.url);
+      searchParams.forEach((v, k) => to.searchParams.set(k, v));
+      if (!to.searchParams.get("next") && pathname !== "/" && pathname !== "/login") to.searchParams.set("next", pathname);
+      return NextResponse.redirect(to);
+    }
+  }
+
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL, key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  const protectedPath = req.nextUrl.pathname.startsWith("/a") || req.nextUrl.pathname.startsWith("/t");
+  const protectedPath = pathname.startsWith("/a") || pathname.startsWith("/t");
   if (!url || !key) {
     if (protectedPath && !req.cookies.get("demo_as")) return NextResponse.redirect(new URL("/login", req.url));
     return NextResponse.next();
@@ -25,4 +38,4 @@ export async function middleware(req: NextRequest) {
   return res;
 }
 
-export const config = { matcher: ["/((?!_next/static|_next/image|icons|logo.png|manifest.webmanifest|api/availability|api/bookings).*)"] };
+export const config = { matcher: ["/((?!_next/static|_next/image|icons|logo.png|brand-logo.png|manifest.webmanifest|api/availability|api/bookings|api/payroll).*)"] };

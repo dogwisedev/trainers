@@ -2,9 +2,10 @@ export const dynamic = "force-dynamic";
 import { isDemo } from "@/lib/supabase";
 import { listTrainers } from "@/lib/data";
 import { LoginForm } from "./LoginForm";
+import { HashSignIn } from "./HashSignIn";
 import { Brand } from "@/components/Shell";
 
-export default async function Login({ searchParams }: { searchParams: { error?: string } }) {
+export default async function Login({ searchParams }: { searchParams: { error?: string; detail?: string } }) {
   const demo = isDemo();
   const trainers = demo ? (await listTrainers()).map((t) => ({ id: t.id, name: t.name })) : [];
   return (
@@ -15,8 +16,16 @@ export default async function Login({ searchParams }: { searchParams: { error?: 
         <Brand />
         <h1 className="mt-14 text-[40px] font-extrabold leading-[1.02]">Every kennel,<br />every dog,<br />one calendar.</h1>
         <p className="mt-4 text-[16px] text-ink-soft">Sign in to see your dogs, block time off and message the Dogwise team.</p>
-        {searchParams.error === "link" && (
-          <p role="alert" className="mt-6 rounded-xl bg-white/80 px-4 py-3 text-[14px] text-heart">That link has expired or was already used. Enter your email below, leave the password empty, and we&apos;ll send a fresh one.</p>
+        <HashSignIn />
+        {searchParams.error && (
+          <div role="alert" className="mt-6 rounded-xl bg-white/85 px-4 py-3 text-[14px] text-heart">
+            <p>{{
+              link: "That link has expired or was already used. Enter your email below, leave the password empty, and we'll send a fresh one.",
+              browser: "That sign-in link was opened in a different browser from the one that asked for it. Request a new link and open it in this browser.",
+              noprofile: "You're signed in, but this login isn't linked to a trainer or admin profile yet. Ask the Dogwise team to send your login from your trainer profile."
+            }[searchParams.error] || "Sign-in didn't work. Request a new link and try again."}</p>
+            {searchParams.detail && <p className="mt-1 text-[12px] text-ink-faint">{searchParams.detail}</p>}
+          </div>
         )}
         <div className="mt-8 rounded-[26px] bg-white p-5 shadow-[0_20px_50px_-24px_rgba(29,53,87,.45)]">
           <LoginForm demo={demo} trainers={trainers} />
