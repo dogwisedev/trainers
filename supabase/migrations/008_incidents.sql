@@ -23,3 +23,4 @@ create index if not exists chat_incidents_status on chat_incidents (status, open
 alter table chat_incidents enable row level security;
 drop policy if exists chat_incidents_admin on chat_incidents;
 create policy chat_incidents_admin on chat_incidents for all using (is_admin()) with check (is_admin());
+ 
