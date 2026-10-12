@@ -4,6 +4,7 @@ import { weekUsage } from "@/lib/capacity";
 import { addDays, short, weekStart, weeksFrom } from "@/lib/dates";
 import { Booking, TimeOff, Trainer } from "@/lib/types";
 import { notifyBookings } from "@/lib/bookingEmail";
+import { ensureChatsForBookings } from "@/lib/chat";
 
 // Book a Closed Won HubSpot deal into a trainer's calendar (used by the Sales extension).
 // POST /api/bookings   header x-api-key: BOOKING_KEY
@@ -91,9 +92,11 @@ export async function POST(req: Request) {
   const { data: created, error } = await sb.from("bookings").insert(rows).select("*");
   if (error) return bad(500, { message: error.message });
   const emailed = await notifyBookings(sb, (created || []).map((c: { id: string }) => c.id), "new");
+  // One chat per deal. Never blocks the booking; clients are only emailed their link when CHAT_INVITE_CLIENTS=1.
+  const chats = await ensureChatsForBookings(created || [], { invite: process.env.CHAT_INVITE_CLIENTS === "1" }).catch(() => []);
 
   return NextResponse.json({
-    bookings: created, booking: created?.[0], trainer: { id: trainer.id, name: trainer.name }, emailed,
+    bookings: created, booking: created?.[0], trainer: { id: trainer.id, name: trainer.name }, emailed, chats,
     url: `${process.env.NEXT_PUBLIC_SITE_URL || ""}/a/trainers/${trainer.id}`
   }, { status: 201 });
 }

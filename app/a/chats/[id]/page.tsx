@@ -1,0 +1,31 @@
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import { ChevronLeft } from "lucide-react";
+import { requireRole } from "@/lib/data";
+import { getChat, listChatMessages } from "@/lib/chatData";
+import { isDemo } from "@/lib/supabase";
+import { ChatThread } from "@/components/ChatThread";
+import { InviteClient } from "@/components/InviteClient";
+
+export default async function AdminChat({ params }: { params: { id: string } }) {
+  const v = await requireRole("admin");
+  const chat = await getChat(params.id);
+  if (!chat) notFound();
+  const { messages, hasMore } = await listChatMessages(chat.id);
+  return (
+    <>
+      <div className="mb-4 flex items-center gap-3">
+        <Link href="/a/chats" className="grid h-10 w-10 place-items-center rounded-full hover:bg-mint-wash" aria-label="All chats"><ChevronLeft /></Link>
+        <div className="min-w-0">
+          <h1 className="truncate text-[24px] font-extrabold leading-tight">{chat.title || "Dog"}</h1>
+          <p className="truncate text-[14px] text-ink-soft">Client {chat.client_name || "?"}, trainer {chat.trainer_id ? <Link className="underline" href={`/a/trainers/${chat.trainer_id}`}>{chat.trainer_name}</Link> : "none"}</p>
+        </div>
+      </div>
+      <details className="mb-4" open={!chat.client_user_id || !chat.invited_at}>
+        <summary className="cursor-pointer text-[14px] font-semibold text-ink-soft">Client access{chat.client_email ? `: ${chat.client_email}` : ""}</summary>
+        <div className="mt-2"><InviteClient chatId={chat.id} email={chat.client_email} invitedAt={chat.invited_at} /></div>
+      </details>
+      <ChatThread chatId={chat.id} me={{ userId: v.userId, role: "admin", name: v.name }} initial={messages} hasMore={hasMore} open={chat.status === "open"} folderUrl={chat.drive_folder_url} demo={isDemo()} withBottomNav otherLabel="the client and trainer" />
+    </>
+  );
+}

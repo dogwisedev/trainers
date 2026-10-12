@@ -1,4 +1,4 @@
-export type Role = "admin" | "trainer";
+export type Role = "admin" | "trainer" | "client";
 export type Trainer = {
   id: string; name: string; email: string | null; work_email: string | null; dogwise_email: string | null; phone: string | null;
   address: string | null; city: string | null; state: string | null; zip: string | null; lat: number | null; lon: number | null;
@@ -13,5 +13,5 @@ export type Booking = {
   start_date: string; end_date: string; weeks: number | null; status: BookingStatus; notes: string | null; hubspot_deal_id: string | null; source?: string | null; rehab?: boolean | null; extra_days?: number | null; client_email?: string | null; reports_enabled?: boolean | null; drive_folder_url?: string | null;
 };
 export type TimeOff = { id: string; trainer_id: string; start_date: string; end_date: string; slots_blocked: number | null; reason: string; note: string | null };
-export type Message = { id: string; trainer_id: string; sender_role: Role; sender_name: string | null; body: string; created_at: string; read_at: string | null };
+export type Message = { id: string; trainer_id: string; sender_role: "admin" | "trainer"; sender_name: string | null; body: string; created_at: string; read_at: string | null };
 export type Viewer = { userId: string; role: Role; trainerId: string | null; name: string; demo: boolean; passwordSet?: boolean; email?: string };

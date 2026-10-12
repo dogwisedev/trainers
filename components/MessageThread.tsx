@@ -3,10 +3,10 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { SendHorizontal } from "lucide-react";
 import { createBrowserClient } from "@supabase/ssr";
 import { markRead, sendMessage } from "@/app/actions";
-import { Message, Role } from "@/lib/types";
+import { Message } from "@/lib/types";
 import { timeAgo } from "@/lib/dates";
 
-export function MessageThread({ trainerId, initial, me, otherName }: { trainerId: string; initial: Message[]; me: Role; otherName: string }) {
+export function MessageThread({ trainerId, initial, me, otherName }: { trainerId: string; initial: Message[]; me: "admin" | "trainer"; otherName: string }) {
   const [msgs, setMsgs] = useState(initial);
   const [text, setText] = useState("");
   const [err, setErr] = useState("");

@@ -102,8 +102,15 @@ export async function findFile(parentId: string, name: string): Promise<string |
 }
 
 /** One folder per booking, readable by anyone with the link (so clients can watch without a Google account). */
-export async function ensureBookingFolder(b: { id: string; client_name: string; dog_name: string | null }): Promise<{ id: string; url: string; shared: boolean; warning?: string }> {
-  const id = await ensureFolder(`${clean(b.dog_name || "Dog")} - ${clean(b.client_name)} (${b.id.slice(0, 6)})`, rootFolderId());
+export async function ensureBookingFolder(b: { id: string; client_name: string; dog_name: string | null }) {
+  return ensureSharedFolder(`${clean(b.dog_name || "Dog")} - ${clean(b.client_name)} (${b.id.slice(0, 6)})`);
+}
+/** The folder for one booking chat's photos and videos. */
+export async function ensureChatFolder(c: { id: string; title: string | null; client_name: string | null }) {
+  return ensureSharedFolder(`Chat - ${clean(c.title || "Dog")} - ${clean(c.client_name || "Client")} (${c.id.slice(0, 6)})`);
+}
+async function ensureSharedFolder(name: string): Promise<{ id: string; url: string; shared: boolean; warning?: string }> {
+  const id = await ensureFolder(name, rootFolderId());
   let shared = true, warning: string | undefined;
   const p = await api(`/drive/v3/files/${id}/permissions?supportsAllDrives=true`, {
     method: "POST", headers: { "Content-Type": "application/json" },
@@ -121,4 +128,17 @@ export async function testAnyoneSharing(folderId: string): Promise<{ ok: boolean
   if (!p.ok) return { ok: false, message: `Google blocked link sharing: ${p.body?.error?.message || p.status}. Clients won't be able to open videos until this is allowed (Google Admin → Apps → Google Workspace → Drive and Docs → Sharing settings, and the Shared Drive's own settings).` };
   if (p.body?.id) await api(`/drive/v3/files/${folderId}/permissions/${p.body.id}?supportsAllDrives=true`, { method: "DELETE" });
   return { ok: true, message: "Link sharing works: clients can open videos without a Google account." };
+}
+
+/** Puts a small file (a report PDF) into a folder from the server. Returns the file's id. */
+export async function uploadFile(parentId: string, name: string, mimeType: string, bytes: Uint8Array): Promise<string> {
+  const boundary = `dogwise${Math.random().toString(36).slice(2)}`;
+  const head = Buffer.from(`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify({ name, parents: [parentId] })}\r\n--${boundary}\r\nContent-Type: ${mimeType}\r\n\r\n`);
+  const r = await fetch(`${API}/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true&fields=id`, {
+    method: "POST", headers: { Authorization: `Bearer ${await accessToken()}`, "Content-Type": `multipart/related; boundary=${boundary}` },
+    body: Buffer.concat([head, Buffer.from(bytes), Buffer.from(`\r\n--${boundary}--`)])
+  });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok || !d.id) throw new Error(`Couldn't save the file to Drive: ${d?.error?.message || r.status}`);
+  return d.id;
 }

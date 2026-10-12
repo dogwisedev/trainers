@@ -67,3 +67,38 @@ export async function sendSignInLink(email: string): Promise<void> {
     attachments: [logo]
   });
 }
+
+// ── Clients (chat) ──────────────────────────────────────────────────────
+
+/** Makes sure a client has a login (confirmed, no password) and returns their user id. Never emails anyone. */
+export async function ensureClientUser(email: string): Promise<string> {
+  const admin = serviceClient();
+  const made = await admin.auth.admin.createUser({ email, email_confirm: true });
+  if (made.data?.user) return made.data.user.id;
+  // Already has an account (a client's second dog, or a trainer/admin testing with their own address)
+  const link = await admin.auth.admin.generateLink({ type: "magiclink", email });
+  if (link.data?.user) return link.data.user.id;
+  throw new Error(made.error?.message || link.error?.message || "Couldn't set up the client's login.");
+}
+
+/** One-click link that signs a client straight into a page. */
+export async function clientLoginLink(email: string, next: string): Promise<string> {
+  const { data, error } = await serviceClient().auth.admin.generateLink({ type: "magiclink", email });
+  if (error || !data?.properties?.hashed_token) throw new Error(error?.message || "Couldn't create the sign-in link.");
+  return `${site()}/auth/confirm?token_hash=${encodeURIComponent(data.properties.hashed_token)}&type=magiclink&next=${encodeURIComponent(next)}`;
+}
+
+/** "Here's your chat with the trainer" email from info@. */
+export async function sendChatInvite(opts: { email: string; clientName: string; title: string; trainerName: string; chatId: string }) {
+  const first = (opts.clientName || "").split(" ")[0] || "there";
+  const link = await clientLoginLink(opts.email, `/c/${opts.chatId}`);
+  await sendMail({
+    to: opts.email, subject: `Your Dogwise training chat for ${opts.title}`,
+    html: emailHtml(`Chat with ${opts.trainerName || "your trainer"}`,
+      `Hi ${first}, this is your private chat for ${opts.title}'s training. ${opts.trainerName ? `${opts.trainerName} and ` : ""}the Dogwise team will share updates, photos and videos here, and you can message us any time.`,
+      "Open the chat", link,
+      `The button signs you straight in, and works once. If it has expired, go to ${site()}/login, enter this email address, leave the password empty, and we'll send you a fresh link.`),
+    text: `Hi ${first}, your chat for ${opts.title}: ${link}\nIf the link has expired, go to ${site()}/login and enter this email address.`,
+    attachments: [logo]
+  });
+}

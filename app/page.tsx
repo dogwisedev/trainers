@@ -4,7 +4,7 @@ import { isDemo, serverClient } from "@/lib/supabase";
 
 export default async function Home() {
   const v = await getViewer();
-  if (v) redirect(v.role === "admin" ? "/a" : "/t");
+  if (v) redirect(v.role === "admin" ? "/a" : v.role === "client" ? "/c" : "/t");
   // Signed in but no profile yet: say so instead of bouncing to the login screen.
   if (!isDemo()) {
     const { data: { user } } = await serverClient().auth.getUser();

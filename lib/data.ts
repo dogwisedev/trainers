@@ -21,6 +21,7 @@ async function loadViewer(): Promise<Viewer | null> {
     const as = cookies().get("demo_as")?.value;
     if (!as) return null;
     if (as === "admin") return { userId: "demo-admin", role: "admin", trainerId: null, name: "Dogwise team", demo: true };
+    if (as === "client") return { userId: "demo-client", role: "client", trainerId: null, name: "Rolanda", demo: true };
     const t = demo.trainers.find((x) => x.id === as);
     return t ? { userId: "demo-" + t.id, role: "trainer", trainerId: t.id, name: t.name, demo: true } : null;
   }
@@ -37,10 +38,10 @@ async function loadViewer(): Promise<Viewer | null> {
   return { userId: user.id, role: p.role, trainerId: p.trainer_id, name, demo: false, passwordSet: p.password_set !== false, email: user.email || "" };
 }
 
-export async function requireRole(role: "admin" | "trainer"): Promise<Viewer> {
+export async function requireRole(role: "admin" | "trainer" | "client"): Promise<Viewer> {
   const v = await getViewer();
   if (!v) redirect("/login");
-  if (v.role !== role) redirect(v.role === "admin" ? "/a" : "/t");
+  if (v.role !== role) redirect(v.role === "admin" ? "/a" : v.role === "client" ? "/c" : "/t");
   return v;
 }
 

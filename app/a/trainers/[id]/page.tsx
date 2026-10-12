@@ -8,6 +8,9 @@ import { clearFlag, inviteTrainer, setBookingStatus, setTrainerActive } from "@/
 import { KennelLegend, KennelStrip } from "@/components/KennelStrip";
 import { ActionButton, DeleteTimeOff, ExtraDays, TimeOffForm, TrainerForm } from "@/components/forms";
 import { ReportsToggle } from "@/components/ReportsToggle";
+import { StartChat } from "@/components/StartChat";
+import { listChats } from "@/lib/chatData";
+import { dealKey } from "@/lib/chatTypes";
 import { Avatar, Pill, Section } from "@/components/ui";
 import { PayRatesForm } from "@/components/PayRatesForm";
 import { getRates } from "@/lib/payrollData";
@@ -17,7 +20,8 @@ export default async function TrainerDetail({ params, searchParams }: { params: 
   const t = await getTrainer(params.id);
   if (!t) notFound();
   const today = todayIso();
-  const [bookings, off, rates] = await Promise.all([listBookings({ trainerId: t.id, from: addDays(today, -30) }), listTimeOff({ trainerId: t.id, from: addDays(today, -7) }), getRates(t.id)]);
+  const [bookings, off, rates, chats] = await Promise.all([listBookings({ trainerId: t.id, from: addDays(today, -30) }), listTimeOff({ trainerId: t.id, from: addDays(today, -7) }), getRates(t.id), listChats()]);
+  const chatByDeal = new Map(chats.filter((c) => c.trainer_id === t.id && c.status === "open").map((c) => [c.deal_key, c.id]));
   const use = weekUsage(t, bookings, off, weeksFrom(today, 16));
   const o2 = soonestOpening(use, 2), o3 = soonestOpening(use, 3);
   const when = (o: string | null) => (!o ? "None in 16 weeks" : o === weekStart(today) ? "Now" : short(o));
@@ -76,6 +80,7 @@ export default async function TrainerDetail({ params, searchParams }: { params: 
                 <div><p className="font-semibold">{b.dog_name || "Dog"} <span className="font-normal text-ink-soft">with {b.client_name}</span></p><p className="text-[14px] text-ink-soft">{range(b.start_date, b.end_date)}, {b.program || `${b.weeks}-week`}{b.extra_days ? ` + ${b.extra_days} day${b.extra_days > 1 ? "s" : ""}` : ""}{b.rehab ? ", rehab" : ""}</p>
                   {b.hubspot_deal_id && <a className="text-[13px] font-semibold text-fern underline" href={`https://app.hubspot.com/contacts/21869370/record/0-3/${b.hubspot_deal_id}`} target="_blank" rel="noopener">HubSpot deal</a>}</div>
                 <div className="flex flex-wrap items-center gap-2">
+                  <StartChat bookingId={b.id} chatId={chatByDeal.get(dealKey(b))} />
                   <ReportsToggle id={b.id} on={!!b.reports_enabled} />
                   <ExtraDays id={b.id} current={b.extra_days || 0} />
                   <Pill tone={b.start_date <= today ? "biscuit" : b.status === "pending" ? "line" : "mint"}>{b.start_date <= today ? "In training" : b.status === "pending" ? "Pending" : "Confirmed"}</Pill>

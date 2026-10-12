@@ -10,6 +10,7 @@ import { mailConfigured, sendMail } from "@/lib/mail";
 import { BRAND_LOGO_PNG_BASE64 } from "@/lib/brandLogo";
 import { verifyMedia } from "@/lib/mediaSig";
 import { usDate } from "@/lib/payroll";
+import { postReportToChat } from "@/lib/chat";
 
 export type ReportResult = { ok: boolean; message: string; missing?: string[]; nextId?: string | null };
 const DEMO: ReportResult = { ok: false, message: "Demo mode: connect Supabase to save reports." };
@@ -95,6 +96,7 @@ async function deliver(id: string, corrected: boolean): Promise<ReportResult> {
       attachments: [{ filename: `${title}.pdf`, content: pdf, contentType: "application/pdf" }, logo]
     });
     await sb.from("reports").update({ sent_at: new Date().toISOString(), sent_to: to, send_error: null }).eq("id", id);
+    await postReportToChat(b.booking, { id, title: `${corrected ? "Corrected: " : ""}${title}` }, pdf);
     return { ok: true, message: `${corrected ? "Corrected report" : "Approved"} and sent to ${to}.` };
   } catch (e) {
     await sb.from("reports").update({ send_error: (e as Error).message }).eq("id", id);

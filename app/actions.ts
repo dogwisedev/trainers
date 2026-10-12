@@ -7,6 +7,7 @@ import { isDemo, serverClient, serviceClient } from "@/lib/supabase";
 import { addDays, weekStart } from "@/lib/dates";
 import { notifyBookings, notifySummary } from "@/lib/bookingEmail";
 import { sendInvite, sendSignInLink } from "@/lib/authEmail";
+import { ensureChatsForBookings } from "@/lib/chat";
 
 export type Result = { ok: boolean; message: string };
 const DEMO: Result = { ok: false, message: "Demo mode: connect Supabase to save changes." };
@@ -170,6 +171,7 @@ export async function saveBooking(_: Result | null, f: FormData): Promise<Result
     : await sb.from("bookings").insert(row).select("id").single();
   if (error) return { ok: false, message: error.message };
   const n = await notifyBookings(sb, [saved.id], id ? "changed" : "new");
+  if (!id) await ensureChatsForBookings([{ id: saved.id, trainer_id: row.trainer_id as string, client_name: row.client_name as string, dog_name: row.dog_name, hubspot_deal_id: row.hubspot_deal_id, client_email: (row as { client_email?: string }).client_email }], { invite: process.env.CHAT_INVITE_CLIENTS === "1" }).catch(() => []);
   revalidatePath("/", "layout");
   redirect(`/a/trainers/${row.trainer_id}?saved=booking${n.sent ? "&emailed=1" : n.skipped ? "&emailed=off" : n.errors.length ? "&emailed=failed" : ""}`);
 }
@@ -207,6 +209,7 @@ export async function sendMessage(trainerId: string, body: string): Promise<Resu
   const v = await viewerOrThrow();
   const text = body.trim();
   if (!text) return { ok: false, message: "Write a message first." };
+  if (v.role === "client") return { ok: false, message: "Use your chat instead." };
   if (v.role === "trainer" && v.trainerId !== trainerId) return { ok: false, message: "You can only message the Dogwise team." };
   const { error } = await serverClient().from("messages").insert({
     trainer_id: trainerId, sender_id: v.userId, sender_role: v.role, sender_name: v.role === "admin" ? "Dogwise team" : v.name, body: text.slice(0, 4000)

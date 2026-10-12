@@ -2,16 +2,16 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { CalendarDays, ClipboardList, Home, KeyRound, LayoutGrid, LogOut, MessageCircle, UserRound, Users, Wallet } from "lucide-react";
+import { CalendarDays, ClipboardList, Home, KeyRound, LayoutGrid, LogOut, MessageCircle, MessagesSquare, UserRound, Users, Wallet } from "lucide-react";
 import { PasswordForm } from "@/components/forms";
 import { signOut } from "@/app/actions";
 
-const ICONS = { home: Home, calendar: CalendarDays, messages: MessageCircle, profile: UserRound, grid: LayoutGrid, users: Users, pay: Wallet, reports: ClipboardList };
-export type NavItem = { href: string; label: string; icon: keyof typeof ICONS; badge?: number };
+const ICONS = { home: Home, calendar: CalendarDays, messages: MessageCircle, profile: UserRound, grid: LayoutGrid, users: Users, pay: Wallet, reports: ClipboardList, chats: MessagesSquare };
+export type NavItem = { href: string; label: string; icon: keyof typeof ICONS; badge?: number; also?: string[] };
 
 export function Shell({ nav, who, children, demo, accountHref, needsPassword }: { nav: NavItem[]; who: string; children: React.ReactNode; demo?: boolean; accountHref: string; needsPassword?: boolean }) {
   const path = usePathname();
-  const isActive = (href: string) => (href === nav[0].href ? path === href : path.startsWith(href));
+  const isActive = (href: string) => (href === nav[0].href ? path === href : path.startsWith(href) || !!nav.find((n) => n.href === href)?.also?.some((a) => path.startsWith(a)));
   return (
     <div className="md:flex">
       {/* Desktop rail */}
