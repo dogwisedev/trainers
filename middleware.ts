@@ -39,4 +39,4 @@ export async function middleware(req: NextRequest) {
   return res;
 }
 
-export const config = { matcher: ["/((?!_next/static|_next/image|icons|logo.png|brand-logo.png|manifest.webmanifest|api/availability|api/bookings|api/payroll).*)"] };
+export const config = { matcher: ["/((?!_next/static|_next/image|icons|logo.png|brand-logo.png|manifest.webmanifest|api/availability|api/bookings|api/payroll).*)"] }; 
