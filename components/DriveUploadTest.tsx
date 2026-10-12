@@ -48,7 +48,7 @@ async function upload(file: File, url: string, onProgress: (sent: number) => voi
 }
 
 export function DriveUploadTest() {
-  const [check, setCheck] = useState<{ ok?: boolean; name?: string; hints?: string[] } | null>(null);
+  const [check, setCheck] = useState<{ ok?: boolean; name?: string; hints?: string[]; sharing?: { ok: boolean; message: string } } | null>(null);
   const [checking, setChecking] = useState(false);
   const [sent, setSent] = useState(0);
   const [size, setSize] = useState(0);
@@ -88,6 +88,7 @@ export function DriveUploadTest() {
         {check && (
           <div className={`mt-3 rounded-xl px-3 py-2 text-[14px] ${check.ok ? "bg-mint-wash text-fern" : "bg-heart-wash text-heart"}`}>
             {check.ok ? `Connected to the folder "${check.name}" in a Shared Drive.` : (check.hints || []).map((h, i) => <p key={i}>{h}</p>)}
+            {check.ok && check.sharing && <p className={`mt-1 ${check.sharing.ok ? "" : "font-semibold text-heart"}`}>{check.sharing.message}</p>}
           </div>
         )}
       </div>

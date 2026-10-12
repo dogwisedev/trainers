@@ -5,6 +5,8 @@ import { soonestOpening, weekUsage } from "@/lib/capacity";
 import { addDays, daysBetween, range, short, todayIso, weekStart, weeksFrom } from "@/lib/dates";
 import { KennelLegend, KennelStrip } from "@/components/KennelStrip";
 import { Empty, Pill, Section } from "@/components/ui";
+import { listTodos } from "@/lib/reportData";
+import { TodoRow } from "@/components/ReportBits";
 
 export default async function TrainerHome() {
   const v = await requireRole("trainer");
@@ -18,6 +20,7 @@ export default async function TrainerHome() {
   const next = bookings.filter((b) => b.status !== "cancelled" && b.start_date > today).slice(0, 4);
   const open3 = soonestOpening(use, 3);
   const first = t.name.replace(/".*?"\s*/, "").split(" ")[0];
+  const todo = (await listTodos({ trainerId: t.id })).filter((x) => x.state !== "waiting");
 
   return (
     <>
@@ -38,6 +41,13 @@ export default async function TrainerHome() {
         <div className="panel p-4"><p className="text-[13px] text-ink-soft">Dogs at one time</p><p className="text-[28px] font-extrabold">{t.capacity}</p></div>
         <div className="panel p-4"><p className="text-[13px] text-ink-soft">Next 3-week opening</p><p className="text-[22px] font-extrabold leading-9">{open3 ? (open3 === weekStart(today) ? "Now" : short(open3)) : "Full"}</p></div>
       </div>
+
+      {todo.length > 0 && (
+        <Section title="To do" action={<Link href="/t/reports" className="text-[14px] font-semibold underline">All reports</Link>}>
+          <ul className="panel divide-y divide-line border-biscuit">{todo.slice(0, 5).map((x) => <TodoRow key={`${x.booking.id}${x.window.kind}${x.window.week}`} t={x} mode="trainer" />)}</ul>
+          {todo.length > 5 && <p className="mt-2 text-[13px] text-ink-soft">And {todo.length - 5} more in <Link href="/t/reports" className="underline">Reports</Link>.</p>}
+        </Section>
+      )}
 
       <Section title="With you now">
         {withYou.length ? (

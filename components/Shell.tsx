@@ -2,11 +2,11 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { CalendarDays, Home, KeyRound, LayoutGrid, LogOut, MessageCircle, UserRound, Users, Wallet } from "lucide-react";
+import { CalendarDays, ClipboardList, Home, KeyRound, LayoutGrid, LogOut, MessageCircle, UserRound, Users, Wallet } from "lucide-react";
 import { PasswordForm } from "@/components/forms";
 import { signOut } from "@/app/actions";
 
-const ICONS = { home: Home, calendar: CalendarDays, messages: MessageCircle, profile: UserRound, grid: LayoutGrid, users: Users, pay: Wallet };
+const ICONS = { home: Home, calendar: CalendarDays, messages: MessageCircle, profile: UserRound, grid: LayoutGrid, users: Users, pay: Wallet, reports: ClipboardList };
 export type NavItem = { href: string; label: string; icon: keyof typeof ICONS; badge?: number };
 
 export function Shell({ nav, who, children, demo, accountHref, needsPassword }: { nav: NavItem[]; who: string; children: React.ReactNode; demo?: boolean; accountHref: string; needsPassword?: boolean }) {

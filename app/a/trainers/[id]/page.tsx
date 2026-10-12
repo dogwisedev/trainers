@@ -7,6 +7,7 @@ import { addDays, range, short, todayIso, weekStart, weeksFrom } from "@/lib/dat
 import { clearFlag, inviteTrainer, setBookingStatus, setTrainerActive } from "@/app/actions";
 import { KennelLegend, KennelStrip } from "@/components/KennelStrip";
 import { ActionButton, DeleteTimeOff, ExtraDays, TimeOffForm, TrainerForm } from "@/components/forms";
+import { ReportsToggle } from "@/components/ReportsToggle";
 import { Avatar, Pill, Section } from "@/components/ui";
 import { PayRatesForm } from "@/components/PayRatesForm";
 import { getRates } from "@/lib/payrollData";
@@ -75,6 +76,7 @@ export default async function TrainerDetail({ params, searchParams }: { params: 
                 <div><p className="font-semibold">{b.dog_name || "Dog"} <span className="font-normal text-ink-soft">with {b.client_name}</span></p><p className="text-[14px] text-ink-soft">{range(b.start_date, b.end_date)}, {b.program || `${b.weeks}-week`}{b.extra_days ? ` + ${b.extra_days} day${b.extra_days > 1 ? "s" : ""}` : ""}{b.rehab ? ", rehab" : ""}</p>
                   {b.hubspot_deal_id && <a className="text-[13px] font-semibold text-fern underline" href={`https://app.hubspot.com/contacts/21869370/record/0-3/${b.hubspot_deal_id}`} target="_blank" rel="noopener">HubSpot deal</a>}</div>
                 <div className="flex flex-wrap items-center gap-2">
+                  <ReportsToggle id={b.id} on={!!b.reports_enabled} />
                   <ExtraDays id={b.id} current={b.extra_days || 0} />
                   <Pill tone={b.start_date <= today ? "biscuit" : b.status === "pending" ? "line" : "mint"}>{b.start_date <= today ? "In training" : b.status === "pending" ? "Pending" : "Confirmed"}</Pill>
                   <ActionButton className="btn-danger h-9 min-h-0 px-3 text-[13px]" confirm={`Cancel ${b.dog_name || "this booking"}? The kennel frees up straight away.`} action={setBookingStatus.bind(null, b.id, "cancelled")}>Cancel</ActionButton>

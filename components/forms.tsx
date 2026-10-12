@@ -154,6 +154,7 @@ export function BookingForm({ trainers, defaultTrainer, defaultStart }: { traine
         <F label="Client"><input name="client_name" required className="field" placeholder="Jessica M" /></F>
         <F label="Dog"><input name="dog_name" className="field" placeholder="Kya" /></F>
       </div>
+      <F label="Client's email" hint="Reports are sent here once approved."><input name="client_email" type="email" inputMode="email" className="field" placeholder="jessica@example.com" /></F>
       <div className="grid grid-cols-2 gap-3">
         <F label="Start" hint="Rounded to that week's Sunday"><input type="date" name="start_date" required defaultValue={defaultStart} className="field" /></F>
         <F label="Program length">

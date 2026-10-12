@@ -7,7 +7,7 @@ import { notifyBookings } from "@/lib/bookingEmail";
 
 // Book a Closed Won HubSpot deal into a trainer's calendar (used by the Sales extension).
 // POST /api/bookings   header x-api-key: BOOKING_KEY
-// { trainer_id, client_name, hubspot_deal_id, notes, force,
+// { trainer_id, client_name, client_email, hubspot_deal_id, notes, force,
 //   dogs: [{ dog_name, program, weeks, start_date, notes }] }      one booking (kennel) per dog
 // (Old single-dog shape { dog_name, program, weeks, start_date } still works.)
 //  201 { bookings, booking, trainer, url }
@@ -21,6 +21,7 @@ export async function POST(req: Request) {
 
   const b = await req.json().catch(() => ({}));
   const trainerId = String(b.trainer_id || ""), client = String(b.client_name || "").trim();
+  const clientEmail = /^\S+@\S+\.\S+$/.test(String(b.client_email || "").trim()) ? String(b.client_email).trim().toLowerCase().slice(0, 200) : null;
   const dealId = b.hubspot_deal_id ? String(b.hubspot_deal_id) : null;
   const rawDogs: Record<string, unknown>[] = Array.isArray(b.dogs) && b.dogs.length
     ? b.dogs
@@ -59,7 +60,7 @@ export async function POST(req: Request) {
   const rows = dogs.map((d) => {
     const s = weekStart(d.start);
     return {
-      trainer_id: trainerId, client_name: client.slice(0, 120), dog_name: d.name || null,
+      trainer_id: trainerId, client_name: client.slice(0, 120), dog_name: d.name || null, ...(clientEmail ? { client_email: clientEmail } : {}),
       program: d.program || `${d.weeks}-week`, start_date: s, end_date: addDays(s, d.weeks * 7 - 1 + d.extra), weeks: d.weeks, extra_days: d.extra,
       status: "confirmed", notes: [d.notes, String(b.notes || "").trim()].filter(Boolean).join("\n").slice(0, 2000) || null,
       hubspot_deal_id: dealId, source: "sales-extension", rehab: !!d.rehab || /rehab|\bRR\b/i.test(d.program)

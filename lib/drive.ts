@@ -86,3 +86,39 @@ export async function createUploadSession(opts: { name: string; mimeType: string
   }
   return url;
 }
+
+// ── Per-booking folders (reports and, later, chat media) ────────────────
+const clean = (s: string) => s.replace(/[\\/'"]/g, " ").replace(/\s+/g, " ").trim().slice(0, 80);
+
+/** Finds a file by exact name inside a folder (used right after an upload to learn its id). */
+export async function findFile(parentId: string, name: string): Promise<string | null> {
+  const q = `name='${name.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}' and '${parentId}' in parents and trashed=false`;
+  for (let i = 0; i < 4; i++) {
+    const r = await api(`/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id)&supportsAllDrives=true&includeItemsFromAllDrives=true`);
+    if (r.ok && r.body.files?.[0]?.id) return r.body.files[0].id;
+    await new Promise((res) => setTimeout(res, 700));
+  }
+  return null;
+}
+
+/** One folder per booking, readable by anyone with the link (so clients can watch without a Google account). */
+export async function ensureBookingFolder(b: { id: string; client_name: string; dog_name: string | null }): Promise<{ id: string; url: string; shared: boolean; warning?: string }> {
+  const id = await ensureFolder(`${clean(b.dog_name || "Dog")} - ${clean(b.client_name)} (${b.id.slice(0, 6)})`, rootFolderId());
+  let shared = true, warning: string | undefined;
+  const p = await api(`/drive/v3/files/${id}/permissions?supportsAllDrives=true`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ type: "anyone", role: "reader", allowFileDiscovery: false })
+  });
+  if (!p.ok) { shared = false; warning = `Couldn't make the link public: ${p.body?.error?.message || p.status}. In Google Admin, allow sharing outside the organization for this Shared Drive, or clients won't be able to open the videos.`; }
+  return { id, url: `https://drive.google.com/drive/folders/${id}`, shared, warning };
+}
+
+/** Can folders be shared with "anyone with the link"? Workspace admins can block it. Tries it on a folder and undoes it. */
+export async function testAnyoneSharing(folderId: string): Promise<{ ok: boolean; message: string }> {
+  const p = await api(`/drive/v3/files/${folderId}/permissions?supportsAllDrives=true&fields=id`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: "anyone", role: "reader", allowFileDiscovery: false })
+  });
+  if (!p.ok) return { ok: false, message: `Google blocked link sharing: ${p.body?.error?.message || p.status}. Clients won't be able to open videos until this is allowed (Google Admin → Apps → Google Workspace → Drive and Docs → Sharing settings, and the Shared Drive's own settings).` };
+  if (p.body?.id) await api(`/drive/v3/files/${folderId}/permissions/${p.body.id}?supportsAllDrives=true`, { method: "DELETE" });
+  return { ok: true, message: "Link sharing works: clients can open videos without a Google account." };
+}

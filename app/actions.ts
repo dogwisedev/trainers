@@ -158,7 +158,7 @@ export async function saveBooking(_: Result | null, f: FormData): Promise<Result
   if (!start || !str(f, "trainer_id") || !str(f, "client_name")) return { ok: false, message: "Trainer, client and start date are required." };
   const s = weekStart(start);
   const row = {
-    trainer_id: str(f, "trainer_id"), client_name: str(f, "client_name"), dog_name: str(f, "dog_name"),
+    trainer_id: str(f, "trainer_id"), client_name: str(f, "client_name"), dog_name: str(f, "dog_name"), ...(str(f, "client_email") ? { client_email: str(f, "client_email") } : {}),
     program: str(f, "program") || `${weeks}-week`, start_date: s, end_date: addDays(s, weeks * 7 - 1 + extra), weeks, extra_days: extra,
     status: str(f, "status") || "confirmed", notes: str(f, "notes"), hubspot_deal_id: str(f, "hubspot_deal_id"), created_by: v.userId,
     rehab: f.get("rehab") === "on" || /rehab|\bRR\b/i.test(str(f, "program") || "")
