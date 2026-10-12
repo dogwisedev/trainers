@@ -26,7 +26,7 @@ function merge(cur: Local[], incoming: Local[], me: Me): Local[] {
 function MediaCard({ m }: { m: MediaRef }) {
   const [broken, setBroken] = useState(false);
   return (
-    <div className="overflow-hidden rounded-2xl bg-black/5">
+    <div className="overflow-hidden rounded-2xl border border-line bg-white text-ink">
       {m.kind === "photo" && !broken && (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={driveThumb(m.id)} alt={m.name} loading="lazy" referrerPolicy="no-referrer" onError={() => setBroken(true)} className="max-h-72 w-full object-cover" />
@@ -34,8 +34,8 @@ function MediaCard({ m }: { m: MediaRef }) {
       <div className="flex items-center gap-2 p-2.5 text-[14px]">
         {m.kind === "video" ? <Video size={18} /> : <FileText size={18} />}
         <span className="min-w-0 flex-1 truncate font-semibold">{m.name}{m.size ? <span className="font-normal opacity-70"> ({mb(m.size)})</span> : null}</span>
-        <a href={driveView(m.id)} target="_blank" rel="noopener" className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white/70 text-ink" aria-label={m.kind === "video" ? "Watch" : "Open"}><ExternalLink size={16} /></a>
-        <a href={driveDownload(m.id)} className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-white/70 text-ink" aria-label="Download"><Download size={16} /></a>
+        <a href={driveView(m.id)} target="_blank" rel="noopener" className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-paper text-ink" aria-label={m.kind === "video" ? "Watch" : "Open"}><ExternalLink size={16} /></a>
+        <a href={driveDownload(m.id)} className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-paper text-ink" aria-label="Download"><Download size={16} /></a>
       </div>
     </div>
   );
