@@ -41,6 +41,7 @@ export default async function ReportsQueue({ searchParams }: { searchParams: { f
                     <p className="mt-0.5 text-[13px] text-ink-soft">{r.trainer}, client {r.client}</p>
                     <div className="mt-2 flex flex-wrap gap-1.5 text-[12px]">
                       {r.submittedAt && <span className="text-ink-faint">Submitted {new Date(r.submittedAt).toLocaleDateString("en-US")}</span>}
+                      {r.status === "approved" && (r.error ? <span className="font-semibold text-heart">Not emailed: {r.error}</span> : r.sentTo ? <span className="text-ink-faint">Sent to {r.sentTo}</span> : null)}
                       {r.late > 0 && <Pill tone="heart">{r.late} day{r.late > 1 ? "s" : ""} late</Pill>}
                       {r.byAdmin && <Pill tone="line">Filled in by admin</Pill>}
                     </div>

@@ -134,8 +134,11 @@ export const HEADER_KEYS = { weekly: ["clientName", "clientEmail", "dogName", "t
 
 // ── Answers helpers ─────────────────────────────────────────────────────
 export const s = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+/** What the person typed, spaces and all (for text boxes). Use s() only to check or display. */
+export const raw = (v: unknown) => (typeof v === "string" ? v : "");
 export const arr = (v: unknown): string[] => (Array.isArray(v) ? v.map((x) => String(x)).filter(Boolean) : []);
 export const items = (v: unknown): Item[] => (Array.isArray(v) ? v.map((x) => ({ title: s((x as Item)?.title), text: s((x as Item)?.text) })) : []);
+export const rawItems = (v: unknown): Item[] => (Array.isArray(v) ? v.map((x) => ({ title: raw((x as Item)?.title), text: raw((x as Item)?.text) })) : []);
 export const yesno = (a: Answers, key: string) => ({ yes: a[key] === "yes", no: a[key] === "no", detail: s(a[`${key}_detail`]) });
 
 /** Missing required things, in plain words. Empty = ready to submit. */

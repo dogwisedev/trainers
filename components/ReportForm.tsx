@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { Plus, Trash2, Video, Camera } from "lucide-react";
 import { approveReportAction, resendReportAction, saveReportAction, sendBackAction, submitReportAction, ReportResult } from "@/app/report-actions";
 import { uploadToDrive } from "@/lib/driveUpload";
-import { Answers, Field, HANDOVER_AFTER, HANDOVER_SIMPLE, Item, Kind, MediaItem, Status, WEEKLY_SECTIONS, arr, items as asItems, s, validate } from "@/lib/reports";
+import { Answers, Field, HANDOVER_AFTER, HANDOVER_SIMPLE, Item, Kind, MediaItem, Status, WEEKLY_SECTIONS, arr, raw, rawItems, s, validate } from "@/lib/reports";
 import { buildReport, reportHtml } from "@/lib/reportDoc";
 
 type Props = {
@@ -147,7 +147,7 @@ export function ReportForm(p: Props) {
 
   const run = (fn: () => Promise<ReportResult>, after?: (r: ReportResult) => void) => start(async () => { setRes(null); const r = await fn(); setRes(r); if (!r.missing?.length) setShowMissing(false); else setShowMissing(true); after?.(r); });
   const submit = () => { if (missing.length) { setShowMissing(true); window.scrollTo({ top: 0, behavior: "smooth" }); return; } if (window.confirm("Submit this report for review?")) run(() => submitReportAction(p.id, answers, media), (r) => { if (r.ok) router.refresh(); }); };
-  const approve = () => { if (missing.length) { setShowMissing(true); window.scrollTo({ top: 0, behavior: "smooth" }); return; } if (window.confirm(`Send this ${p.status === "approved" ? "corrected " : ""}report to ${s(answers.clientEmail)}?`)) run(() => approveReportAction(p.id, answers, media), (r) => { if (r.ok || r.nextId !== undefined) { setEditing(false); router.push(r.nextId ? `/a/reports/${r.nextId}` : "/a/reports"); router.refresh(); } }); };
+  const approve = () => { if (missing.length) { setShowMissing(true); window.scrollTo({ top: 0, behavior: "smooth" }); return; } if (window.confirm(`Send this ${p.status === "approved" ? "corrected " : ""}report to ${s(answers.clientEmail)}?`)) run(() => approveReportAction(p.id, answers, media), (r) => { if (r.ok) { setEditing(false); router.push(r.nextId ? `/a/reports/${r.nextId}` : "/a/reports"); router.refresh(); } else { window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" }); router.refresh(); } }); };
 
   const ro = !editable;
   const view = useMemo(() => buildReport(p.kind, answers, media, { startDate: p.startDate, endDate: p.endDate, submittedAt: p.submittedAt }), [p.kind, answers, media, p.startDate, p.endDate, p.submittedAt]);
@@ -161,19 +161,19 @@ export function ReportForm(p: Props) {
       <div key={k} className="mt-5 first:mt-0">
         {label(f)}
         {"hint" in f && f.hint && <p className="-mt-1 mb-1.5 text-[12px] text-ink-faint">{f.hint}</p>}
-        {f.type === "text" && <input className="field" value={s(answers[k])} onChange={(e) => set(k, e.target.value)} />}
-        {f.type === "textarea" && <textarea className="field" rows={4} value={s(answers[k])} onChange={(e) => set(k, e.target.value)} />}
+        {f.type === "text" && <input className="field" value={raw(answers[k])} onChange={(e) => set(k, e.target.value)} />}
+        {f.type === "textarea" && <textarea className="field" rows={4} value={raw(answers[k])} onChange={(e) => set(k, e.target.value)} />}
         {f.type === "single" && <Chips name={k} options={f.options} value={[s(answers[k])]} multi={false} onChange={(v) => set(k, v[0])} />}
         {f.type === "multi" && (
           <>
             <Chips name={k} options={f.options} value={arr(answers[k])} multi onChange={(v) => set(k, v)} />
-            {f.other && <input className="field mt-2" placeholder="Anything else" value={s(answers[`${k}_other`])} onChange={(e) => set(`${k}_other`, e.target.value)} />}
+            {f.other && <input className="field mt-2" placeholder="Anything else" value={raw(answers[`${k}_other`])} onChange={(e) => set(`${k}_other`, e.target.value)} />}
           </>
         )}
         {f.type === "yesno" && (
           <>
             <Chips name={k} options={["No", "Yes"]} value={answers[k] === "yes" ? ["Yes"] : answers[k] === "no" ? ["No"] : []} multi={false} onChange={(v) => set(k, v[0] === "Yes" ? "yes" : "no")} />
-            {answers[k] === "yes" && <textarea className="field mt-2" rows={2} placeholder="Describe it" value={s(answers[`${k}_detail`])} onChange={(e) => set(`${k}_detail`, e.target.value)} />}
+            {answers[k] === "yes" && <textarea className="field mt-2" rows={2} placeholder="Describe it" value={raw(answers[`${k}_detail`])} onChange={(e) => set(`${k}_detail`, e.target.value)} />}
           </>
         )}
       </div>
@@ -211,7 +211,7 @@ export function ReportForm(p: Props) {
               <p><b>{s(answers.dogName) || "Dog"}</b> <span className="text-ink-soft">with {s(answers.clientName)}. Trainer {s(answers.trainerName)}.</span></p>
               {p.kind === "weekly" && <p className="text-ink-soft">Training week {String(answers.weekNumber)}{p.due ? `, due ${new Date(p.due).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "America/New_York" })}` : ""}.</p>}
               <label className="block"><span className="label">Client&apos;s email (the report is sent here){emailMissing && <span className="text-heart"> *</span>}</span>
-                <input className="field" inputMode="email" value={s(answers.clientEmail)} onChange={(e) => set("clientEmail", e.target.value)} disabled={p.mode === "trainer" && !emailMissing} /></label>
+                <input className="field" inputMode="email" value={raw(answers.clientEmail)} onChange={(e) => set("clientEmail", e.target.value)} disabled={p.mode === "trainer" && !emailMissing} /></label>
               {p.mode === "trainer" && !emailMissing && <p className="text-[12px] text-ink-faint">Taken from the booking. Ask the team if it&apos;s wrong.</p>}
             </div>
           ))}
@@ -221,13 +221,13 @@ export function ReportForm(p: Props) {
               {card("Program and goals", [...HANDOVER_SIMPLE.map(renderField)])}
               {card("Training details", (
                 <>
-                  <ItemList title="Training" value={asItems(answers.training)} onChange={(v) => set("training", v)} hint="What was done, and an explanation." />
+                  <ItemList title="Training" value={rawItems(answers.training)} onChange={(v) => set("training", v)} hint="What was done, and an explanation." />
                   <MediaBox bookingId={p.bookingId} slot="training" kind="video" label="Training videos, with a description of each" items={media} onChange={setM} describe demo={p.demo} />
                 </>
               ))}
               {card("Homework details", (
                 <>
-                  <ItemList title="Homework" value={asItems(answers.homework)} onChange={(v) => set("homework", v)} hint="Clear directions, personalized for this client." />
+                  <ItemList title="Homework" value={rawItems(answers.homework)} onChange={(v) => set("homework", v)} hint="Clear directions, personalized for this client." />
                   <MediaBox bookingId={p.bookingId} slot="homework" kind="video" label="Homework videos, with a description of each" items={media} onChange={setM} describe demo={p.demo} />
                 </>
               ))}

@@ -73,14 +73,14 @@ export async function ensureReport(sb: SupabaseClient, b: Booking, trainerName: 
   return data.id;
 }
 
-export type QueueItem = { id: string; status: Status; kind: Kind; week: number; dog: string; client: string; trainer: string; submittedAt: string | null; late: number; note: string | null; byAdmin: boolean; sentAt: string | null; error: string | null };
+export type QueueItem = { id: string; status: Status; kind: Kind; week: number; dog: string; client: string; trainer: string; submittedAt: string | null; late: number; note: string | null; byAdmin: boolean; sentAt: string | null; sentTo: string | null; error: string | null };
 /** Admin queue: everything waiting for review, sent back, and recently approved. */
 export async function listQueue(): Promise<QueueItem[]> {
   if (isDemo()) return [];
-  const { data } = await serverClient().from("reports").select("id, status, kind, week_number, submitted_at, due_by, review_note, by_admin, sent_at, send_error, answers, trainers(name)").neq("status", "draft").order("submitted_at", { ascending: true, nullsFirst: false }).limit(300);
-  return ((data || []) as unknown as { id: string; status: Status; kind: Kind; week_number: number; submitted_at: string | null; due_by: string | null; review_note: string | null; by_admin: boolean; sent_at: string | null; send_error: string | null; answers: Answers; trainers: { name: string } | null }[]).map((r) => ({
+  const { data } = await serverClient().from("reports").select("id, status, kind, week_number, submitted_at, due_by, review_note, by_admin, sent_at, sent_to, send_error, answers, trainers(name)").neq("status", "draft").order("submitted_at", { ascending: true, nullsFirst: false }).limit(300);
+  return ((data || []) as unknown as { id: string; status: Status; kind: Kind; week_number: number; submitted_at: string | null; due_by: string | null; review_note: string | null; by_admin: boolean; sent_at: string | null; sent_to: string | null; send_error: string | null; answers: Answers; trainers: { name: string } | null }[]).map((r) => ({
     id: r.id, status: r.status, kind: r.kind, week: r.week_number, dog: String(r.answers?.dogName || ""), client: String(r.answers?.clientName || ""), trainer: r.trainers?.name || "",
-    submittedAt: r.submitted_at, late: lateDays(r.submitted_at, r.due_by), note: r.review_note, byAdmin: r.by_admin, sentAt: r.sent_at, error: r.send_error
+    submittedAt: r.submitted_at, late: lateDays(r.submitted_at, r.due_by), note: r.review_note, byAdmin: r.by_admin, sentAt: r.sent_at, sentTo: r.sent_to, error: r.send_error
   }));
 }
 
