@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import seed from "./demo-seed.json";
@@ -13,7 +14,9 @@ const DEMO_MESSAGES: Message[] = [
 ];
 
 /** Who is looking. Demo mode: pick a role with ?as=admin or ?as=<trainerId> on /login. */
-export async function getViewer(): Promise<Viewer | null> {
+// Looked up once per request, however many layouts, pages and helpers ask for it (each lookup is 3 round trips to Supabase).
+export const getViewer = cache(loadViewer);
+async function loadViewer(): Promise<Viewer | null> {
   if (isDemo()) {
     const as = cookies().get("demo_as")?.value;
     if (!as) return null;
@@ -99,6 +102,14 @@ export async function listThreads(): Promise<Thread[]> {
   return [...by.values()].sort((a, b) => b.last.created_at.localeCompare(a.last.created_at));
 }
 
+// Unread counts for the nav badges: a count query, not "download every message and count them" (this runs on every page).
 export async function unreadForTrainer(trainerId: string): Promise<number> {
-  return (await listMessages(trainerId)).filter((m) => m.sender_role === "admin" && !m.read_at).length;
+  if (isDemo()) return DEMO_MESSAGES.filter((m) => m.trainer_id === trainerId && m.sender_role === "admin" && !m.read_at).length;
+  const { count } = await serverClient().from("messages").select("id", { count: "exact", head: true }).eq("trainer_id", trainerId).eq("sender_role", "admin").is("read_at", null);
+  return count || 0;
+}
+export async function unreadForAdmin(): Promise<number> {
+  if (isDemo()) return DEMO_MESSAGES.filter((m) => m.sender_role === "trainer" && !m.read_at).length;
+  const { count } = await serverClient().from("messages").select("id", { count: "exact", head: true }).eq("sender_role", "trainer").is("read_at", null);
+  return count || 0;
 }
