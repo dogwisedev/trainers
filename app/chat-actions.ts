@@ -3,6 +3,7 @@ import { revalidatePath } from "next/cache";
 import { getViewer } from "@/lib/data";
 import { isDemo, serverClient, serviceClient } from "@/lib/supabase";
 import { ensureChatsForBookings } from "@/lib/chat";
+import { closeChat, reopenChat, sendClosingEmail } from "@/lib/chatOps";
 import { ensureClientUser, sendChatInvite } from "@/lib/authEmail";
 import { mailConfigured, sendMail } from "@/lib/mail";
 import { BRAND_LOGO_PNG_BASE64 } from "@/lib/brandLogo";
@@ -61,8 +62,8 @@ export async function inviteClientAction(chatId: string, email?: string): Promis
 }
 
 /**
- * Called (without waiting) after someone sends a message. Emails the other side, at most once per 20 minutes each,
- * so a burst of messages is one email. The client is only emailed once they've been invited.
+ * Called (without waiting) after someone sends a message. Emails the TRAINER (at most once per 20 minutes) when the client or
+ * an admin writes, so replies are quick. Clients are never emailed from here.
  */
 export async function notifyChatAction(chatId: string): Promise<void> {
   if (isDemo() || !mailConfigured()) return;
@@ -83,10 +84,7 @@ export async function notifyChatAction(chatId: string): Promise<void> {
         attachments: [logo] });
     };
     const about = chat.title || "your dog";
-    if (msg.sender_role !== "client" && chat.client_email && chat.invited_at && fresh(chat.notified_client_at)) {
-      await send(chat.client_email, `New message about ${about}`, `${msg.sender_role === "trainer" ? chat.trainer_name || "Your trainer" : "The Dogwise team"} sent you a message`, `${site()}/c/${chat.id}`);
-      await svc.from("chats").update({ notified_client_at: new Date().toISOString() }).eq("id", chat.id);
-    }
+    // Clients are NOT emailed here. They get at most one "new updates" email a day, from the scheduled check (lib/chatOps.ts).
     if (msg.sender_role !== "trainer" && chat.trainer_id && fresh(chat.notified_trainer_at)) {
       const { data: t } = await svc.from("trainers").select("email, dogwise_email").eq("id", chat.trainer_id).maybeSingle();
       const to = t?.email || t?.dogwise_email;
@@ -98,3 +96,60 @@ export async function notifyChatAction(chatId: string): Promise<void> {
   } catch { /* a missed notification must never break chatting */ }
 }
 
+
+// ── Incidents, closing, reopening ──────────────────────────────────────
+export async function takeIncidentAction(id: string): Promise<ChatResult> {
+  if (isDemo()) return DEMO;
+  try {
+    const v = await adminOnly();
+    const { error } = await serverClient().from("chat_incidents").update({ status: "taken", taken_by: v.name === "Dogwise team" ? v.email || "an admin" : v.name, taken_at: new Date().toISOString() }).eq("id", id).eq("status", "open");
+    revalidatePath("/a/incidents");
+    return error ? { ok: false, message: error.message } : { ok: true, message: "Taken." };
+  } catch (e) { return { ok: false, message: (e as Error).message }; }
+}
+export async function resolveIncidentAction(id: string, note: string): Promise<ChatResult> {
+  if (isDemo()) return DEMO;
+  try {
+    const v = await adminOnly();
+    const { error } = await serverClient().from("chat_incidents").update({ status: "resolved", resolved_at: new Date().toISOString(), resolved_by: v.email || v.name, resolved_note: note.trim() || null }).eq("id", id).neq("status", "resolved");
+    revalidatePath("/", "layout");
+    return error ? { ok: false, message: error.message } : { ok: true, message: "Resolved." };
+  } catch (e) { return { ok: false, message: (e as Error).message }; }
+}
+export async function closeChatAction(chatId: string): Promise<ChatResult> {
+  if (isDemo()) return DEMO;
+  try { await adminOnly(); const r = await closeChat(chatId); revalidatePath("/", "layout"); return { ...r, chatId }; }
+  catch (e) { return { ok: false, message: (e as Error).message }; }
+}
+/** The client (or an admin) starts a fresh chat after the old one was closed. */
+export async function reopenChatAction(chatId: string): Promise<ChatResult> {
+  if (isDemo()) return DEMO;
+  try {
+    const v = await getViewer();
+    if (!v) return { ok: false, message: "Sign in again." };
+    const { data: seen } = await serverClient().from("chats").select("id").eq("id", chatId).maybeSingle(); // row level security: only people who were in it
+    if (!seen) return { ok: false, message: "Chat not found." };
+    const r = await reopenChat(chatId, v.role === "admin" ? "admin" : "client");
+    revalidatePath("/", "layout");
+    return r;
+  } catch (e) { return { ok: false, message: (e as Error).message }; }
+}
+export async function sendSummaryAgainAction(chatId: string): Promise<ChatResult> {
+  if (isDemo()) return DEMO;
+  try {
+    await adminOnly();
+    const { data: chat } = await serviceClient().from("chats").select("*").eq("id", chatId).maybeSingle();
+    if (!chat?.client_email) return { ok: false, message: "No client email on this chat." };
+    await sendClosingEmail(chat, chat.transcript_url, chat.drive_folder_url, null);
+    return { ok: true, message: `Summary sent to ${chat.client_email}.` };
+  } catch (e) { return { ok: false, message: (e as Error).message }; }
+}
+export async function setClientEmailsAction(chatId: string, on: boolean): Promise<ChatResult> {
+  if (isDemo()) return DEMO;
+  try {
+    await adminOnly();
+    const { error } = await serverClient().from("chats").update({ client_emails: on }).eq("id", chatId);
+    revalidatePath(`/a/chats/${chatId}`);
+    return error ? { ok: false, message: error.message } : { ok: true, message: on ? "This client will get a daily email when there are unread updates." : "This client won't get notification emails." };
+  } catch (e) { return { ok: false, message: (e as Error).message }; }
+}

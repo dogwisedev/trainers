@@ -1,9 +1,10 @@
 "use client";
 import { useState, useTransition } from "react";
 import { inviteClientAction } from "@/app/chat-actions";
+import { ClientEmailsToggle } from "@/components/ChatActions";
 
 /** Admin: set the client's email and send (or re-send) their chat link. */
-export function InviteClient({ chatId, email, invitedAt }: { chatId: string; email: string | null; invitedAt: string | null }) {
+export function InviteClient({ chatId, email, invitedAt, emailsOn }: { chatId: string; email: string | null; invitedAt: string | null; emailsOn: boolean }) {
   const [addr, setAddr] = useState(email || "");
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [pending, start] = useTransition();
@@ -20,6 +21,7 @@ export function InviteClient({ chatId, email, invitedAt }: { chatId: string; ema
         </button>
       </div>
       {msg && <p role="status" className={`mt-2 rounded-xl px-3 py-2 text-[14px] ${msg.ok ? "bg-mint-wash text-fern" : "bg-heart-wash text-heart"}`}>{msg.text}</p>}
+      <ClientEmailsToggle chatId={chatId} on={emailsOn} />
     </div>
   );
 }

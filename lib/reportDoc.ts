@@ -7,7 +7,7 @@ export type Block = {
   heading: string;
   rows?: { label: string; value: string }[];
   items?: { title: string; text: string }[];
-  media?: { label: string; url: string; kind: "video" | "photo" }[];
+  media?: { label: string; url: string; kind: "video" | "photo" | "file" }[];
 };
 export type ReportView = {
   kind: Kind; title: string; dog: string; client: string; trainer: string;
@@ -56,7 +56,7 @@ export function reportHtml(r: ReportView, logoSrc: string, opts: { forEmail?: bo
       <div style="padding:6px 16px 10px">
         ${(b.rows || []).map((x) => `<div style="padding:8px 0;border-bottom:1px solid ${LINE}">${x.label ? `<div style="font-size:12px;color:${MUTED}">${esc(x.label)}</div>` : ""}<div style="font-size:15px;color:${INK};line-height:1.5">${para(x.value)}</div></div>`).join("")}
         ${(b.items || []).map((x, i) => `<div style="padding:9px 0;border-bottom:1px solid ${LINE}"><div style="font-size:14px;font-weight:700;color:${INK}">${i + 1}. ${esc(x.title)}</div><div style="font-size:15px;color:${INK};line-height:1.5;margin-top:2px">${para(x.text)}</div></div>`).join("")}
-        ${(b.media || []).map((x) => `<div style="padding:9px 0"><a href="${x.url}" style="display:inline-block;background:${NAVY};color:#ffffff;text-decoration:none;font-weight:700;font-size:13px;padding:8px 14px;border-radius:9px">${x.kind === "video" ? "Watch video" : "View photo"}</a><span style="font-size:14px;color:${INK};margin-left:10px">${esc(x.label)}</span></div>`).join("")}
+        ${(b.media || []).map((x) => `<div style="padding:9px 0"><a href="${x.url}" style="display:inline-block;background:${NAVY};color:#ffffff;text-decoration:none;font-weight:700;font-size:13px;padding:8px 14px;border-radius:9px">${x.kind === "video" ? "Watch video" : x.kind === "photo" ? "View photo" : "Open file"}</a><span style="font-size:14px;color:${INK};margin-left:10px">${esc(x.label)}</span></div>`).join("")}
       </div>
     </div>`).join("");
   return `

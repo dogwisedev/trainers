@@ -88,7 +88,7 @@ export async function reportPdf(r: ReportView): Promise<Uint8Array> {
     });
     for (const m of b.media || []) {
       room(34); y -= 8;
-      const label = m.kind === "video" ? "Watch video" : "View photo", bw = bold.widthOfTextAtSize(label, 9) + 18;
+      const label = m.kind === "video" ? "Watch video" : m.kind === "photo" ? "View photo" : "Open file", bw = bold.widthOfTextAtSize(label, 9) + 18;
       page!.drawRectangle({ x: L + 4, y: y - 14, width: bw, height: 18, color: NAVY });
       text(label, L + 13, y - 9, 9, bold, rgb(1, 1, 1)); link(L + 4, y - 14, bw, 18, m.url);
       const desc = wrap(m.label, reg, 10, CW - bw - 24)[0] || ""; text(desc, L + bw + 14, y - 9, 10, reg, INK);
