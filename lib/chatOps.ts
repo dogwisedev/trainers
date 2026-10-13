@@ -8,7 +8,8 @@ import { driveConfigured, ensureChatFolder, uploadFile } from "./drive";
 import { reportPdf } from "./reportPdf";
 import { buildTranscript } from "./chatTranscript";
 import { ChatMsg, ChatRow, driveView } from "./chatTypes";
-import { INCIDENT_LABEL, IncidentKind, RULES, clientDigestDue, clientWaiting, pileUp, readyToClose, trainerSilent } from "./chatRules";
+import { CHAT_KINDS, INCIDENT_LABEL, IncidentKind, RULES, clientDigestDue, clientWaiting, pileUp, readyToClose, trainerSilent } from "./chatRules";
+import { clearFormIncidents } from "./incidents";
 
 const site = () => (process.env.NEXT_PUBLIC_SITE_URL || "").replace(/\/$/, "");
 const logo = { filename: "dogwise.png", content: Buffer.from(BRAND_LOGO_PNG_BASE64, "base64"), contentType: "image/png", cid: "dogwise-logo" };
@@ -25,6 +26,7 @@ export async function runChatChecks(now = new Date()) {
   const { data: chatRows } = await sb.from("chats").select("*").eq("status", "open");
   const chats = (chatRows || []) as ChatRow[];
   const out = { chats: chats.length, opened: 0, cleared: 0, realerted: 0, digests: 0, errors: [] as string[] };
+  try { out.cleared += await clearFormIncidents(sb); } catch (e) { out.errors.push(`forms: ${(e as Error).message}`); }
 
   // Bookings per chat (a chat's key is the HubSpot deal id, or the booking id)
   const keys = chats.map((c) => c.deal_key);
@@ -40,7 +42,8 @@ export async function runChatChecks(now = new Date()) {
     }
   }
 
-  const { data: incRows } = await sb.from("chat_incidents").select("id, chat_id, kind, status, opened_at, last_alert_at").neq("status", "resolved");
+  // Only the chat incidents: form, booking and HubSpot incidents are opened and cleared elsewhere (lib/incidents.ts, lib/hubspotSync.ts)
+  const { data: incRows } = await sb.from("chat_incidents").select("id, chat_id, kind, status, opened_at, last_alert_at").neq("status", "resolved").in("kind", CHAT_KINDS);
   const live = (incRows || []) as Incident[];
   const fresh: { chat: ChatRow; kind: IncidentKind; detail: string }[] = [];
 
@@ -147,7 +150,8 @@ export async function closeChat(chatId: string): Promise<{ ok: boolean; message:
   }
   await sb.from("chats").update({ status: "closed", closed_at: new Date().toISOString(), transcript_url: transcriptUrl, ...(archived ? { archived_at: new Date().toISOString() } : {}) }).eq("id", chatId);
   if (archived) await sb.from("chat_messages").delete().eq("chat_id", chatId); // safe: the transcript is in Drive
-  await sb.from("chat_incidents").update({ status: "resolved", resolved_at: new Date().toISOString(), resolved_by: "chat closed", auto_resolved: true }).eq("chat_id", chatId).neq("status", "resolved");
+  // Only the chat's own incidents: a booking or money incident linked to this chat stays open until someone deals with it
+  await sb.from("chat_incidents").update({ status: "resolved", resolved_at: new Date().toISOString(), resolved_by: "chat closed", auto_resolved: true }).eq("chat_id", chatId).neq("status", "resolved").in("kind", [...CHAT_KINDS, "intake_media_missing", "handover_photo_missing"]);
   return { ok: true, message: `Chat closed${archived ? " and archived to Drive" : ""}.${emailNote}` };
 }
 

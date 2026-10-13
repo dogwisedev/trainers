@@ -14,6 +14,7 @@ import { dealKey } from "@/lib/chatTypes";
 import { Avatar, Pill, Section } from "@/components/ui";
 import { PayRatesForm } from "@/components/PayRatesForm";
 import { getRates } from "@/lib/payrollData";
+import { datesFromHubspot } from "@/lib/hubspot";
 
 export default async function TrainerDetail({ params, searchParams }: { params: { id: string }; searchParams: { saved?: string; emailed?: string } }) {
   await requireRole("admin");
@@ -27,6 +28,7 @@ export default async function TrainerDetail({ params, searchParams }: { params: 
   const when = (o: string | null) => (!o ? "None in 16 weeks" : o === weekStart(today) ? "Now" : short(o));
   const upcoming = bookings.filter((b) => b.end_date >= today && b.status !== "cancelled");
   const id = t.id;
+  const hubDates = datesFromHubspot();
 
   return (
     <>
@@ -82,7 +84,7 @@ export default async function TrainerDetail({ params, searchParams }: { params: 
                 <div className="flex flex-wrap items-center gap-2">
                   <StartChat bookingId={b.id} chatId={chatByDeal.get(dealKey(b))} />
                   <ReportsToggle id={b.id} on={!!b.reports_enabled} />
-                  <ExtraDays id={b.id} current={b.extra_days || 0} />
+                  {b.hubspot_deal_id && hubDates ? <span className="text-[12px] font-semibold text-ink-soft" title="Change the dates on the HubSpot deal: the app follows it within 30 minutes">Dates from HubSpot</span> : <ExtraDays id={b.id} current={b.extra_days || 0} />}
                   <Pill tone={b.start_date <= today ? "biscuit" : b.status === "pending" ? "line" : "mint"}>{b.start_date <= today ? "In training" : b.status === "pending" ? "Pending" : "Confirmed"}</Pill>
                   <ActionButton className="btn-danger h-9 min-h-0 px-3 text-[13px]" confirm={`Cancel ${b.dog_name || "this booking"}? The kennel frees up straight away.`} action={setBookingStatus.bind(null, b.id, "cancelled")}>Cancel</ActionButton>
                 </div>

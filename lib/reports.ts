@@ -123,8 +123,7 @@ export const INTAKE_SECTIONS: Section[] = [
   ] },
   { title: "Condition at pickup", fields: [
     { key: "snout", label: "Snout to tail: thorough check of the dog's physical well-being, with the owner present", type: "textarea", required: true },
-    { key: "concerns", label: "Did the client raise any training concerns at pickup that we didn't already know about?", type: "textarea" },
-    { key: "photosPosted", label: "I've posted pickup photos in the dog's chat (show any injuries, cuts, scars or missing parts clearly)", type: "confirm", required: true }
+    { key: "concerns", label: "Did the client raise any training concerns at pickup that we didn't already know about?", type: "textarea" }
   ] },
   { title: "Route (optional)", fields: [
     { key: "route", label: "Route taken for pickup", type: "text" },
@@ -194,10 +193,19 @@ export function validate(kind: Kind, a: Answers, media: MediaItem[]): string[] {
     const t = items(a.training).filter((i) => i.title || i.text), h = items(a.homework).filter((i) => i.title || i.text);
     need("At least one training item", t.length > 0 && t.every((i) => i.text));
     need("At least one homework item", h.length > 0 && h.every((i) => i.text));
-    need("A photo of the dog with the trainer (pick one from the chat)", media.some((m) => m.slot === "health" && m.kind === "photo"));
+    // The photo with the trainer is NOT required: the form can go without it, and an incident is opened instead (app/report-actions.ts).
   }
   return missing;
 }
+
+/** Has the handover got its photo of the dog with the trainer? */
+export const hasTrainerPhoto = (media: MediaItem[]) => media.some((m) => m.slot === "health" && m.kind === "photo");
+/** The reminder shown on the form instead of blocking it. */
+export const MEDIA_ADVICE: Record<Kind, string> = {
+  intake: "Please update video on chat: post the pickup photos and a video in the dog's chat (show any injuries, cuts, scars or missing parts clearly).",
+  weekly: "Please update video on chat: send photos and videos in the dog's chat, not on this form.",
+  handover: "Please update video on chat: post a photo of you with the dog in the chat, then pick it below."
+};
 
 export const kindName = (kind: Kind) => (kind === "weekly" ? "Weekly health check" : kind === "intake" ? "Intake form" : "Handover report");
 export const reportTitle = (kind: Kind, week: number, dog: string) =>

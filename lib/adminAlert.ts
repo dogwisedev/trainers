@@ -2,9 +2,13 @@ import "server-only";
 import { mailConfigured, sendMail } from "./mail";
 import { BRAND_LOGO_PNG_BASE64 } from "./brandLogo";
 
-/** Email every admin at once. ADMIN_NOTIFY_EMAIL can hold several addresses, separated by commas. */
-export async function alertAdmins(subject: string, intro: string, lines: { text: string; link: string }[], button?: { label: string; link: string }) {
-  const to = (process.env.ADMIN_NOTIFY_EMAIL || process.env.PAYROLL_NOTIFY_EMAIL || "").split(",").map((s) => s.trim()).filter(Boolean);
+/** The office inbox for money matters (refunds, partial pay). OFFICE_EMAIL overrides it. */
+export const officeEmail = () => (process.env.OFFICE_EMAIL || "info@dogwiseacademy.com").trim();
+
+/** Email every admin at once. ADMIN_NOTIFY_EMAIL can hold several addresses, separated by commas. `alsoTo` adds more (e.g. the office). */
+export async function alertAdmins(subject: string, intro: string, lines: { text: string; link: string }[], button?: { label: string; link: string }, opts: { alsoTo?: string[] } = {}) {
+  const list = [...(process.env.ADMIN_NOTIFY_EMAIL || process.env.PAYROLL_NOTIFY_EMAIL || "").split(","), ...(opts.alsoTo || [])].map((s) => s.trim()).filter(Boolean);
+  const to = [...new Map(list.map((a) => [a.toLowerCase(), a])).values()];
   if (!to.length || !mailConfigured()) return false;
   const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
   await sendMail({

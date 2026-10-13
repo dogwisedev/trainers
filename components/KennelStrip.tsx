@@ -17,7 +17,7 @@ export function KennelStrip({ use, compact = false }: { use: WeekUse[]; compact?
             ...Array.from({ length: w.blocked }, () => ({ kind: "off" as const, label: "" })),
             ...Array.from({ length: w.free }, () => ({ kind: "free" as const, label: "" }))
           ].slice(0, Math.max(w.cap, w.dogs.length));
-          const over = w.dogs.length > w.cap - w.blocked;
+          const over = w.peak > w.cap - w.blocked;
           const now = w.week === thisWeek;
           return (
             <li key={w.week} className="flex flex-col items-center gap-1.5" title={`${short(w.week)}: ${w.dogs.length} dogs, ${w.free} free${w.blocked ? `, ${w.blocked} blocked` : ""}`}>

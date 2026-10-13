@@ -4,14 +4,15 @@ import { ChatRow } from "@/lib/chatTypes";
 import { timeAgo } from "@/lib/dates";
 
 /** One row in a chat list. */
-export function ChatListRow({ chat, href, unread, who, flag }: { chat: ChatRow; href: string; unread: boolean; who: string; flag?: string }) {
+export function ChatListRow({ chat, href, unread, who, flag, dates, preview }: { chat: ChatRow; href: string; unread: boolean; who: string; flag?: string; dates?: string; preview?: string }) {
   return (
     <li>
       <Link href={href} className="flex items-center gap-3 p-3.5 hover:bg-mint-wash">
         <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${unread ? "bg-heart" : "bg-transparent"}`} aria-label={unread ? "Unread" : undefined} />
         <div className="min-w-0 flex-1">
           <p className="truncate font-bold">{chat.title || "Dog"} <span className="font-normal text-ink-soft">{who}</span></p>
-          <p className={`truncate text-[13px] ${unread ? "font-semibold text-ink" : "text-ink-soft"}`}>{chat.last_preview || "No messages yet"}</p>
+          <p className={`truncate text-[13px] ${unread ? "font-semibold text-ink" : "text-ink-soft"}`}>{preview ?? (chat.last_preview || "No messages yet")}</p>
+          {dates && <p className="truncate text-[12px] text-ink-faint">{dates}</p>}
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1">
           {chat.last_message_at && <span className="text-[12px] text-ink-faint">{timeAgo(chat.last_message_at)}</span>}
@@ -36,4 +37,9 @@ export function ArchivedNotice({ chat, children, audience }: { chat: ChatRow; ch
       {children}
     </div>
   );
+}
+
+/** A group heading in a chat list ("In care now 3"). */
+export function ChatGroupTitle({ label, count }: { label: string; count: number }) {
+  return <h2 className="mb-2 mt-5 px-1 text-[13px] font-bold uppercase tracking-wide text-ink-soft first:mt-0">{label} <span className="font-semibold opacity-70">{count}</span></h2>;
 }

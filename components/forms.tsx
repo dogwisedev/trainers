@@ -168,7 +168,7 @@ export function BookingForm({ trainers, defaultTrainer, defaultStart }: { traine
       <F label="Status">
         <select name="status" defaultValue="confirmed" className="field"><option value="pending">Pending</option><option value="confirmed">Confirmed</option><option value="in_training">In training</option></select>
       </F>
-      <F label="HubSpot deal ID (optional)"><input name="hubspot_deal_id" className="field" inputMode="numeric" /></F>
+      <F label="HubSpot deal ID (optional)" hint="With a deal ID, the dates follow the HubSpot deal."><input name="hubspot_deal_id" className="field" inputMode="numeric" /></F>
       <F label="Notes for the trainer"><textarea name="notes" rows={3} className="field" placeholder="Pickup Sunday 10am. Reactive to small dogs." /></F>
       <Submit>Save booking</Submit>
       <Note r={r} />

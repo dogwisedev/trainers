@@ -5,6 +5,8 @@ import { addDays, short, weekStart, weeksFrom } from "@/lib/dates";
 import { Booking, TimeOff, Trainer } from "@/lib/types";
 import { notifyBookings } from "@/lib/bookingEmail";
 import { ensureChatsForBookings } from "@/lib/chat";
+import { datesFromHubspot } from "@/lib/hubspot";
+import { syncHubspotDates } from "@/lib/hubspotSync";
 
 // Book a Closed Won HubSpot deal into a trainer's calendar (used by the Sales extension).
 // POST /api/bookings   header x-api-key: BOOKING_KEY
@@ -89,8 +91,14 @@ export async function POST(req: Request) {
     }
   }
 
-  const { data: created, error } = await sb.from("bookings").insert(rows).select("*");
+  const { data: inserted, error } = await sb.from("bookings").insert(rows).select("*");
   if (error) return bad(500, { message: error.message });
+  let created = inserted;
+  // HubSpot is the source of truth for dates: take the deal's real dates now, before the trainer is emailed
+  if (dealId && datesFromHubspot()) {
+    await syncHubspotDates({ mode: "quiet", dealIds: [dealId], sb }).catch(() => null);
+    created = (await sb.from("bookings").select("*").in("id", (inserted || []).map((c: { id: string }) => c.id))).data || inserted;
+  }
   const emailed = await notifyBookings(sb, (created || []).map((c: { id: string }) => c.id), "new");
   // One chat per deal. Never blocks the booking; clients are only emailed their link when CHAT_INVITE_CLIENTS=1.
   const chats = await ensureChatsForBookings(created || [], { invite: process.env.CHAT_INVITE_CLIENTS === "1" }).catch(() => []);

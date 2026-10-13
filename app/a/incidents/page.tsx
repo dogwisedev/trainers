@@ -14,7 +14,7 @@ export default async function Incidents({ searchParams }: { searchParams: { f?: 
   return (
     <>
       <h1 className="text-[30px] font-extrabold">Incidents</h1>
-      <p className="mb-4 mt-1 text-ink-soft">Chats that need a person: a trainer who hasn&apos;t posted, a client waiting, or a chat ready to close. Every admin is emailed when one opens, and it clears itself once handled.</p>
+      <p className="mb-4 mt-1 text-ink-soft">Things that need a person: chats (a trainer who hasn&apos;t posted, a client waiting, a chat ready to close), forms sent without photos, and bookings (overbooked, changed or cancelled in HubSpot). Every admin is emailed when one opens; money matters go to info@ too. Most clear themselves once handled.</p>
       <div className="mb-4 flex gap-2">
         <Link href="/a/incidents" className={`rounded-full px-3.5 py-1.5 text-[13px] font-semibold ${!resolved ? "bg-ink text-white" : "border border-line bg-white"}`}>Open <span className="opacity-70">{live.length}</span></Link>
         <Link href="/a/incidents?f=resolved" className={`rounded-full px-3.5 py-1.5 text-[13px] font-semibold ${resolved ? "bg-ink text-white" : "border border-line bg-white"}`}>Resolved</Link>

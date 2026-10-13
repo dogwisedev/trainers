@@ -2,9 +2,10 @@
 import { revalidatePath } from "next/cache";
 import { getViewer } from "@/lib/data";
 import { isDemo, serverClient } from "@/lib/supabase";
-import { Answers, Kind, MediaItem, Status, healthFlags, kindName, reportTitle, s, validate } from "@/lib/reports";
+import { Answers, Kind, MediaItem, Status, hasTrainerPhoto, healthFlags, kindName, reportTitle, s, validate } from "@/lib/reports";
 import { dealKey } from "@/lib/chatTypes";
-import { countPickupPhotos, getReport } from "@/lib/reportData";
+import { getReport, pickupMedia } from "@/lib/reportData";
+import { messageTrainer, raiseIncident, resolveIncidents } from "@/lib/incidents";
 import { buildReport, reportHtml, reportText } from "@/lib/reportDoc";
 import { reportPdf } from "@/lib/reportPdf";
 import { mailConfigured, sendMail } from "@/lib/mail";
@@ -66,19 +67,32 @@ export async function submitReportAction(id: string, answers: Answers, media: Me
     if (b.report.status !== "draft" && b.report.status !== "changes_requested") return { ok: false, message: "Already submitted." };
     const a = cleanAnswers(answers), m = cleanMedia(media, b.report.media, b.booking.id);
     const missing = validate(b.report.kind, a, m);
-    if (b.report.kind === "intake") {
-      const photos = await countPickupPhotos(b.booking, s(a.pickupDate) || b.booking.start_date);
-      if (photos === 0) missing.push("Post the pickup photos in the dog's chat first: none found there since the pickup date");
-    }
     if (missing.length) return { ok: false, message: "A few things are still needed.", missing };
+    // Photos and videos never block a form any more: the trainer is reminded, and admins get an incident if they're missing.
+    const pickup = b.report.kind === "intake" ? await pickupMedia(b.booking, s(a.pickupDate) || b.booking.start_date) : null;
     const { error } = await serverClient().from("reports").update({ answers: a, media: m, status: "submitted", submitted_at: new Date().toISOString(), review_note: null }).eq("id", id);
     if (error) return { ok: false, message: error.message };
     const dog = s(a.dogName), flags = healthFlags(b.report.kind, a);
+    const label = `${dog || "Dog"} (${s(a.clientName) || b.booking.client_name}), ${b.trainer.name}`;
+    let mediaNote = "";
+    if (pickup && pickup.count === 0) {
+      await raiseIncident({ kind: "intake_media_missing", title: label, chatId: pickup.chatId, bookingId: b.booking.id, reportId: id, ref: `report:${id}`,
+        detail: `${b.trainer.name} submitted the intake form for ${dog || "the dog"} with no pickup photos or video in the chat${pickup.chatId ? "" : " (the dog has no chat yet)"}.`,
+        link: pickup.chatId ? `${site()}/a/chats/${pickup.chatId}` : `${site()}/a/reports/${id}` });
+      mediaNote = " Please update video on chat: post the pickup photos and a video in the dog's chat.";
+    }
+    if (b.report.kind === "handover" && !hasTrainerPhoto(m)) {
+      await raiseIncident({ kind: "handover_photo_missing", title: label, chatId: b.chat?.id || null, bookingId: b.booking.id, reportId: id, ref: `report:${id}`,
+        detail: `${b.trainer.name} submitted the handover report for ${dog || "the dog"} without a photo of the dog with the trainer. They've been asked to post one in the chat: pick it into the report when you review it.`,
+        link: `${site()}/a/reports/${id}` });
+      await messageTrainer(b.trainer.id, `Your handover report for ${dog || "the dog"} went in without a photo of you with ${dog || "the dog"}. Please post one in ${dog ? `${dog}'s` : "the dog's"} chat today, so we can add it before it goes to the client.`);
+      mediaNote = " Please post a photo of you with the dog in the chat: the team will add it to the report.";
+    }
     // Admins are emailed only when it matters: a handover to send to the client, or a health check with something to look at.
     if (b.report.kind === "handover") await adminNotify(`Handover to review: ${dog}`, `${b.trainer.name} submitted the handover report for ${dog} (${s(a.clientName)}).`, `${site()}/a/reports/${id}`);
     else if (b.report.kind === "weekly" && flags.length) await adminNotify(`Health check needs a look: ${dog}`, `${b.trainer.name}'s weekly health check for ${dog} has: ${flags.join(", ")}.`, `${site()}/a/reports/${id}`);
     revalidatePath("/", "layout");
-    return { ok: true, message: b.report.kind === "handover" ? "Submitted. The Dogwise team will review it and send it to the client." : "Submitted. Thank you." };
+    return { ok: true, message: (b.report.kind === "handover" ? "Submitted. The Dogwise team will review it and send it to the client." : "Submitted. Thank you.") + mediaNote };
   } catch (e) { return { ok: false, message: (e as Error).message }; }
 }
 
@@ -135,6 +149,7 @@ export async function approveReportAction(id: string, answers: Answers, media: M
       return { ok: true, message: "Marked as reviewed.", nextId: nxt?.[0]?.id || null };
     }
     if (s(a.clientEmail) && s(a.clientEmail) !== (b.booking.client_email || "")) await sb.from("bookings").update({ client_email: s(a.clientEmail) }).eq("id", b.booking.id);
+    await resolveIncidents({ kinds: ["handover_photo_missing"], reportId: id }, v.name, hasTrainerPhoto(m) ? "Photo added" : "Approved without the photo");
     const sent = await deliver(id, corrected);
     const { data: next } = await sb.from("reports").select("id").eq("status", "submitted").neq("id", id).order("submitted_at", { ascending: true }).limit(1);
     revalidatePath("/", "layout");

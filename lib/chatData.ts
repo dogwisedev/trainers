@@ -2,6 +2,8 @@ import "server-only";
 import { isDemo, serverClient } from "./supabase";
 import seed from "./demo-seed.json";
 import { ChatMsg, ChatRow, chatUnread } from "./chatTypes";
+import type { IncidentKind } from "./chatRules";
+import type { Span } from "./chatOrder";
 import { Trainer, Viewer } from "./types";
 
 const demoTrainers = (seed as unknown as { trainers: Trainer[] }).trainers;
@@ -46,6 +48,46 @@ export async function listChatMessages(chatId: string, limit = 100): Promise<{ m
   const rows = (data || []) as ChatMsg[];
   return { messages: rows.slice(0, limit).reverse(), hasMore: rows.length > limit };
 }
+/** Booking dates for each chat (a chat's key is the HubSpot deal id, or the booking id when there's no deal). */
+export async function chatSpans(keys: string[]): Promise<Map<string, Span[]>> {
+  const out = new Map<string, Span[]>();
+  if (!keys.length) return out;
+  if (isDemo()) {
+    // Demo chats aren't linked to the sheet's bookings: give them dates around today so the order can be seen
+    const d = (n: number) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
+    const demoSpans: Record<string, Span> = { d1: { start_date: d(-6), end_date: d(15), status: "confirmed" }, d2: { start_date: d(-12), end_date: d(2), status: "confirmed" }, d3: { start_date: d(-90), end_date: d(-68), status: "completed" }, d4: { start_date: d(9), end_date: d(37), status: "confirmed" } };
+    for (const k of keys) if (demoSpans[k]) out.set(k, [demoSpans[k]]);
+    return out;
+  }
+  const sb = serverClient(), uuids = keys.filter((k) => /^[0-9a-f-]{36}$/i.test(k)), deals = keys.filter((k) => !/^[0-9a-f-]{36}$/i.test(k));
+  const rows: (Span & { id: string; hubspot_deal_id: string | null })[] = [];
+  // In chunks, so a long list never makes the request URL too long
+  for (let i = 0; i < deals.length; i += 150) rows.push(...(((await sb.from("bookings").select("id, hubspot_deal_id, start_date, end_date, status").in("hubspot_deal_id", deals.slice(i, i + 150))).data || []) as typeof rows));
+  for (let i = 0; i < uuids.length; i += 150) rows.push(...(((await sb.from("bookings").select("id, hubspot_deal_id, start_date, end_date, status").in("id", uuids.slice(i, i + 150))).data || []) as typeof rows));
+  const want = new Set(keys);
+  for (const r of rows) {
+    const k = r.hubspot_deal_id && want.has(r.hubspot_deal_id) ? r.hubspot_deal_id : r.id;
+    if (want.has(k)) out.set(k, [...(out.get(k) || []), r]);
+  }
+  return out;
+}
+
+/** Chats whose messages contain the text, with the newest matching line. Row level security keeps trainers to their own chats.
+ *  Closed chats have their messages archived to Drive, so only messages still in the app are found. */
+export async function searchChatMessages(q: string): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const text = q.trim().slice(0, 100);
+  if (text.length < 2) return out;
+  if (isDemo()) {
+    for (const m of [...DEMO_MSGS].reverse()) if (m.body?.toLowerCase().includes(text.toLowerCase()) && !out.has(m.chat_id)) out.set(m.chat_id, m.body);
+    return out;
+  }
+  const pattern = `%${text.replace(/[\\%_*]/g, (c) => (c === "*" ? "" : `\\${c}`))}%`;
+  const { data } = await serverClient().from("chat_messages").select("chat_id, body").ilike("body", pattern).order("created_at", { ascending: false }).limit(1000);
+  for (const r of (data || []) as { chat_id: string; body: string | null }[]) if (!out.has(r.chat_id)) out.set(r.chat_id, r.body || "");
+  return out;
+}
+
 export async function chatReads(userId: string): Promise<Record<string, string>> {
   if (isDemo()) return {};
   const { data } = await serverClient().from("chat_reads").select("chat_id, last_read_at").eq("user_id", userId);
@@ -60,9 +102,10 @@ export async function unreadChats(v: Viewer): Promise<number> {
 
 // ── Incidents (admin) ───────────────────────────────────────────────────
 export type IncidentRow = {
-  id: string; chat_id: string; kind: "trainer_silent" | "client_waiting" | "client_pileup" | "ready_to_close" | "reopened"; status: "open" | "taken" | "resolved";
+  id: string; chat_id: string | null; booking_id?: string | null; report_id?: string | null; kind: IncidentKind; status: "open" | "taken" | "resolved";
   detail: string | null; opened_at: string; taken_by: string | null; taken_at: string | null; resolved_at: string | null; resolved_by: string | null; resolved_note: string | null;
   chat: { title: string | null; client_name: string | null; trainer_name: string | null } | null;
+  booking?: { dog_name: string | null; client_name: string | null; trainer_id: string; trainers: { name: string } | null } | null;
 };
 const DEMO_INCIDENTS: IncidentRow[] = [
   { id: "i1", chat_id: "demo-chat-2", kind: "trainer_silent", status: "open", detail: "No update from Felicity Houston today", opened_at: ago(2), taken_by: null, taken_at: null, resolved_at: null, resolved_by: null, resolved_note: null, chat: { title: "Kya & Milo", client_name: "Jessica Miller", trainer_name: feli.name } },
@@ -73,7 +116,7 @@ const DEMO_INCIDENTS: IncidentRow[] = [
 /** Open and taken incidents, newest first; or the recently resolved ones. */
 export async function listIncidents(resolved = false): Promise<IncidentRow[]> {
   if (isDemo()) return resolved ? [] : DEMO_INCIDENTS;
-  let q = serverClient().from("chat_incidents").select("*, chat:chats(title, client_name, trainer_name)");
+  let q = serverClient().from("chat_incidents").select("*, chat:chats(title, client_name, trainer_name), booking:bookings!booking_id(dog_name, client_name, trainer_id, trainers(name))");
   q = resolved ? q.eq("status", "resolved").order("resolved_at", { ascending: false }).limit(60) : q.neq("status", "resolved").order("opened_at", { ascending: false });
   return ((await q).data || []) as unknown as IncidentRow[];
 }

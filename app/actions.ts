@@ -4,10 +4,13 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { getViewer } from "@/lib/data";
 import { isDemo, serverClient, serviceClient } from "@/lib/supabase";
-import { addDays, weekStart } from "@/lib/dates";
+import { addDays, short, weekStart } from "@/lib/dates";
 import { notifyBookings, notifySummary } from "@/lib/bookingEmail";
 import { sendInvite, sendSignInLink } from "@/lib/authEmail";
 import { ensureChatsForBookings } from "@/lib/chat";
+import { datesFromHubspot } from "@/lib/hubspot";
+import { syncHubspotDates } from "@/lib/hubspotSync";
+import { raiseIncident } from "@/lib/incidents";
 
 export type Result = { ok: boolean; message: string };
 const DEMO: Result = { ok: false, message: "Demo mode: connect Supabase to save changes." };
@@ -170,6 +173,7 @@ export async function saveBooking(_: Result | null, f: FormData): Promise<Result
     ? await sb.from("bookings").update(row).eq("id", id).select("id").single()
     : await sb.from("bookings").insert(row).select("id").single();
   if (error) return { ok: false, message: error.message };
+  if (!id && row.hubspot_deal_id && datesFromHubspot()) await syncHubspotDates({ mode: "quiet", dealIds: [row.hubspot_deal_id as string] }).catch(() => null); // the deal's real dates, before emailing
   const n = await notifyBookings(sb, [saved.id], id ? "changed" : "new");
   if (!id) await ensureChatsForBookings([{ id: saved.id, trainer_id: row.trainer_id as string, client_name: row.client_name as string, dog_name: row.dog_name, hubspot_deal_id: row.hubspot_deal_id, client_email: (row as { client_email?: string }).client_email }], { invite: process.env.CHAT_INVITE_CLIENTS === "1" }).catch(() => []);
   revalidatePath("/", "layout");
@@ -181,8 +185,9 @@ export async function setExtraDays(id: string, extra: number): Promise<Result> {
   const v = await viewerOrThrow();
   if (v.role !== "admin") return { ok: false, message: "Admins only." };
   const sb = serverClient();
-  const { data: b } = await sb.from("bookings").select("start_date, weeks").eq("id", id).single();
+  const { data: b } = await sb.from("bookings").select("start_date, weeks, hubspot_deal_id").eq("id", id).single();
   if (!b) return { ok: false, message: "Booking not found." };
+  if (b.hubspot_deal_id && datesFromHubspot()) return { ok: false, message: "This booking's dates come from HubSpot: change them on the deal." };
   const n = Math.min(13, Math.max(0, Math.round(extra)));
   const { error } = await sb.from("bookings").update({ extra_days: n, end_date: addDays(b.start_date, (b.weeks || 1) * 7 - 1 + n) }).eq("id", id);
   revalidatePath("/", "layout");
@@ -196,9 +201,20 @@ export async function setBookingStatus(id: string, status: string): Promise<Resu
   const v = await viewerOrThrow();
   if (v.role !== "admin") return { ok: false, message: "Admins only." };
   const sb = serverClient();
+  const { data: before } = await sb.from("bookings").select("status, dog_name, client_name, start_date, end_date, trainer_id, hubspot_deal_id, trainers(name)").eq("id", id).maybeSingle();
   const { error } = await sb.from("bookings").update({ status }).eq("id", id);
   revalidatePath("/", "layout");
   if (error) return { ok: false, message: error.message };
+  if (status === "cancelled" && before && before.status !== "cancelled") {
+    const b = before as unknown as { dog_name: string | null; client_name: string; start_date: string; end_date: string; trainer_id: string; hubspot_deal_id: string | null; trainers: { name: string } | null };
+    const site = (process.env.NEXT_PUBLIC_SITE_URL || "").replace(/\/$/, "");
+    await raiseIncident({
+      kind: "booking_cancelled", office: true, ref: `booking:${id}`, bookingId: id,
+      title: `${b.dog_name || "Dog"} (${b.client_name}), ${b.trainers?.name || "trainer"}`,
+      detail: `${v.name} cancelled ${b.dog_name || "the dog"}'s booking in the app (${short(b.start_date)} to ${short(b.end_date)}).${b.hubspot_deal_id ? " Update the HubSpot deal too." : ""}`,
+      link: b.hubspot_deal_id ? `https://app.hubspot.com/contacts/21869370/record/0-3/${b.hubspot_deal_id}` : `${site}/a/trainers/${b.trainer_id}`
+    });
+  }
   const sentNote = notifySummary(await notifyBookings(sb, [id], status === "cancelled" ? "cancelled" : "changed"));
   return { ok: true, message: `${status === "cancelled" ? "Booking cancelled." : "Booking updated."}${sentNote}` };
 }

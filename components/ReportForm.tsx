@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Plus } from "lucide-react";
 import { approveReportAction, resendReportAction, saveReportAction, sendBackAction, submitReportAction, ReportResult } from "@/app/report-actions";
 import { MediaPicker } from "@/components/MediaPicker";
-import { Answers, Field, HANDOVER_AFTER, HANDOVER_SIMPLE, INTAKE_SECTIONS, Item, Kind, MediaItem, Status, WEEKLY_SECTIONS, arr, deadlineHint, raw, rawItems, s, validate } from "@/lib/reports";
+import { Answers, Field, HANDOVER_AFTER, HANDOVER_SIMPLE, INTAKE_SECTIONS, Item, Kind, MEDIA_ADVICE, MediaItem, Status, WEEKLY_SECTIONS, arr, deadlineHint, hasTrainerPhoto, raw, rawItems, s, validate } from "@/lib/reports";
 import { buildReport, reportHtml } from "@/lib/reportDoc";
 
 type Props = {
@@ -153,7 +153,7 @@ export function ReportForm(p: Props) {
               <p><b>{s(answers.dogName) || "Dog"}</b> <span className="text-ink-soft">with {s(answers.clientName)}. Trainer {s(answers.trainerName)}.</span></p>
               <p className="text-ink-soft">{deadlineHint(p.kind)}{p.due ? ` Due ${new Date(p.due).toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric", timeZone: "America/New_York" })}.` : ""}</p>
               {p.kind !== "handover" && (
-                <p className="rounded-xl bg-paper p-3 text-[14px]">Send photos and videos in the dog&apos;s chat, not on this form. {chatHref ? <Link href={chatHref} className="font-semibold underline">Open the chat</Link> : "This dog has no chat yet: ask the team to start one."}</p>
+                <p className={`rounded-xl p-3 text-[14px] ${p.kind === "intake" ? "bg-biscuit-wash font-semibold text-[#8A5A00]" : "bg-paper"}`}>{MEDIA_ADVICE[p.kind]} {chatHref ? <Link href={chatHref} className="underline">Open the chat</Link> : "This dog has no chat yet: ask the team to start one."}</p>
               )}
               {p.kind === "handover" && (
                 <>
@@ -183,7 +183,8 @@ export function ReportForm(p: Props) {
               {card("Health check and review", HANDOVER_AFTER.map(renderField))}
               {card("Photo with the trainer", (
                 <>
-                  <span className="label">Photo of the dog with the trainer <span className="text-heart">*</span></span>
+                  <span className="label">Photo of the dog with the trainer</span>
+                  {!hasTrainerPhoto(media) && <p className="mb-2 rounded-xl bg-biscuit-wash p-3 text-[14px] font-semibold text-[#8A5A00]">{MEDIA_ADVICE.handover}{p.mode === "trainer" ? " You can still submit without it, but the team will be told." : ""}</p>}
                   <MediaPicker bookingId={p.bookingId} slot="health" kind="photo" label="Pick a photo from the chat" items={media} onChange={setM} describe={false} chatHref={chatHref} />
                 </>
               ))}

@@ -103,12 +103,13 @@ export async function listMyReports(trainerId: string) {
   return (data || []) as { id: string; status: Status; kind: Kind; week_number: number; submitted_at: string | null; due_by: string | null; answers: Answers; review_note: string | null }[];
 }
 
-/** Photos the trainer has posted in the dog's chat since the pickup date (null = the dog has no chat). The intake form needs them. */
-export async function countPickupPhotos(booking: Booking, sinceDate: string): Promise<number | null> {
-  if (isDemo()) return null;
+/** Photos and videos the trainer has posted in the dog's chat since the pickup date. chatId null = the dog has no chat. */
+export async function pickupMedia(booking: Booking, sinceDate: string): Promise<{ chatId: string | null; count: number }> {
+  if (isDemo()) return { chatId: null, count: 0 };
   const sb = serverClient();
   const { data: chat } = await sb.from("chats").select("id").eq("deal_key", dealKey(booking)).eq("status", "open").maybeSingle();
-  if (!chat) return null;
+  if (!chat) return { chatId: null, count: 0 };
   const { data } = await sb.from("chat_messages").select("media").eq("chat_id", chat.id).eq("kind", "media").eq("sender_role", "trainer").gte("created_at", startOfDay(sinceDate).toISOString()).limit(300);
-  return (data || []).reduce((n: number, m: { media: { kind: string }[] }) => n + (m.media || []).filter((x) => x.kind === "photo").length, 0);
+  const count = (data || []).reduce((n: number, m: { media: { kind: string }[] }) => n + (m.media || []).filter((x) => x.kind === "photo" || x.kind === "video").length, 0);
+  return { chatId: chat.id, count };
 }
