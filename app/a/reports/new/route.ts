@@ -7,7 +7,7 @@ import { Booking } from "@/lib/types";
 
 // Admin starts a report on a trainer's behalf (for example when one is badly overdue).
 export async function GET(req: NextRequest) {
-  const u = req.nextUrl, bookingId = u.searchParams.get("booking") || "", kind = (u.searchParams.get("kind") === "handover" ? "handover" : "weekly") as Kind, week = Number(u.searchParams.get("week")) || 0;
+  const u = req.nextUrl, bookingId = u.searchParams.get("booking") || "", kind = (["intake", "weekly", "handover"].includes(u.searchParams.get("kind") || "") ? u.searchParams.get("kind") : "weekly") as Kind, week = Number(u.searchParams.get("week")) || 0;
   const v = await getViewer();
   if (!v || v.role !== "admin" || isDemo()) return NextResponse.redirect(new URL("/a/reports", req.url));
   const sb = serverClient();

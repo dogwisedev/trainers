@@ -2,13 +2,14 @@
 import { revalidatePath } from "next/cache";
 import { getViewer } from "@/lib/data";
 import { isDemo, serverClient } from "@/lib/supabase";
-import { Answers, Kind, MediaItem, Status, reportTitle, s, validate } from "@/lib/reports";
-import { getReport } from "@/lib/reportData";
+import { Answers, Kind, MediaItem, Status, healthFlags, kindName, reportTitle, s, validate } from "@/lib/reports";
+import { dealKey } from "@/lib/chatTypes";
+import { countPickupPhotos, getReport } from "@/lib/reportData";
 import { buildReport, reportHtml, reportText } from "@/lib/reportDoc";
 import { reportPdf } from "@/lib/reportPdf";
 import { mailConfigured, sendMail } from "@/lib/mail";
 import { BRAND_LOGO_PNG_BASE64 } from "@/lib/brandLogo";
-import { verifyMedia } from "@/lib/mediaSig";
+import { signMedia, verifyMedia } from "@/lib/mediaSig";
 import { usDate } from "@/lib/payroll";
 import { postReportToChat } from "@/lib/chat";
 
@@ -65,13 +66,19 @@ export async function submitReportAction(id: string, answers: Answers, media: Me
     if (b.report.status !== "draft" && b.report.status !== "changes_requested") return { ok: false, message: "Already submitted." };
     const a = cleanAnswers(answers), m = cleanMedia(media, b.report.media, b.booking.id);
     const missing = validate(b.report.kind, a, m);
+    if (b.report.kind === "intake") {
+      const photos = await countPickupPhotos(b.booking, s(a.pickupDate) || b.booking.start_date);
+      if (photos === 0) missing.push("Post the pickup photos in the dog's chat first: none found there since the pickup date");
+    }
     if (missing.length) return { ok: false, message: "A few things are still needed.", missing };
     const { error } = await serverClient().from("reports").update({ answers: a, media: m, status: "submitted", submitted_at: new Date().toISOString(), review_note: null }).eq("id", id);
     if (error) return { ok: false, message: error.message };
-    const dog = s(a.dogName);
-    await adminNotify(`Report to review: ${dog}`, `${b.trainer.name} submitted ${b.report.kind === "weekly" ? `the week ${b.report.week_number} report` : "the handover report"} for ${dog} (${s(a.clientName)}).`, `${site()}/a/reports/${id}`);
+    const dog = s(a.dogName), flags = healthFlags(b.report.kind, a);
+    // Admins are emailed only when it matters: a handover to send to the client, or a health check with something to look at.
+    if (b.report.kind === "handover") await adminNotify(`Handover to review: ${dog}`, `${b.trainer.name} submitted the handover report for ${dog} (${s(a.clientName)}).`, `${site()}/a/reports/${id}`);
+    else if (b.report.kind === "weekly" && flags.length) await adminNotify(`Health check needs a look: ${dog}`, `${b.trainer.name}'s weekly health check for ${dog} has: ${flags.join(", ")}.`, `${site()}/a/reports/${id}`);
     revalidatePath("/", "layout");
-    return { ok: true, message: "Submitted. The Dogwise team will review it and send it to the client." };
+    return { ok: true, message: b.report.kind === "handover" ? "Submitted. The Dogwise team will review it and send it to the client." : "Submitted. Thank you." };
   } catch (e) { return { ok: false, message: (e as Error).message }; }
 }
 
@@ -114,13 +121,19 @@ export async function approveReportAction(id: string, answers: Answers, media: M
     const corrected = b.report.status === "approved";
     const a = cleanAnswers(answers), m = cleanMedia(media, b.report.media, b.booking.id);
     const missing = validate(b.report.kind, a, m);
-    if (missing.length) return { ok: false, message: "A few things are still needed before it can go to the client.", missing };
+    if (missing.length) return { ok: false, message: b.report.kind === "handover" ? "A few things are still needed before it can go to the client." : "A few things are still needed.", missing };
     const sb = serverClient();
     const { error } = await sb.from("reports").update({
       answers: a, media: m, status: "approved", approved_by: v.userId, approved_by_name: v.name, approved_at: new Date().toISOString(),
       submitted_at: b.report.submitted_at || new Date().toISOString(), review_note: null
     }).eq("id", id);
     if (error) return { ok: false, message: error.message };
+    if (b.report.kind !== "handover") {
+      // Intake forms and weekly health checks stay internal: "approve" just means an admin has looked at it.
+      const { data: nxt } = await sb.from("reports").select("id").eq("status", "submitted").neq("id", id).order("submitted_at", { ascending: true }).limit(1);
+      revalidatePath("/", "layout");
+      return { ok: true, message: "Marked as reviewed.", nextId: nxt?.[0]?.id || null };
+    }
     if (s(a.clientEmail) && s(a.clientEmail) !== (b.booking.client_email || "")) await sb.from("bookings").update({ client_email: s(a.clientEmail) }).eq("id", b.booking.id);
     const sent = await deliver(id, corrected);
     const { data: next } = await sb.from("reports").select("id").eq("status", "submitted").neq("id", id).order("submitted_at", { ascending: true }).limit(1);
@@ -169,3 +182,25 @@ export async function setReportsEnabledAction(bookingId: string, on: boolean): P
   } catch (e) { return { ok: false, message: (e as Error).message }; }
 }
 export type { Status, Kind };
+
+// ── Choose photos and videos from the dog's chat (nothing is uploaded again: it's all in Drive already) ──
+export type ChatMediaOption = { id: string; name: string; kind: "video" | "photo"; size?: number; at: string; by: string; sig: string };
+export async function listChatMediaAction(bookingId: string): Promise<{ items: ChatMediaOption[]; message?: string }> {
+  if (isDemo()) return { items: [
+    { id: "DEMO1", name: "heel-practice.mp4", kind: "video", at: new Date(Date.now() - 86400000).toISOString(), by: "You", sig: "demo" },
+    { id: "DEMO2", name: "recall-long-line.mp4", kind: "video", at: new Date(Date.now() - 3 * 86400000).toISOString(), by: "You", sig: "demo" },
+    { id: "DEMO3", name: "kya-with-trainer.jpg", kind: "photo", at: new Date(Date.now() - 3600000).toISOString(), by: "You", sig: "demo" }] };
+  try {
+    await who();
+    const sb = serverClient();
+    const { data: booking } = await sb.from("bookings").select("id, hubspot_deal_id").eq("id", bookingId).maybeSingle(); // row level security: only your own
+    if (!booking) return { items: [], message: "Booking not found." };
+    const { data: chat } = await sb.from("chats").select("id").eq("deal_key", dealKey(booking)).eq("status", "open").maybeSingle();
+    if (!chat) return { items: [], message: "This dog has no chat yet. Ask the team to start one, then post the photos and videos there." };
+    const { data } = await sb.from("chat_messages").select("media, sender_name, created_at").eq("chat_id", chat.id).eq("kind", "media").order("created_at", { ascending: false }).limit(300);
+    const out: ChatMediaOption[] = [];
+    for (const m of (data || []) as { media: { id: string; name: string; kind: string; size?: number }[]; sender_name: string | null; created_at: string }[])
+      for (const x of m.media || []) if (x.kind === "video" || x.kind === "photo") out.push({ id: x.id, name: x.name, kind: x.kind, size: x.size, at: m.created_at, by: m.sender_name || "", sig: signMedia(x.id, booking.id) });
+    return { items: out };
+  } catch (e) { return { items: [], message: (e as Error).message }; }
+}

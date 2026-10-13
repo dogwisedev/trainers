@@ -1,5 +1,5 @@
 // How a report reads: one set of "blocks" feeds the email, the in-app view and the PDF.
-import { Answers, HANDOVER_AFTER, HANDOVER_SIMPLE, Kind, MediaItem, WEEKLY_SECTIONS, Field, arr, items, s } from "./reports";
+import { Answers, HANDOVER_AFTER, HANDOVER_SIMPLE, INTAKE_SECTIONS, Kind, MediaItem, WEEKLY_SECTIONS, Field, arr, items, s } from "./reports";
 import { usDate } from "./payroll";
 import { LAVENDER, LINE, MUTED, NAVY, VIOLET, INK } from "./payslipDoc";
 
@@ -17,7 +17,8 @@ export const driveUrl = (id: string) => `https://drive.google.com/file/d/${id}/v
 
 function fieldValue(f: Field, a: Answers): string {
   if (f.type === "multi") return [...arr(a[f.key]), ...(f.type === "multi" && s(a[`${f.key}_other`]) ? [s(a[`${f.key}_other`])] : [])].join(", ");
-  if (f.type === "yesno") return a[f.key] === "yes" ? `Yes: ${s(a[`${f.key}_detail`])}` : a[f.key] === "no" ? "No" : "";
+  if (f.type === "yesno") { const d = s(a[`${f.key}_detail`]); return a[f.key] === "yes" ? (d ? `Yes: ${d}` : "Yes") : a[f.key] === "no" ? (d ? `No: ${d}` : "No") : ""; }
+  if (f.type === "confirm") return a[f.key] === true ? "Yes" : "";
   return s(a[f.key]);
 }
 const rowsOf = (fields: Field[], a: Answers) => fields.map((f) => ({ label: f.label.replace(/[?]$/, ""), value: fieldValue(f, a) })).filter((r) => r.value);
@@ -25,23 +26,30 @@ const mediaOf = (m: MediaItem[], slot: MediaItem["slot"]) => m.filter((x) => x.s
 
 export function buildReport(kind: Kind, a: Answers, media: MediaItem[], extra: { startDate?: string; endDate?: string; submittedAt?: string | null } = {}): ReportView {
   const dog = s(a.dogName), client = s(a.clientName), trainer = s(a.trainerName);
-  const week = Number(a.weekNumber) || 0;
+  const submitted = extra.submittedAt ? [{ label: "Submitted", value: usDate(extra.submittedAt.slice(0, 10)) }] : [];
   if (kind === "weekly") {
     return {
-      kind, dog, client, trainer, title: `Week ${week} report`,
-      facts: [{ label: "Dog", value: dog }, { label: "Client", value: client }, { label: "Trainer", value: trainer }, { label: "Training week", value: String(week) }, ...(extra.submittedAt ? [{ label: "Submitted", value: usDate(extra.submittedAt.slice(0, 10)) }] : [])],
-      blocks: WEEKLY_SECTIONS.map((sec) => ({ heading: sec.title, rows: rowsOf(sec.fields, a) }))
+      kind, dog, client, trainer, title: "Weekly health check",
+      facts: [{ label: "Dog", value: dog }, { label: "Client", value: client }, { label: "Trainer", value: trainer }, { label: "Check", value: `Week ${Number(a.weekNumber) || ""}` }, ...submitted],
+      blocks: [...WEEKLY_SECTIONS.map((sec) => ({ heading: sec.title, rows: rowsOf(sec.fields, a) })), { heading: "Weight", rows: s(a.weightLb) ? [{ label: "Weight (lb)", value: s(a.weightLb) }] : [] }].filter((b) => b.rows.length)
+    };
+  }
+  if (kind === "intake") {
+    return {
+      kind, dog, client, trainer, title: "Intake form",
+      facts: [{ label: "Dog", value: dog }, { label: "Client", value: client }, { label: "Trainer", value: trainer }, { label: "Pickup", value: s(a.pickupDate) ? usDate(s(a.pickupDate)) : "" }, ...submitted],
+      blocks: INTAKE_SECTIONS.map((sec) => ({ heading: sec.title, rows: rowsOf(sec.fields, a) })).filter((b) => b.rows.length)
     };
   }
   const t = items(a.training).filter((i) => i.title || i.text), h = items(a.homework).filter((i) => i.title || i.text);
   const blocks: Block[] = [
-    { heading: "Program", rows: [{ label: "Program type", value: s(a.programType) }, { label: "Location", value: s(a.clientLocation) }, ...(extra.startDate ? [{ label: "Dates", value: `${usDate(extra.startDate)} to ${usDate(extra.endDate || extra.startDate)}` }] : [])].filter((r) => r.value) },
+    { heading: "Program", rows: [{ label: "Training program", value: s(a.program) }, { label: "Location", value: s(a.clientLocation) }, ...(extra.startDate ? [{ label: "Dates", value: `${usDate(extra.startDate)} to ${usDate(extra.endDate || extra.startDate)}` }] : [])].filter((r) => r.value) },
     { heading: "Main goals and focus", rows: rowsOf([HANDOVER_SIMPLE[2]], a).map((r) => ({ label: "", value: r.value })) },
     { heading: "Training details", items: t, media: mediaOf(media, "training") },
     { heading: "Homework details", items: h, media: mediaOf(media, "homework") },
-    { heading: "Additional details", rows: rowsOf([HANDOVER_AFTER[0], HANDOVER_AFTER[1]], a) },
-    { heading: "Overall trainer review", rows: rowsOf([HANDOVER_AFTER[2]], a).map((r) => ({ label: "", value: r.value })) },
-    { heading: "Snout to tail health check", media: mediaOf(media, "health") }
+    { heading: "Snout to tail health check", rows: rowsOf([HANDOVER_AFTER[0]], a).map((r) => ({ label: "", value: r.value })), media: mediaOf(media, "health") },
+    { heading: "Anything else", rows: rowsOf([HANDOVER_AFTER[1]], a).map((r) => ({ label: "", value: r.value })) },
+    { heading: "Overall trainer review", rows: rowsOf([HANDOVER_AFTER[2]], a).map((r) => ({ label: "", value: r.value })) }
   ].filter((b) => (b.rows?.length || b.items?.length || b.media?.length)) as Block[];
   return { kind, dog, client, trainer, title: "Handover report", facts: [{ label: "Dog", value: dog }, { label: "Client", value: client }, { label: "Trainer", value: trainer }], blocks };
 }

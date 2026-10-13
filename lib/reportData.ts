@@ -4,20 +4,25 @@ import { isDemo, serverClient } from "./supabase";
 import { listBookings } from "./data";
 import seed from "./demo-seed.json";
 import { addDays, todayIso } from "./dates";
-import { Answers, BookingForReports, Kind, MediaItem, RowLike, Status, Todo, endOfDay, expectedReports, lateDays, todos, weeklyWindow, handoverWindow } from "./reports";
+import { Answers, BookingForReports, Kind, MediaItem, RowLike, Status, Todo, endOfDay, expectedReports, healthFlags, lateDays, startOfDay, todos } from "./reports";
+import { dealKey } from "./chatTypes";
 import { Booking, Trainer } from "./types";
 
 export type ReportRow = RowLike & {
   id: string; trainer_id: string; answers: Answers; media: MediaItem[]; due_by: string | null; submitted_at: string | null; review_note: string | null; by_admin: boolean;
   approved_by_name: string | null; approved_at: string | null; sent_at: string | null; sent_to: string | null; send_error: string | null; updated_at: string;
 };
-export type ReportBundle = { report: ReportRow; booking: Booking; trainer: Pick<Trainer, "id" | "name" | "email">; late: number };
+export type ReportBundle = { report: ReportRow; booking: Booking; trainer: Pick<Trainer, "id" | "name" | "email">; late: number; chat: { id: string } | null };
 
 const demo = seed as unknown as { trainers: Trainer[]; bookings: Booking[] };
 const asDemoBooking = (b: Booking): Booking => ({ ...b, reports_enabled: true, client_email: b.client_email || "client@example.com" });
 
+/** What we already know, filled in for the trainer. */
 export const prefill = (kind: Kind, b: Booking, trainerName: string, week: number): Answers => ({
-  clientName: b.client_name, clientEmail: b.client_email || "", dogName: b.dog_name || "", trainerName, ...(kind === "weekly" ? { weekNumber: week } : {})
+  dogName: b.dog_name || "", trainerName, clientName: b.client_name,
+  ...(kind === "weekly" ? { weekNumber: week } : {}),
+  ...(kind === "intake" ? { pickupDate: b.start_date } : {}),
+  ...(kind === "handover" ? { clientEmail: b.client_email || "", program: b.program || "" } : {})
 });
 
 /** Reports a trainer (or everyone, for admins) still owes: from bookings plus the reports that exist. */
@@ -43,8 +48,8 @@ export async function getReport(id: string): Promise<ReportBundle | null> {
     const t = b && demo.trainers.find((x) => x.id === b.trainer_id);
     if (!b || !t) return null;
     const booking = asDemoBooking(b), w = Number(week) || 0, k = kind as Kind;
-    const win = k === "weekly" ? weeklyWindow(b.start_date, w) : handoverWindow(b.end_date);
-    return { report: { id, booking_id: b.id, trainer_id: t.id, kind: k, week_number: w, status: "draft", answers: prefill(k, booking, t.name, w), media: [], due_by: endOfDay(win.deadline).toISOString(), submitted_at: null, review_note: null, by_admin: false, approved_by_name: null, approved_at: null, sent_at: null, sent_to: null, send_error: null, updated_at: new Date().toISOString() }, booking, trainer: { id: t.id, name: t.name, email: t.email }, late: 0 };
+    const win = expectedReports(b as BookingForReports).find((x) => x.kind === k && x.week === w) || { deadline: b.end_date };
+    return { report: { id, booking_id: b.id, trainer_id: t.id, kind: k, week_number: w, status: "draft", answers: prefill(k, booking, t.name, w), media: [], due_by: endOfDay(win.deadline).toISOString(), submitted_at: null, review_note: null, by_admin: false, approved_by_name: null, approved_at: null, sent_at: null, sent_to: null, send_error: null, updated_at: new Date().toISOString() }, booking, trainer: { id: t.id, name: t.name, email: t.email }, late: 0, chat: null };
   }
   const sb = serverClient();
   const { data: r } = await sb.from("reports").select("*").eq("id", id).maybeSingle();
@@ -54,7 +59,8 @@ export async function getReport(id: string): Promise<ReportBundle | null> {
     sb.from("trainers").select("id, name, email").eq("id", r.trainer_id).maybeSingle()
   ]);
   if (!booking || !trainer) return null;
-  return { report: { ...r, media: (r.media || []) as MediaItem[], answers: (r.answers || {}) as Answers } as ReportRow, booking: booking as Booking, trainer, late: lateDays(r.submitted_at, r.due_by) };
+  const { data: chat } = await sb.from("chats").select("id").eq("deal_key", dealKey(booking as Booking)).eq("status", "open").maybeSingle();
+  return { report: { ...r, media: (r.media || []) as MediaItem[], answers: (r.answers || {}) as Answers } as ReportRow, booking: booking as Booking, trainer, late: lateDays(r.submitted_at, r.due_by), chat: chat ? { id: chat.id } : null };
 }
 
 /** Finds or starts the report for a booking/week. Trainers start their own; admins can start one for a trainer. */
@@ -73,14 +79,14 @@ export async function ensureReport(sb: SupabaseClient, b: Booking, trainerName: 
   return data.id;
 }
 
-export type QueueItem = { id: string; status: Status; kind: Kind; week: number; dog: string; client: string; trainer: string; submittedAt: string | null; late: number; note: string | null; byAdmin: boolean; sentAt: string | null; sentTo: string | null; error: string | null };
+export type QueueItem = { id: string; status: Status; kind: Kind; week: number; dog: string; client: string; trainer: string; submittedAt: string | null; late: number; note: string | null; byAdmin: boolean; sentAt: string | null; sentTo: string | null; error: string | null; flags: string[] };
 /** Admin queue: everything waiting for review, sent back, and recently approved. */
 export async function listQueue(): Promise<QueueItem[]> {
   if (isDemo()) return [];
   const { data } = await serverClient().from("reports").select("id, status, kind, week_number, submitted_at, due_by, review_note, by_admin, sent_at, sent_to, send_error, answers, trainers(name)").neq("status", "draft").order("submitted_at", { ascending: true, nullsFirst: false }).limit(300);
   return ((data || []) as unknown as { id: string; status: Status; kind: Kind; week_number: number; submitted_at: string | null; due_by: string | null; review_note: string | null; by_admin: boolean; sent_at: string | null; sent_to: string | null; send_error: string | null; answers: Answers; trainers: { name: string } | null }[]).map((r) => ({
     id: r.id, status: r.status, kind: r.kind, week: r.week_number, dog: String(r.answers?.dogName || ""), client: String(r.answers?.clientName || ""), trainer: r.trainers?.name || "",
-    submittedAt: r.submitted_at, late: lateDays(r.submitted_at, r.due_by), note: r.review_note, byAdmin: r.by_admin, sentAt: r.sent_at, sentTo: r.sent_to, error: r.send_error
+    submittedAt: r.submitted_at, late: lateDays(r.submitted_at, r.due_by), note: r.review_note, byAdmin: r.by_admin, sentAt: r.sent_at, sentTo: r.sent_to, error: r.send_error, flags: healthFlags(r.kind, r.answers || {})
   }));
 }
 
@@ -95,4 +101,14 @@ export async function listMyReports(trainerId: string) {
   if (isDemo()) return [];
   const { data } = await serverClient().from("reports").select("id, status, kind, week_number, submitted_at, due_by, answers, review_note").eq("trainer_id", trainerId).neq("status", "draft").order("submitted_at", { ascending: false, nullsFirst: false }).limit(60);
   return (data || []) as { id: string; status: Status; kind: Kind; week_number: number; submitted_at: string | null; due_by: string | null; answers: Answers; review_note: string | null }[];
+}
+
+/** Photos the trainer has posted in the dog's chat since the pickup date (null = the dog has no chat). The intake form needs them. */
+export async function countPickupPhotos(booking: Booking, sinceDate: string): Promise<number | null> {
+  if (isDemo()) return null;
+  const sb = serverClient();
+  const { data: chat } = await sb.from("chats").select("id").eq("deal_key", dealKey(booking)).eq("status", "open").maybeSingle();
+  if (!chat) return null;
+  const { data } = await sb.from("chat_messages").select("media").eq("chat_id", chat.id).eq("kind", "media").eq("sender_role", "trainer").gte("created_at", startOfDay(sinceDate).toISOString()).limit(300);
+  return (data || []).reduce((n: number, m: { media: { kind: string }[] }) => n + (m.media || []).filter((x) => x.kind === "photo").length, 0);
 }

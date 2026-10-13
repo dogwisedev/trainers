@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { Pill } from "@/components/ui";
-import { Todo } from "@/lib/reports";
+import { Todo, kindName } from "@/lib/reports";
 
 const when = (iso: string) => new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
-export const todoLabel = (t: Todo) => (t.window.kind === "weekly" ? `Week ${t.window.week} report` : "Handover report");
+export const todoLabel = (t: Todo) => kindName(t.window.kind);
 
 export function TodoPill({ t }: { t: Todo }) {
   if (t.state === "changes") return <Pill tone="biscuit">Sent back</Pill>;

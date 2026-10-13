@@ -1,12 +1,12 @@
-// Report cards: the form definitions, deadlines and validation. Pure functions (no database), so they're easy to test.
+// The three trainer forms, their deadlines and validation. Pure functions (no database), so they're easy to test.
 //
-// Weekly report: due by the Wednesday of each program week (window opens the Thursday before). Anita's rule:
-//   for the week ending Sunday Oct 18, submit between Thu Oct 8 and Wed Oct 14.
-// Handover report: due within 2 days after drop-off (the program's last day).
+//  Intake form          on the day of pickup (the booking's first day)
+//  Weekly health check  one for every Wednesday the dog is in care: open Wed, late after Fri ($100 penalty if late or missing)
+//  Handover report      open from the last day of training, late after 2 more days; this one goes to the client
 // Deadlines are the END of that day, Eastern time.
 import { addDays, toDate } from "./dates";
 
-export type Kind = "weekly" | "handover";
+export type Kind = "intake" | "weekly" | "handover";
 export type MediaItem = { id: string; name: string; kind: "video" | "photo"; slot: "training" | "homework" | "health"; description?: string; sig?: string; size?: number };
 export type Answers = Record<string, unknown>;
 export type Status = "draft" | "submitted" | "changes_requested" | "approved";
@@ -30,25 +30,20 @@ export function endOfDay(iso: string, tz = REPORT_TZ): Date {
 }
 export const startOfDay = (iso: string, tz = REPORT_TZ) => new Date(endOfDay(iso, tz).getTime() - (86400000 - 1000));
 
-/** Sunday that ends the Monday-to-Sunday week containing program week `k` (1-based). */
-function weekEndingSunday(start: string, k: number) {
-  const d = addDays(start, 7 * k - 1);
-  return addDays(d, (7 - toDate(d).getUTCDay()) % 7);
-}
 export type Window = { kind: Kind; week: number; opens: string; deadline: string }; // dates (YYYY-MM-DD)
-export function weeklyWindow(start: string, k: number): Window {
-  const deadline = addDays(weekEndingSunday(start, k), -4); // the Wednesday
-  return { kind: "weekly", week: k, opens: addDays(deadline, -6), deadline };
+export const intakeWindow = (start: string): Window => ({ kind: "intake", week: 0, opens: start, deadline: start });
+/** One health check per Wednesday the dog is in care, after pickup day and before the last day. Opens Wed, late after Friday. */
+export function weeklyWindows(start: string, end: string): Window[] {
+  const out: Window[] = [];
+  for (let d = addDays(start, 1); d < end; d = addDays(d, 1)) if (toDate(d).getUTCDay() === 3) out.push({ kind: "weekly", week: out.length + 1, opens: d, deadline: addDays(d, 2) });
+  return out;
 }
-export function handoverWindow(end: string): Window {
-  return { kind: "handover", week: 0, opens: addDays(end, -6), deadline: addDays(end, 2) };
-}
+export const handoverWindow = (end: string): Window => ({ kind: "handover", week: 0, opens: end, deadline: addDays(end, 2) });
 
 export type BookingForReports = { id: string; trainer_id: string; client_name: string; dog_name: string | null; start_date: string; end_date: string; weeks: number | null; status: string; reports_enabled?: boolean | null };
-/** Every report a booking should produce, with its window. */
+/** Every form a booking should produce, with its window. */
 export function expectedReports(b: BookingForReports): Window[] {
-  const weeks = b.weeks || Math.max(1, Math.floor((Math.round((toDate(b.end_date).getTime() - toDate(b.start_date).getTime()) / 86400000) + 1) / 7));
-  return [...Array.from({ length: weeks }, (_, i) => weeklyWindow(b.start_date, i + 1)), handoverWindow(b.end_date)];
+  return [intakeWindow(b.start_date), ...weeklyWindows(b.start_date, b.end_date), handoverWindow(b.end_date)];
 }
 
 export type RowLike = { booking_id: string; kind: Kind; week_number: number; status: Status; submitted_at?: string | null; due_by?: string | null; id?: string };
@@ -85,52 +80,71 @@ export function lateDays(submittedAt: string | null | undefined, dueBy: string |
 }
 
 // ── Form definitions ────────────────────────────────────────────────────
+// Names, emails and dates the app already knows are filled in for the trainer; they only answer what we can't know.
 export type Field =
-  | { key: string; label: string; type: "text" | "textarea"; required?: boolean; hint?: string }
+  | { key: string; label: string; type: "text" | "textarea" | "date" | "number"; required?: boolean; hint?: string }
   | { key: string; label: string; type: "single" | "multi"; options: string[]; required?: boolean; hint?: string; other?: boolean }
-  | { key: string; label: string; type: "yesno"; required?: boolean };
+  | { key: string; label: string; type: "yesno"; required?: boolean; detail?: "yes" | "no" | "none"; detailLabel?: string }
+  | { key: string; label: string; type: "confirm"; required?: boolean };
 export type Section = { title: string; fields: Field[] };
 
-export const FOCUS_OPTIONS = ["Obedience", "Manners", "Socialization", "Proper Play", "Canine Communication", "Fearful Behavior", "Separation Anxiety", "Confidence Building", "Reactivity", "Distractions"];
-export const PROGRAM_TYPES = ["Puppy Program", "Adolescent & Adult Basic Obedience Program", "Advanced Program", "Anxiety Rehab Program", "Aggression Rehab Program"];
-
 export const WEEKLY_SECTIONS: Section[] = [
-  { title: "New routine", fields: [
-    { key: "acclimating", label: "How I am acclimating to the new routine", type: "single", required: true, options: ["Great! Settling in nicely", "A little whiny here and there", "Still getting used to it"] },
-    { key: "playtime", label: "During our playtimes I was", type: "single", required: true, options: ["Happy to play!", "Loved romping with my friends!", "A little distracted", "Testing boundaries", "A little devil"] },
-    { key: "walks", label: "On our walks we", type: "multi", required: true, options: ["Enjoyed the weather", "Met new people", "Met new friends", "Focused on loose leash walking", "Got some energy out", "Happy to explore!"] },
-    { key: "crate", label: "When crated I was", type: "single", required: true, options: ["A perfect angel!", "Took some time to settle down", "Still working on crate training"] },
-    { key: "rewards", label: "My favorite rewards are", type: "text" }
+  { title: "Health", fields: [
+    { key: "skin", label: "Skin & coat: any hot spots, missing fur, redness, bumps or irritation?", type: "yesno", required: true },
+    { key: "body", label: "Body & limbs: any limping, swelling, sensitivity to touch or discomfort?", type: "yesno", required: true },
+    { key: "eyes", label: "Eyes, ears & mouth: any discharge, odor, redness or unusual buildup?", type: "yesno", required: true },
+    { key: "weight", label: "Weight & body condition compared with last week", type: "single", required: true, options: ["About the same", "Heavier", "Lighter"], hint: "Ribs easily felt? Belly tuck visible?" },
+    { key: "weightNote", label: "If heavier or lighter, what did you notice?", type: "textarea" },
+    { key: "weightLb", label: "Weight in lb, if you have a scale", type: "number" }
   ] },
-  { title: "Training", fields: [
-    { key: "focuses", label: "This week our main focuses were", type: "multi", required: true, options: FOCUS_OPTIONS, other: true },
-    { key: "personality", label: "My personality during training was", type: "multi", required: true, options: ["Outgoing", "Ready for whatever's next!", "Ready to work!", "A little distracted", "Shy", "Taking things slowly", "Loved every second!"] },
-    { key: "improvements", label: "Notable improvements from this week", type: "textarea", required: true },
-    { key: "nextFocus", label: "Next week's focuses are", type: "textarea", required: true },
-    { key: "notes", label: "Additional notes from the trainer", type: "textarea", required: true }
+  { title: "Digestion and appetite", fields: [
+    { key: "stool", label: "Stool consistency this week", type: "single", required: true, options: ["Firm", "Soft", "Loose", "Mixed"] },
+    { key: "potty", label: "Any potty accidents, vomiting or unusual straining?", type: "yesno", required: true },
+    { key: "appetite", label: "Any change in how eagerly the dog eats or drinks, or in food, portions or supplements?", type: "yesno", required: true }
   ] },
-  { title: "Snout to tail: health check", fields: [
-    { key: "physical", label: "Any physical observations on the dog upon health check?", type: "yesno", required: true },
-    { key: "diet", label: "Any diet changes?", type: "yesno", required: true },
-    { key: "appetite", label: "Any changes in the dog's appetite or thirst?", type: "yesno", required: true },
-    { key: "bowel", label: "Any changes in bowel movements?", type: "yesno", required: true },
-    { key: "potty", label: "Any potty accidents?", type: "yesno", required: true }
+  { title: "Energy and mood", fields: [
+    { key: "mood", label: "How have the dog's energy and mood been this week?", type: "textarea", required: true },
+    { key: "notes", label: "Anything else the team should know?", type: "textarea" }
   ] }
 ];
-// Handover has a few repeatable parts (training items, homework items) handled by the form itself.
+
+export const INTAKE_SECTIONS: Section[] = [
+  { title: "Pickup", fields: [
+    { key: "pickupDate", label: "Date of pickup", type: "date", required: true },
+    { key: "dogBreed", label: "Dog's breed", type: "text" },
+    { key: "behavior", label: "Overall behavior assessment during pickup", type: "textarea", required: true }
+  ] },
+  { title: "What came with the dog", fields: [
+    { key: "items", label: "List of items given by the client", type: "textarea", required: true },
+    { key: "foodProvided", label: "Did the client provide dog food?", type: "yesno", required: true, detailLabel: "how much food was provided?" },
+    { key: "foodDaily", label: "How much does the dog eat daily?", type: "text", required: true },
+    { key: "foodSame", label: "Is it the same food the dog eats at home?", type: "yesno", required: true, detail: "none" },
+    { key: "medication", label: "Is the dog on medication?", type: "yesno", required: true, detailLabel: "health issue, medication name and how often it's given" }
+  ] },
+  { title: "Condition at pickup", fields: [
+    { key: "snout", label: "Snout to tail: thorough check of the dog's physical well-being, with the owner present", type: "textarea", required: true },
+    { key: "concerns", label: "Did the client raise any training concerns at pickup that we didn't already know about?", type: "textarea" },
+    { key: "photosPosted", label: "I've posted pickup photos in the dog's chat (show any injuries, cuts, scars or missing parts clearly)", type: "confirm", required: true }
+  ] },
+  { title: "Route (optional)", fields: [
+    { key: "route", label: "Route taken for pickup", type: "text" },
+    { key: "mileage", label: "Mileage", type: "number" }
+  ] }
+];
+
+// The handover report has repeatable parts (training items, homework items) and picks its videos from the chat.
 export const HANDOVER_SIMPLE: Field[] = [
-  { key: "programType", label: "Program type", type: "single", required: true, options: PROGRAM_TYPES },
+  { key: "program", label: "Training program", type: "text", required: true },
   { key: "clientLocation", label: "Client's location", type: "text" },
-  { key: "goals", label: "What are the client's main goals and focus?", type: "textarea", required: true, hint: "The personal goal or behavior the client wants worked on. This is the main focus of the training." },
+  { key: "goals", label: "What are the client's main goals and focus?", type: "textarea", required: true, hint: "The personal goal or behavior the client wants worked on. This was the main focus of the training." }
 ];
 export const HANDOVER_AFTER: Field[] = [
-  { key: "additionalTraining", label: "Additional training details", type: "textarea", hint: "What was done and how. Can be generic, used for all reports with the same training." },
-  { key: "additionalHomework", label: "Additional homework details", type: "textarea", hint: "Clear directions from the trainer, personalized for this client." },
+  { key: "healthAtHandover", label: "Snout to tail: findings from the health check at the handover session, with the owner present", type: "textarea", required: true },
+  { key: "extra", label: "Anything else to tell the client", type: "textarea" },
   { key: "overall", label: "Overall trainer review of the program", type: "textarea", required: true, hint: "Biggest opportunities and challenges, top 5 issues and outcomes, overall review." }
 ];
 export type Item = { title: string; text: string };
 
-export const HEADER_KEYS = { weekly: ["clientName", "clientEmail", "dogName", "trainerName"], handover: ["clientName", "clientEmail", "dogName", "trainerName"] } as const;
 
 // ── Answers helpers ─────────────────────────────────────────────────────
 export const s = (v: unknown) => (typeof v === "string" ? v.trim() : "");
@@ -141,29 +155,55 @@ export const items = (v: unknown): Item[] => (Array.isArray(v) ? v.map((x) => ({
 export const rawItems = (v: unknown): Item[] => (Array.isArray(v) ? v.map((x) => ({ title: raw((x as Item)?.title), text: raw((x as Item)?.text) })) : []);
 export const yesno = (a: Answers, key: string) => ({ yes: a[key] === "yes", no: a[key] === "no", detail: s(a[`${key}_detail`]) });
 
+
+/** Short things for the admin to look at in a weekly check or intake form. */
+export function healthFlags(kind: Kind, a: Answers): string[] {
+  const out: string[] = [];
+  if (kind === "weekly") {
+    const names: Record<string, string> = { skin: "Skin & coat", body: "Body & limbs", eyes: "Eyes, ears & mouth", potty: "Digestion", appetite: "Appetite or diet" };
+    for (const [k, n] of Object.entries(names)) if (a[k] === "yes") out.push(n);
+    if (s(a.weight) && s(a.weight) !== "About the same") out.push(`Weight: ${s(a.weight).toLowerCase()}`);
+    if (s(a.stool) && s(a.stool) !== "Firm") out.push(`Stool: ${s(a.stool).toLowerCase()}`);
+  }
+  if (kind === "intake" && a.medication === "yes") out.push("On medication");
+  return out;
+}
+
 /** Missing required things, in plain words. Empty = ready to submit. */
 export function validate(kind: Kind, a: Answers, media: MediaItem[]): string[] {
   const missing: string[] = [];
   const need = (label: string, ok: boolean) => { if (!ok) missing.push(label); };
-  need("Client's name", !!s(a.clientName)); need("Client's email", /^\S+@\S+\.\S+$/.test(s(a.clientEmail)));
   need("Dog's name", !!s(a.dogName)); need("Trainer's name", !!s(a.trainerName));
+  if (kind === "handover") { need("Client's name", !!s(a.clientName)); need("Client's email", /^\S+@\S+\.\S+$/.test(s(a.clientEmail))); }
   const check = (f: Field) => {
     if (!("required" in f) || !f.required) return;
     if (f.type === "multi") { const picked = arr(a[f.key]); need(f.label, picked.length > 0 || !!s(a[`${f.key}_other`])); }
-    else if (f.type === "yesno") { need(f.label, a[f.key] === "yes" || a[f.key] === "no"); if (a[f.key] === "yes") need(`${f.label} (describe it)`, !!s(a[`${f.key}_detail`])); }
+    else if (f.type === "yesno") {
+      need(f.label, a[f.key] === "yes" || a[f.key] === "no");
+      const on = f.detail ?? "yes";
+      if (on !== "none" && a[f.key] === on) need(`${f.label} (${f.detailLabel || "describe it"})`, !!s(a[`${f.key}_detail`]));
+    }
+    else if (f.type === "confirm") need(f.label, a[f.key] === true);
+    else if (f.type === "date") need(f.label, /^\d{4}-\d{2}-\d{2}$/.test(s(a[f.key])));
     else need(f.label, !!s(a[f.key]));
   };
-  if (kind === "weekly") {
-    need("Training week number", Number(a.weekNumber) > 0);
-    WEEKLY_SECTIONS.forEach((sec) => sec.fields.forEach(check));
-  } else {
+  if (kind === "weekly") WEEKLY_SECTIONS.forEach((sec) => sec.fields.forEach(check));
+  else if (kind === "intake") INTAKE_SECTIONS.forEach((sec) => sec.fields.forEach(check));
+  else {
     HANDOVER_SIMPLE.forEach(check); HANDOVER_AFTER.forEach(check);
     const t = items(a.training).filter((i) => i.title || i.text), h = items(a.homework).filter((i) => i.title || i.text);
     need("At least one training item", t.length > 0 && t.every((i) => i.text));
     need("At least one homework item", h.length > 0 && h.every((i) => i.text));
-    need("A photo of the dog with the trainer", media.some((m) => m.slot === "health" && m.kind === "photo"));
+    need("A photo of the dog with the trainer (pick one from the chat)", media.some((m) => m.slot === "health" && m.kind === "photo"));
   }
   return missing;
 }
 
-export const reportTitle = (kind: Kind, week: number, dog: string) => (kind === "weekly" ? `Week ${week} report for ${dog || "your dog"}` : `Handover report for ${dog || "your dog"}`);
+export const kindName = (kind: Kind) => (kind === "weekly" ? "Weekly health check" : kind === "intake" ? "Intake form" : "Handover report");
+export const reportTitle = (kind: Kind, week: number, dog: string) =>
+  kind === "weekly" ? `Weekly health check, week ${week}: ${dog || "dog"}` : kind === "intake" ? `Intake form for ${dog || "the dog"}` : `Handover report for ${dog || "your dog"}`;
+/** One line telling the trainer when it's due. */
+export const deadlineHint = (kind: Kind) =>
+  kind === "weekly" ? "Submit between Wednesday and Friday. Late (after Friday) or missing checks carry a $100 penalty."
+  : kind === "intake" ? "Complete this on the day of pickup."
+  : "Open from the last day of training. Submit within 2 days after drop-off. This is what the client receives as their graduation report card.";
