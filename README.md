@@ -41,7 +41,7 @@ These were tested against Postgres with the seed data.
 ## HubSpot dates (source of truth)
 Booking dates follow the HubSpot deal (`/api/hubspot/sync`, every 30 minutes, and right after a booking is made).
 - Vercel variables: `HUBSPOT_TOKEN` (deals read), `HUBSPOT_SYNC` = `dry` (default, writes nothing) → `quiet` (writes, no emails) → `live`.
-  Optional: `HUBSPOT_START_PROP`, `HUBSPOT_END_PROP` (found automatically as Program Start Date / Program End Date), `OFFICE_EMAIL` (default info@dogwiseacademy.com).
+  Optional: `HUBSPOT_START_PROP`, `HUBSPOT_END_PROP` (found automatically as Program Start Date / Training End Date), `OFFICE_EMAIL` (default info@dogwiseacademy.com).
 - Preview: signed in as an admin, open `/api/hubspot/sync` in the browser (always a dry run from there).
 - Several dogs on one deal: HubSpot's start is the first dog's pickup and every dog moves by the same days; HubSpot's end goes to the dog(s) that end last.
 - Only bookings that ended in the last 14 days or later are moved. Approved payslips are never touched.

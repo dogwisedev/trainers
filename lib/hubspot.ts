@@ -5,7 +5,7 @@ import "server-only";
 //   HUBSPOT_TOKEN        private app token (scope crm.objects.deals.read)
 //   HUBSPOT_SYNC         dry (default: writes nothing, shows what it would do) | quiet (writes dates, no emails or change incidents) | live
 //   HUBSPOT_START_PROP   optional, internal name of the start date (found automatically: program_start_date / "Program Start Date")
-//   HUBSPOT_END_PROP     optional, internal name of the end date (found automatically: program_end_date / "Program End Date"; none = keep each booking's length)
+//   HUBSPOT_END_PROP     optional, internal name of the end date (found automatically: training_end_date / "Training End Date", or program_end_date; none = keep each booking's length)
 const BASE = "https://api.hubapi.com";
 
 export const hubspotConfigured = () => !!process.env.HUBSPOT_TOKEN;
@@ -38,13 +38,14 @@ let cachedProps: DateProps | null = null;
 export async function dealDateProps(): Promise<DateProps> {
   if (cachedProps) return cachedProps;
   const { results } = await hs<{ results: Prop[] }>("/crm/v3/properties/deals?archived=false");
-  const pick = (envName: string | undefined, name: string, label: RegExp) => {
+  const pick = (envName: string | undefined, names: string[], label: RegExp) => {
     if (envName) return results.find((p) => p.name === envName.trim()) || null;
-    return results.find((p) => p.name === name) || results.find((p) => label.test(p.label.trim())) || null;
+    for (const n of names) { const hit = results.find((p) => p.name === n); if (hit) return hit; }
+    return results.find((p) => label.test(p.label.trim())) || null;
   };
-  const start = pick(process.env.HUBSPOT_START_PROP, "program_start_date", /^program start date$/i);
+  const start = pick(process.env.HUBSPOT_START_PROP, ["program_start_date"], /^program start date$/i);
   if (!start) throw new Error(`Couldn't find the deal's start date property${process.env.HUBSPOT_START_PROP ? ` "${process.env.HUBSPOT_START_PROP}"` : " (program_start_date)"}. Set HUBSPOT_START_PROP in Vercel.`);
-  const end = pick(process.env.HUBSPOT_END_PROP, "program_end_date", /^program end date$/i);
+  const end = pick(process.env.HUBSPOT_END_PROP, ["training_end_date", "program_end_date"], /^(training|program) end date$/i);
   if (process.env.HUBSPOT_END_PROP && !end) throw new Error(`Couldn't find the deal property "${process.env.HUBSPOT_END_PROP}" (HUBSPOT_END_PROP).`);
   cachedProps = { start, end };
   return cachedProps;

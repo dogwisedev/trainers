@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { isDemo, serviceClient } from "@/lib/supabase";
 import { weekUsage } from "@/lib/capacity";
-import { addDays, short, weekStart, weeksFrom } from "@/lib/dates";
+import { addDays, daysBetween, short, weekStart, weeksFrom } from "@/lib/dates";
 import { Booking, TimeOff, Trainer } from "@/lib/types";
 import { notifyBookings } from "@/lib/bookingEmail";
 import { ensureChatsForBookings } from "@/lib/chat";
@@ -11,7 +11,8 @@ import { syncHubspotDates } from "@/lib/hubspotSync";
 // Book a Closed Won HubSpot deal into a trainer's calendar (used by the Sales extension).
 // POST /api/bookings   header x-api-key: BOOKING_KEY
 // { trainer_id, client_name, client_email, hubspot_deal_id, notes, force,
-//   dogs: [{ dog_name, program, weeks, start_date, notes }] }      one booking (kennel) per dog
+//   dogs: [{ dog_name, program, weeks, start_date, end_date?, notes }] }      one booking (kennel) per dog
+// Dates are used exactly as given (no rounding to Sunday). No end_date = start + weeks + extra days. Then the HubSpot deal's dates take over.
 // (Old single-dog shape { dog_name, program, weeks, start_date } still works.)
 //  201 { bookings, booking, trainer, url }
 //  409 { code: "already_booked" | "full", message, ... }   force: true books anyway when "full"
@@ -33,13 +34,15 @@ export async function POST(req: Request) {
   if (rawDogs.length > 6) return bad(400, { message: "Book at most 6 dogs at once." });
   const dogs = rawDogs.map((d, i) => ({
     i, name: String(d.dog_name || "").trim().slice(0, 80), program: String(d.program || "").trim().slice(0, 120),
-    weeks: Math.round(Number(d.weeks) || 0), start: String(d.start_date || ""), notes: String(d.notes || "").trim().slice(0, 2000), rehab: d.rehab === true,
+    weeks: Math.round(Number(d.weeks) || 0), start: String(d.start_date || ""), end: String(d.end_date || ""), notes: String(d.notes || "").trim().slice(0, 2000), rehab: d.rehab === true,
     extra: Math.min(13, Math.max(0, Math.round(Number(d.extra_days) || 0)))
   }));
   for (const d of dogs) {
     const label = d.name || `Dog ${d.i + 1}`;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(d.start)) return bad(400, { message: `${label}: pick a start date.` });
     if (d.weeks < 1 || d.weeks > 12) return bad(400, { message: `${label}: program length must be 1 to 12 weeks.` });
+    if (d.end && (!/^\d{4}-\d{2}-\d{2}$/.test(d.end) || d.end < d.start)) return bad(400, { message: `${label}: the end date must be on or after the start date.` });
+    if (d.end && daysBetween(d.start, d.end) + 1 - d.weeks * 7 > 13) return bad(400, { message: `${label}: the dates are more than 13 days longer than a ${d.weeks}-week program. Check the program length.` });
   }
 
   const sb = serviceClient();
@@ -61,10 +64,12 @@ export async function POST(req: Request) {
 
   // Rows to insert, one per dog
   const rows = dogs.map((d) => {
-    const s = weekStart(d.start);
+    const s = d.start;
+    const end = d.end || addDays(s, d.weeks * 7 - 1 + d.extra);
+    const extra = d.end ? Math.max(0, daysBetween(s, d.end) + 1 - d.weeks * 7) : d.extra;
     return {
       trainer_id: trainerId, client_name: client.slice(0, 120), dog_name: d.name || null, ...(clientEmail ? { client_email: clientEmail } : {}),
-      program: d.program || `${d.weeks}-week`, start_date: s, end_date: addDays(s, d.weeks * 7 - 1 + d.extra), weeks: d.weeks, extra_days: d.extra,
+      program: d.program || `${d.weeks}-week`, start_date: s, end_date: end, weeks: d.weeks, extra_days: extra,
       status: "confirmed", notes: [d.notes, String(b.notes || "").trim()].filter(Boolean).join("\n").slice(0, 2000) || null,
       hubspot_deal_id: dealId, source: "sales-extension", rehab: !!d.rehab || /rehab|\bRR\b/i.test(d.program)
     };
@@ -80,7 +85,7 @@ export async function POST(req: Request) {
     ]);
     const taken = [...((bk.data || []) as Booking[])];
     for (const [k, r] of rows.entries()) {
-      const use = weekUsage(trainer, taken, (off.data || []) as TimeOff[], weeksFrom(r.start_date, Math.ceil((r.weeks * 7 + r.extra_days) / 7)));
+      const use = weekUsage(trainer, taken, (off.data || []) as TimeOff[], weeksFrom(r.start_date, Math.ceil((daysBetween(weekStart(r.start_date), r.end_date) + 1) / 7)));
       const fullWeek = use.find((w) => w.free < 1);
       if (fullWeek) return bad(409, {
         code: "full",

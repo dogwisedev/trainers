@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { getViewer } from "@/lib/data";
 import { isDemo, serverClient, serviceClient } from "@/lib/supabase";
-import { addDays, short, weekStart } from "@/lib/dates";
+import { addDays, short } from "@/lib/dates";
 import { notifyBookings, notifySummary } from "@/lib/bookingEmail";
 import { sendInvite, sendSignInLink } from "@/lib/authEmail";
 import { ensureChatsForBookings } from "@/lib/chat";
@@ -160,7 +160,7 @@ export async function saveBooking(_: Result | null, f: FormData): Promise<Result
   if (v.role !== "admin") return { ok: false, message: "Admins only." };
   const start = str(f, "start_date"), weeks = num(f, "weeks") || 3, extra = Math.min(13, Math.max(0, num(f, "extra_days") || 0));
   if (!start || !str(f, "trainer_id") || !str(f, "client_name")) return { ok: false, message: "Trainer, client and start date are required." };
-  const s = weekStart(start);
+  const s = start; // exactly as entered: no rounding to Sunday
   const row = {
     trainer_id: str(f, "trainer_id"), client_name: str(f, "client_name"), dog_name: str(f, "dog_name"), ...(str(f, "client_email") ? { client_email: str(f, "client_email") } : {}),
     program: str(f, "program") || `${weeks}-week`, start_date: s, end_date: addDays(s, weeks * 7 - 1 + extra), weeks, extra_days: extra,
