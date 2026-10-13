@@ -31,7 +31,7 @@ export async function runReportReminders(now = new Date()) {
 
   const byTrainer = new Map<string, Item[]>();
   for (const b of bookings) for (const w of expectedReports(b)) {
-    const done = (reps || []).some((r: { booking_id: string; kind: string; week_number: number; status: string }) => r.booking_id === b.id && r.kind === w.kind && r.week_number === w.week && (r.status === "submitted" || r.status === "approved"));
+    const done = (reps || []).some((r: { booking_id: string; kind: string; week_number: number; status: string }) => r.booking_id === b.id && r.kind === w.kind && r.week_number === w.week && (r.status === "submitted" || r.status === "approved" || r.status === "waived"));
     if (done) continue;
     const wasSent = (stage: string) => (sent || []).some((r: { booking_id: string; kind: string; week_number: number; stage: string }) => r.booking_id === b.id && r.kind === w.kind && r.week_number === w.week && r.stage === stage);
     const stages: ("open" | "due")[] = [];

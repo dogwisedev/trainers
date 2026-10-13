@@ -21,9 +21,9 @@ export default async function AdminReport({ params }: { params: { id: string } }
           <p className="truncate text-[14px] text-ink-soft"><Link className="underline" href={`/a/trainers/${trainer.id}`}>{trainer.name}</Link>, client {booking.client_name}</p>
         </div>
       </div>
-      <ReportForm id={r.id} kind={r.kind} mode="admin" status={r.status} bookingId={booking.id} initialAnswers={r.answers} initialMedia={r.media}
+      <ReportForm id={r.id} kind={r.kind} mode="admin" status={r.status} bookingId={booking.id} week={r.week_number} initialAnswers={r.answers} initialMedia={r.media}
         startDate={booking.start_date} endDate={booking.end_date} submittedAt={r.submitted_at} reviewNote={r.review_note} due={r.due_by} late={b.late} demo={isDemo()} chatId={b.chat?.id ?? null}
-        meta={{ approvedBy: r.approved_by_name, approvedAt: r.approved_at, sentTo: r.sent_to, sentAt: r.sent_at, error: r.send_error, byAdmin: r.by_admin }} />
+        meta={{ approvedBy: r.approved_by_name, approvedAt: r.approved_at, sentTo: r.sent_to, sentAt: r.sent_at, error: r.send_error, byAdmin: r.by_admin, waivedBy: r.waived_by, waivedAt: r.waived_at }} />
     </>
   );
 }

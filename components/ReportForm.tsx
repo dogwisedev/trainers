@@ -7,12 +7,13 @@ import { approveReportAction, resendReportAction, saveReportAction, sendBackActi
 import { MediaPicker } from "@/components/MediaPicker";
 import { Answers, Field, HANDOVER_AFTER, HANDOVER_SIMPLE, INTAKE_SECTIONS, Item, Kind, MEDIA_ADVICE, MediaItem, Status, WEEKLY_SECTIONS, arr, deadlineHint, hasTrainerPhoto, raw, rawItems, s, validate } from "@/lib/reports";
 import { buildReport, reportHtml } from "@/lib/reportDoc";
+import { WaiveButton } from "@/components/WaiveButton";
 
 type Props = {
-  id: string; kind: Kind; mode: "trainer" | "admin"; status: Status; bookingId: string;
+  id: string; kind: Kind; mode: "trainer" | "admin"; status: Status; bookingId: string; week?: number;
   initialAnswers: Answers; initialMedia: MediaItem[]; startDate: string; endDate: string; submittedAt: string | null;
   reviewNote: string | null; due: string | null; late: number; demo: boolean; chatId: string | null;
-  meta: { approvedBy: string | null; approvedAt: string | null; sentTo: string | null; sentAt: string | null; error: string | null; byAdmin: boolean };
+  meta: { approvedBy: string | null; approvedAt: string | null; sentTo: string | null; sentAt: string | null; error: string | null; byAdmin: boolean; waivedBy?: string | null; waivedAt?: string | null };
 };
 
 function Chips({ name, options, value, multi, onChange }: { name: string; options: string[]; value: string[]; multi: boolean; onChange: (v: string[]) => void }) {
@@ -61,7 +62,8 @@ export function ReportForm(p: Props) {
   const [note, setNote] = useState("");
   const [pending, start] = useTransition();
 
-  const editable = p.mode === "trainer" ? p.status === "draft" || p.status === "changes_requested" : p.status !== "approved" || editing;
+  const waived = p.status === "waived";
+  const editable = !waived && (p.mode === "trainer" ? p.status === "draft" || p.status === "changes_requested" : p.status !== "approved" || editing);
   const missing = useMemo(() => validate(p.kind, answers, media), [p.kind, answers, media]);
   const set = (k: string, v: unknown) => { setAnswers((a) => ({ ...a, [k]: v })); setDirty(true); };
   const setM = (m: MediaItem[]) => { setMedia(m); setDirty(true); };
@@ -126,6 +128,7 @@ export function ReportForm(p: Props) {
   const chatHref = p.chatId ? `${p.mode === "admin" ? "/a/chats/" : "/t/chats/"}${p.chatId}` : null;
   return (
     <div className="space-y-4">
+      {waived && <div className="rounded-[18px] bg-paper p-4 text-[14px] text-ink-soft"><p className="font-bold text-ink">Not needed</p><p>{p.mode === "admin" ? `Marked not needed${p.meta.waivedBy ? ` by ${p.meta.waivedBy}` : ""}${p.meta.waivedAt ? ` on ${new Date(p.meta.waivedAt).toLocaleDateString("en-US")}` : ""}. It's off the trainer's list and doesn't count as late.` : "The team marked this form as not needed. Nothing to do."}</p></div>}
       {p.status === "changes_requested" && p.reviewNote && (
         <div className="rounded-[18px] border border-biscuit bg-biscuit-wash p-4 text-[14px] text-[#8A5A00]"><p className="font-bold">The team sent this back</p><p className="mt-1 whitespace-pre-wrap">{p.reviewNote}</p></div>
       )}
@@ -209,18 +212,20 @@ export function ReportForm(p: Props) {
           {p.mode === "trainer" && editable && <button type="button" className="btn-ink flex-1" disabled={pending} onClick={submit}>{pending ? "Submitting…" : "Submit for review"}</button>}
           {p.mode === "admin" && editable && (
             <>
+              {(p.status === "draft" || p.status === "changes_requested") && <WaiveButton bookingId={p.bookingId} kind={p.kind} week={p.week ?? 0} reportId={p.id} after="/a/reports?f=overdue" className="btn-ghost whitespace-nowrap px-3" />}
               {p.status !== "approved" && !p.meta.byAdmin && <button type="button" className="btn-ghost whitespace-nowrap px-3" disabled={pending} onClick={() => setSendBack((v) => !v)}>Send back</button>}
               {editing && <button type="button" className="btn-ghost whitespace-nowrap px-3" onClick={() => { setEditing(false); router.refresh(); }}>Cancel</button>}
               <button type="button" className="btn-ink flex-1 whitespace-nowrap px-3" disabled={pending} onClick={approve}>{pending ? (p.kind === "handover" ? "Sending…" : "Saving…") : p.kind !== "handover" ? (editing ? "Save changes" : "Mark as reviewed") : editing ? "Send corrected report" : "Approve and send"}</button>
             </>
           )}
+          {p.mode === "admin" && waived && <WaiveButton bookingId={p.bookingId} kind={p.kind} week={p.week ?? 0} reportId={p.id} undo className="btn-ink flex-1" />}
           {p.mode === "admin" && p.status === "approved" && !editing && (
             <>
               <button type="button" className="btn-ink flex-1" onClick={() => setEditing(true)}>Edit</button>
               {p.kind === "handover" && <button type="button" className="btn-ghost flex-1" disabled={pending} onClick={() => run(() => resendReportAction(p.id))}>{pending ? "Sending…" : "Email again"}</button>}
             </>
           )}
-          {!(p.mode === "trainer" && p.status === "draft") && <a className="btn-ghost" href={`/api/reports/${p.id}/pdf`} target="_blank">PDF</a>}
+          {!(p.mode === "trainer" && p.status === "draft") && !waived && <a className="btn-ghost" href={`/api/reports/${p.id}/pdf`} target="_blank">PDF</a>}
         </div>
       </div>
     </div>

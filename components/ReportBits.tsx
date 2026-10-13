@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Pill } from "@/components/ui";
 import { Todo, kindName } from "@/lib/reports";
+import { WaiveButton } from "@/components/WaiveButton";
 
 const when = (iso: string) => new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
 export const todoLabel = (t: Todo) => kindName(t.window.kind);
@@ -23,6 +24,7 @@ export function TodoRow({ t, mode }: { t: Todo & { trainerName?: string }; mode:
         <p className="truncate text-[13px] text-ink-soft">{mode === "admin" && t.trainerName ? `${t.trainerName}, ` : ""}{t.booking.client_name}</p>
       </div>
       <TodoPill t={t} />
+      {mode === "admin" && t.state !== "waiting" && <WaiveButton bookingId={t.booking.id} kind={t.window.kind} week={t.window.week} reportId={t.report?.id} />}
       {t.state !== "waiting" && <Link href={href} className="btn-ink h-9 min-h-0 px-3 text-[13px]">{verb}</Link>}
     </li>
   );

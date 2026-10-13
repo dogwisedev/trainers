@@ -11,6 +11,7 @@ import { Booking, Trainer } from "./types";
 export type ReportRow = RowLike & {
   id: string; trainer_id: string; answers: Answers; media: MediaItem[]; due_by: string | null; submitted_at: string | null; review_note: string | null; by_admin: boolean;
   approved_by_name: string | null; approved_at: string | null; sent_at: string | null; sent_to: string | null; send_error: string | null; updated_at: string;
+  waived_by?: string | null; waived_at?: string | null;
 };
 export type ReportBundle = { report: ReportRow; booking: Booking; trainer: Pick<Trainer, "id" | "name" | "email">; late: number; chat: { id: string } | null };
 
@@ -83,7 +84,7 @@ export type QueueItem = { id: string; status: Status; kind: Kind; week: number; 
 /** Admin queue: everything waiting for review, sent back, and recently approved. */
 export async function listQueue(): Promise<QueueItem[]> {
   if (isDemo()) return [];
-  const { data } = await serverClient().from("reports").select("id, status, kind, week_number, submitted_at, due_by, review_note, by_admin, sent_at, sent_to, send_error, answers, trainers(name)").neq("status", "draft").order("submitted_at", { ascending: true, nullsFirst: false }).limit(300);
+  const { data } = await serverClient().from("reports").select("id, status, kind, week_number, submitted_at, due_by, review_note, by_admin, sent_at, sent_to, send_error, answers, trainers(name)").not("status", "in", "(draft,waived)").order("submitted_at", { ascending: true, nullsFirst: false }).limit(300);
   return ((data || []) as unknown as { id: string; status: Status; kind: Kind; week_number: number; submitted_at: string | null; due_by: string | null; review_note: string | null; by_admin: boolean; sent_at: string | null; sent_to: string | null; send_error: string | null; answers: Answers; trainers: { name: string } | null }[]).map((r) => ({
     id: r.id, status: r.status, kind: r.kind, week: r.week_number, dog: String(r.answers?.dogName || ""), client: String(r.answers?.clientName || ""), trainer: r.trainers?.name || "",
     submittedAt: r.submitted_at, late: lateDays(r.submitted_at, r.due_by), note: r.review_note, byAdmin: r.by_admin, sentAt: r.sent_at, sentTo: r.sent_to, error: r.send_error, flags: healthFlags(r.kind, r.answers || {})
@@ -99,7 +100,7 @@ export async function pendingReportCount(): Promise<number> {
 /** The trainer's own reports for the history list. */
 export async function listMyReports(trainerId: string) {
   if (isDemo()) return [];
-  const { data } = await serverClient().from("reports").select("id, status, kind, week_number, submitted_at, due_by, answers, review_note").eq("trainer_id", trainerId).neq("status", "draft").order("submitted_at", { ascending: false, nullsFirst: false }).limit(60);
+  const { data } = await serverClient().from("reports").select("id, status, kind, week_number, submitted_at, due_by, answers, review_note").eq("trainer_id", trainerId).not("status", "in", "(draft,waived)").order("submitted_at", { ascending: false, nullsFirst: false }).limit(60);
   return (data || []) as { id: string; status: Status; kind: Kind; week_number: number; submitted_at: string | null; due_by: string | null; answers: Answers; review_note: string | null }[];
 }
 

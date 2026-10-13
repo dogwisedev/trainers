@@ -4,7 +4,8 @@ import { getViewer } from "@/lib/data";
 import { isDemo, serverClient } from "@/lib/supabase";
 import { Answers, Kind, MediaItem, Status, hasTrainerPhoto, healthFlags, kindName, reportTitle, s, validate } from "@/lib/reports";
 import { dealKey } from "@/lib/chatTypes";
-import { getReport, pickupMedia } from "@/lib/reportData";
+import { ensureReport, getReport, pickupMedia } from "@/lib/reportData";
+import type { Booking } from "@/lib/types";
 import { messageTrainer, raiseIncident, resolveIncidents } from "@/lib/incidents";
 import { buildReport, reportHtml, reportText } from "@/lib/reportDoc";
 import { reportPdf } from "@/lib/reportPdf";
@@ -51,6 +52,7 @@ export async function saveReportAction(id: string, answers: Answers, media: Medi
     const b = await getReport(id);
     if (!b) return { ok: false, message: "Report not found." };
     const st = b.report.status;
+    if (st === "waived") return { ok: false, message: "This form is marked not needed. Bring it back first." };
     const can = v.role === "admin" ? st !== "approved" || editingApproved : v.trainerId === b.report.trainer_id && (st === "draft" || st === "changes_requested");
     if (!can) return { ok: false, message: st === "submitted" ? "It's with the Dogwise team for review now." : "This report can't be edited." };
     const { error } = await serverClient().from("reports").update({ answers: cleanAnswers(answers), media: cleanMedia(media, b.report.media, b.booking.id) }).eq("id", id);
@@ -197,6 +199,44 @@ export async function setReportsEnabledAction(bookingId: string, on: boolean): P
   } catch (e) { return { ok: false, message: (e as Error).message }; }
 }
 export type { Status, Kind };
+
+// ── Not needed (admin): a form made by mistake, or for days the dog wasn't in care ──
+/** Marks a form "not needed": it leaves every to-do list (admin and trainer), reminders and late counts. Works whether or not it was started. */
+export async function waiveReportAction(bookingId: string, kind: Kind, week: number, reportId?: string | null): Promise<ReportResult> {
+  if (isDemo()) return DEMO;
+  try {
+    const v = await who();
+    if (v.role !== "admin") return { ok: false, message: "Admins only." };
+    const sb = serverClient();
+    let id = reportId || null;
+    if (!id) {
+      const { data: b } = await sb.from("bookings").select("*").eq("id", bookingId).maybeSingle();
+      const { data: t } = b ? await sb.from("trainers").select("name").eq("id", b.trainer_id).maybeSingle() : { data: null };
+      if (!b || !t) return { ok: false, message: "Booking not found." };
+      id = await ensureReport(sb, b as Booking, t.name, kind, week, true);
+    }
+    const { data: r } = await sb.from("reports").select("status").eq("id", id).maybeSingle();
+    if (!r) return { ok: false, message: "Form not found." };
+    if (r.status === "submitted" || r.status === "approved") return { ok: false, message: "The trainer already submitted this one: review it instead." };
+    const { error } = await sb.from("reports").update({ status: "waived", waived_by: v.name === "Dogwise team" ? v.email || v.name : v.name, waived_at: new Date().toISOString() }).eq("id", id);
+    if (error) return { ok: false, message: error.message };
+    await resolveIncidents({ kinds: ["intake_media_missing", "handover_photo_missing"], reportId: id }, v.name, "Form marked not needed");
+    revalidatePath("/", "layout");
+    return { ok: true, message: "Marked not needed. It's gone from the trainer's list too." };
+  } catch (e) { return { ok: false, message: (e as Error).message }; }
+}
+
+/** Undo "not needed": back to a draft the trainer can fill in. */
+export async function unwaiveReportAction(id: string): Promise<ReportResult> {
+  if (isDemo()) return DEMO;
+  try {
+    const v = await who();
+    if (v.role !== "admin") return { ok: false, message: "Admins only." };
+    const { error } = await serverClient().from("reports").update({ status: "draft", waived_by: null, waived_at: null }).eq("id", id).eq("status", "waived");
+    revalidatePath("/", "layout");
+    return error ? { ok: false, message: error.message } : { ok: true, message: "Back on the trainer's list." };
+  } catch (e) { return { ok: false, message: (e as Error).message }; }
+}
 
 // ── Choose photos and videos from the dog's chat (nothing is uploaded again: it's all in Drive already) ──
 export type ChatMediaOption = { id: string; name: string; kind: "video" | "photo"; size?: number; at: string; by: string; sig: string };

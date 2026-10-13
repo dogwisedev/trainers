@@ -9,7 +9,7 @@ import { addDays, toDate } from "./dates";
 export type Kind = "intake" | "weekly" | "handover";
 export type MediaItem = { id: string; name: string; kind: "video" | "photo"; slot: "training" | "homework" | "health"; description?: string; sig?: string; size?: number };
 export type Answers = Record<string, unknown>;
-export type Status = "draft" | "submitted" | "changes_requested" | "approved";
+export type Status = "draft" | "submitted" | "changes_requested" | "approved" | "waived"; // waived = an admin marked it "not needed"
 
 // ── Deadlines ───────────────────────────────────────────────────────────
 export const REPORT_TZ = "America/New_York";
@@ -61,7 +61,7 @@ export function todos(bookings: BookingForReports[], reports: RowLike[], now = n
       const deadline = endOfDay(w.deadline);
       const late = now > deadline;
       const daysLate = late ? Math.max(1, Math.ceil((now.getTime() - deadline.getTime()) / 86400000)) : 0;
-      if (r?.status === "approved") { continue; }
+      if (r?.status === "approved" || r?.status === "waived") { continue; }
       if (r?.status === "submitted") { out.push({ booking: b, window: w, state: "waiting", report: r, daysLate: 0 }); continue; }
       if (late && daysLate > horizonDays) continue;                  // ancient: ignore
       out.push({ booking: b, window: w, report: r, daysLate,
