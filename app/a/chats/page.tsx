@@ -26,6 +26,9 @@ export default async function AdminChats({ searchParams }: { searchParams: { f?:
         <span><span className="font-bold">Trainer messages</span> <span className="text-[13px] text-ink-soft">direct messages with trainers</span></span>
         {teamUnread > 0 && <span className="rounded-full bg-heart px-2 text-[12px] font-bold text-white">{teamUnread}</span>}
       </Link>
+      <Link href="/a/ready" className="panel mb-4 flex items-center justify-between gap-3 p-3.5 hover:bg-mint-wash">
+        <span><span className="font-bold">Before training</span> <span className="text-[13px] text-ink-soft">forms, vaccines and balance for dogs starting soon</span></span>
+      </Link>
       <ChatFilters base="/a/chats" q={q} t={t} f={closed ? "closed" : undefined} trainers={trainers} />
       <div className="mb-4 flex gap-2">
         {[["", "Open", scoped.filter((c) => c.status === "open").length], ["closed", "Closed", scoped.filter((c) => c.status === "closed").length]].map(([k, l, n]) => (

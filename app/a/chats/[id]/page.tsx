@@ -8,6 +8,8 @@ import { ChatThread } from "@/components/ChatThread";
 import { InviteClient } from "@/components/InviteClient";
 import { ArchivedNotice } from "@/components/ChatBits";
 import { CloseChat, ReopenChat, SendSummaryAgain } from "@/components/ChatActions";
+import { ProfileButton } from "@/components/ProfileButton";
+import { chatReadiness } from "@/lib/pretraining";
 
 export const maxDuration = 60; // closing a chat saves to Drive and emails the client
 
@@ -15,7 +17,7 @@ export default async function AdminChat({ params }: { params: { id: string } }) 
   const v = await requireRole("admin");
   const chat = await getChat(params.id);
   if (!chat) notFound();
-  const { messages, hasMore } = await listChatMessages(chat.id);
+  const [{ messages, hasMore }, ready] = await Promise.all([listChatMessages(chat.id), chatReadiness(chat.deal_key, false)]);
   return (
     <>
       <div className="mb-4 flex items-center gap-3">
@@ -24,6 +26,7 @@ export default async function AdminChat({ params }: { params: { id: string } }) 
           <h1 className="truncate text-[24px] font-extrabold leading-tight">{chat.title || "Dog"}</h1>
           <p className="truncate text-[14px] text-ink-soft">Client {chat.client_name || "?"}, trainer {chat.trainer_id ? <Link className="underline" href={`/a/trainers/${chat.trainer_id}`}>{chat.trainer_name}</Link> : "none"}</p>
         </div>
+        {/^\d+$/.test(chat.deal_key) && <ProfileButton href={`/a/chats/${chat.id}/profile`} left={ready ? ready.left : null} />}
         {chat.status === "open" && <CloseChat chatId={chat.id} title={chat.title || "this dog"} />}
       </div>
       <details className="mb-4" open={!chat.client_user_id || !chat.invited_at}>

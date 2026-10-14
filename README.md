@@ -46,3 +46,12 @@ Booking dates follow the HubSpot deal (`/api/hubspot/sync`, every 30 minutes, an
 - Several dogs on one deal: HubSpot's start is the first dog's pickup and every dog moves by the same days; HubSpot's end goes to the dog(s) that end last.
 - Only bookings that ended in the last 14 days or later are moved. Approved payslips are never touched.
 - Incidents: overbooked, program length changed, deal no longer Closed Won (these two also email info@), deal missing / no start date.
+
+## Before training (Dog profile)
+The client's answers to the two HubSpot forms, per dog, plus the checklist: forms, vaccines, food, medication, balance.
+- Chats have a **Dog profile** button (admin, trainer, client). Admin and client can edit; trainers read only. Clients also get a "Before training" card on their chat.
+- Admin list: `/a/ready`. A "Not ready" incident opens 7 days before a dog starts if anything is missing, and clears itself.
+- Answers are HubSpot **contact** properties (dog 1 = `k9___dog_name`). Dogs 2 to 4 (`dog_2_name`…) are kept in the app, so they never overwrite dog 1.
+- Vaccines: admin checks the records, which writes `vaccines_in_order_` and `missing_vaccines` on the deal. Clients upload records to the chat's Drive folder.
+- The app ticks `forms` on the deal once every answer is in, and fills `pre_training_missing` if you create that deal property (single-line text).
+- HubSpot token scopes: `crm.objects.deals.read/write`, `crm.objects.contacts.read/write`, `crm.schemas.deals.read`, `crm.schemas.contacts.read`.

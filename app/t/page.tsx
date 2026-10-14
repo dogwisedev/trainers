@@ -7,6 +7,9 @@ import { KennelLegend, KennelStrip } from "@/components/KennelStrip";
 import { Empty, Pill, Section } from "@/components/ui";
 import { listTodos } from "@/lib/reportData";
 import { TodoRow } from "@/components/ReportBits";
+import { readinessFor } from "@/lib/pretraining";
+import { isDemo, serviceClient } from "@/lib/supabase";
+import type { Booking } from "@/lib/types";
 
 export default async function TrainerHome() {
   const v = await requireRole("trainer");
@@ -21,6 +24,18 @@ export default async function TrainerHome() {
   const open3 = soonestOpening(use, 3);
   const first = t.name.replace(/".*?"\s*/, "").split(" ")[0];
   const todo = (await listTodos({ trainerId: t.id })).filter((x) => x.state !== "waiting");
+  // Before-training checklist per dog, linking to the chat's Dog profile
+  const shownIds = [...withYou, ...next].map((b) => b.id);
+  const ready = await readinessFor(shownIds);
+  const deals = [...new Set([...withYou, ...next].map((b) => b.hubspot_deal_id).filter((x): x is string => !!x))];
+  const { data: chatRows } = deals.length && !isDemo() ? await serviceClient().from("chats").select("id, deal_key").in("deal_key", deals).eq("trainer_id", t.id).eq("status", "open") : { data: [] };
+  const chatOf = new Map(((chatRows || []) as { id: string; deal_key: string }[]).map((c) => [c.deal_key, c.id]));
+  const readyBadge = (b: Booking) => {
+    const r = ready.get(b.id), chat = b.hubspot_deal_id ? chatOf.get(b.hubspot_deal_id) : null;
+    if (!r || !chat) return null;
+    const n = r.ready.missing.length;
+    return <Link href={`/t/chats/${chat}/profile?dog=${b.id}`} className={`rounded-full px-2.5 py-0.5 text-[12px] font-bold ${n ? "bg-heart-wash text-heart" : "bg-mint-wash text-fern"}`}>{n ? `${n} to do before training` : "Ready"}</Link>;
+  };
 
   return (
     <>
@@ -62,6 +77,7 @@ export default async function TrainerHome() {
                   </div>
                   <div className="mt-3 h-2 overflow-hidden rounded-full bg-paper"><div className="h-full rounded-full bg-biscuit" style={{ width: `${(done / total) * 100}%` }} /></div>
                   {b.notes && <p className="mt-3 text-[14px] text-ink-soft">{b.notes}</p>}
+                  {readyBadge(b) && <div className="mt-2">{readyBadge(b)}</div>}
                 </li>
               );
             })}
@@ -74,7 +90,7 @@ export default async function TrainerHome() {
           <ul className="panel divide-y divide-line">
             {next.map((b) => (
               <li key={b.id} className="flex items-center justify-between gap-3 p-4">
-                <div><p className="font-semibold">{b.dog_name || "Dog"} <span className="font-normal text-ink-soft">with {b.client_name}</span></p><p className="text-[14px] text-ink-soft">{range(b.start_date, b.end_date)}</p></div>
+                <div><p className="font-semibold">{b.dog_name || "Dog"} <span className="font-normal text-ink-soft">with {b.client_name}</span></p><p className="text-[14px] text-ink-soft">{range(b.start_date, b.end_date)}</p>{readyBadge(b) && <div className="mt-1">{readyBadge(b)}</div>}</div>
                 <Pill tone={b.status === "pending" ? "line" : "mint"}>{b.status === "pending" ? "Pending" : "Confirmed"}</Pill>
               </li>
             ))}

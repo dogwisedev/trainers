@@ -86,3 +86,59 @@ export function hsDate(v: string | null | undefined): string | null {
   if (/^\d{10,}$/.test(t)) return new Date(Number(t)).toISOString().slice(0, 10);
   return null;
 }
+
+// ── Contacts, associations, property definitions and writes (before-training checklist) ──
+// Token scopes needed: crm.objects.deals.read/write, crm.objects.contacts.read/write, crm.schemas.deals.read, crm.schemas.contacts.read
+
+export type PropDef = { name: string; label: string; type: string; fieldType: string; options: { label: string; value: string; hidden?: boolean }[] };
+const defCache: Record<string, { at: number; defs: Map<string, PropDef> }> = {};
+/** All property definitions of an object type (contacts / deals), cached for an hour. */
+export async function propDefs(object: "contacts" | "deals"): Promise<Map<string, PropDef>> {
+  const c = defCache[object];
+  if (c && Date.now() - c.at < 3600e3) return c.defs;
+  const { results } = await hs<{ results: PropDef[] }>(`/crm/v3/properties/${object}?archived=false`);
+  const defs = new Map(results.map((p) => [p.name, { ...p, options: (p.options || []).filter((o) => !o.hidden) }]));
+  defCache[object] = { at: Date.now(), defs };
+  return defs;
+}
+
+/** The HubSpot option value for a label ("Yes" → "true", "DHLPP" → "Dhlpp"…), matched case-insensitively. */
+export function optionValue(def: PropDef | undefined, label: string): string | null {
+  if (!def) return null;
+  if (def.type === "bool") return /^(yes|true)$/i.test(label) ? "true" : /^(no|false)$/i.test(label) ? "false" : null;
+  const l = label.trim().toLowerCase();
+  const o = def.options.find((x) => x.label.trim().toLowerCase() === l) || def.options.find((x) => x.value.trim().toLowerCase() === l);
+  return o ? o.value : null;
+}
+
+export async function readContacts(ids: string[], properties: string[]): Promise<Map<string, DealProps>> {
+  const out = new Map<string, DealProps>();
+  const uniq = [...new Set(ids.filter(Boolean))];
+  for (let i = 0; i < uniq.length; i += 100) {
+    const res = await hs<{ results?: { id: string; properties: DealProps }[] }>("/crm/v3/objects/contacts/batch/read", {
+      method: "POST", body: JSON.stringify({ inputs: uniq.slice(i, i + 100).map((id) => ({ id })), properties })
+    });
+    for (const d of res.results || []) out.set(String(d.id), d.properties || {});
+  }
+  return out;
+}
+
+/** Each deal's contact (the first one associated). */
+export async function dealContacts(dealIds: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const uniq = [...new Set(dealIds.filter((id) => /^\d+$/.test(id)))];
+  for (let i = 0; i < uniq.length; i += 100) {
+    const res = await hs<{ results?: { from: { id: string }; to: { toObjectId: number | string }[] }[] }>("/crm/v4/associations/deals/contacts/batch/read", {
+      method: "POST", body: JSON.stringify({ inputs: uniq.slice(i, i + 100).map((id) => ({ id })) })
+    });
+    for (const r of res.results || []) if (r.to?.[0]) out.set(String(r.from.id), String(r.to[0].toObjectId));
+  }
+  return out;
+}
+
+export async function updateContact(id: string, properties: Record<string, string>) {
+  await hs(`/crm/v3/objects/contacts/${id}`, { method: "PATCH", body: JSON.stringify({ properties }) });
+}
+export async function updateDeal(id: string, properties: Record<string, string>) {
+  await hs(`/crm/v3/objects/deals/${id}`, { method: "PATCH", body: JSON.stringify({ properties }) });
+}

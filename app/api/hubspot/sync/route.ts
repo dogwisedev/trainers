@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { isDemo } from "@/lib/supabase";
 import { getViewer } from "@/lib/data";
 import { syncHubspotDates } from "@/lib/hubspotSync";
+import { syncPretraining } from "@/lib/pretraining";
 
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
@@ -18,5 +19,8 @@ export async function GET(req: Request) {
   const dry = !cron || new URL(req.url).searchParams.get("mode") === "dry";
   const result = await syncHubspotDates(dry ? { mode: "dry" } : {});
   if (result.changed.length || result.errors.length || result.problems.length) console.log("hubspot sync", JSON.stringify(result));
-  return NextResponse.json(result);
+  // Before-training checklist: read the client's answers, retry saves HubSpot missed, "Not ready" incidents a week out (not on a dry preview)
+  const pretraining = dry ? null : await syncPretraining().catch((e) => ({ errors: [(e as Error).message] }));
+  if (pretraining?.errors?.length) console.log("pretraining sync", JSON.stringify(pretraining));
+  return NextResponse.json({ ...result, pretraining });
 }

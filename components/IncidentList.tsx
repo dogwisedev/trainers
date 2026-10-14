@@ -10,7 +10,7 @@ import type { IncidentRow } from "@/lib/chatData";
 
 const TONE = {
   trainer_silent: "heart", client_waiting: "heart", client_pileup: "heart", reopened: "biscuit", ready_to_close: "line",
-  intake_media_missing: "biscuit", handover_photo_missing: "biscuit", overbooked: "heart", length_changed: "heart", booking_cancelled: "heart", hubspot_problem: "biscuit"
+  intake_media_missing: "biscuit", handover_photo_missing: "biscuit", overbooked: "heart", length_changed: "heart", booking_cancelled: "heart", hubspot_problem: "biscuit", not_ready: "heart"
 } as const;
 /** Dog, client and trainer, from the chat or else the booking. */
 const who = (i: IncidentRow) => ({
@@ -66,7 +66,8 @@ export function IncidentList({ incidents, resolved }: { incidents: IncidentRow[]
             {msg[i.id] && <p role="status" className="mt-2 rounded-xl bg-paper px-3 py-2 text-[13px]">{msg[i.id]}</p>}
             {i.status !== "resolved" && (
               <div className="mt-3 flex flex-wrap items-center gap-2">
-                {i.chat_id && <Link href={`/a/chats/${i.chat_id}`} className="btn-ink h-9 min-h-0 px-3 text-[13px]">Open chat</Link>}
+                {i.chat_id && i.kind === "not_ready" && <Link href={`/a/chats/${i.chat_id}/profile${i.booking_id ? `?dog=${i.booking_id}` : ""}`} className="btn-ink h-9 min-h-0 px-3 text-[13px]">Open checklist</Link>}
+                {i.chat_id && <Link href={`/a/chats/${i.chat_id}`} className={`${i.kind === "not_ready" ? "btn-ghost" : "btn-ink"} h-9 min-h-0 px-3 text-[13px]`}>Open chat</Link>}
                 {i.report_id && <Link href={`/a/reports/${i.report_id}`} className={`${i.chat_id ? "btn-ghost" : "btn-ink"} h-9 min-h-0 px-3 text-[13px]`}>Open report</Link>}
                 {!i.report_id && i.booking?.trainer_id && <Link href={`/a/trainers/${i.booking.trainer_id}`} className={`${i.chat_id ? "btn-ghost" : "btn-ink"} h-9 min-h-0 px-3 text-[13px]`}>Open booking</Link>}
                 {i.status === "open" && <button type="button" className="btn-ghost h-9 min-h-0 px-3 text-[13px]" disabled={pending} onClick={() => start(async () => { await takeIncidentAction(i.id); router.refresh(); })}>I&apos;ll take it</button>}
