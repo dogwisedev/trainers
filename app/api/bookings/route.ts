@@ -106,6 +106,7 @@ export async function POST(req: Request) {
     created = (await sb.from("bookings").select("*").in("id", (inserted || []).map((c: { id: string }) => c.id))).data || inserted;
   }
   const emailed = await notifyBookings(sb, (created || []).map((c: { id: string }) => c.id), "new");
+  if (emailed.skipped || emailed.errors.length) console.error("booking email", JSON.stringify(emailed)); // shows in Vercel logs
   // One chat per deal. Never blocks the booking; clients are only emailed their link when CHAT_INVITE_CLIENTS=1.
   const chats = await ensureChatsForBookings(created || [], { invite: process.env.CHAT_INVITE_CLIENTS === "1" }).catch(() => []);
 

@@ -4,7 +4,7 @@ import { CalendarPlus, Mail, MapPin, MessageCircle, Phone } from "lucide-react";
 import { getTrainer, listBookings, listTimeOff, requireRole } from "@/lib/data";
 import { soonestOpening, utilisation, weekUsage } from "@/lib/capacity";
 import { addDays, range, short, todayIso, weekStart, weeksFrom } from "@/lib/dates";
-import { clearFlag, inviteTrainer, setBookingStatus, setTrainerActive } from "@/app/actions";
+import { clearFlag, emailTrainerAboutBooking, inviteTrainer, setBookingStatus, setTrainerActive } from "@/app/actions";
 import { KennelLegend, KennelStrip } from "@/components/KennelStrip";
 import { ActionButton, DeleteTimeOff, ExtraDays, TimeOffForm, TrainerForm } from "@/components/forms";
 import { ReportsToggle } from "@/components/ReportsToggle";
@@ -87,6 +87,9 @@ export default async function TrainerDetail({ params, searchParams }: { params: 
                 <div className="flex flex-wrap items-center gap-2">
                   <StartChat bookingId={b.id} chatId={chatByDeal.get(dealKey(b))} />
                   <ReportsToggle id={b.id} on={!!b.reports_enabled} />
+                  {b.notified_at
+                    ? <span className="text-[12px] font-semibold text-fern" title={`Trainer emailed ${new Date(b.notified_at).toLocaleString("en-US")}`}>Trainer emailed</span>
+                    : <ActionButton className="btn-ghost h-9 min-h-0 px-3 text-[13px]" action={emailTrainerAboutBooking.bind(null, b.id)}>Email trainer</ActionButton>}
                   {b.hubspot_deal_id && hubDates ? <span className="text-[12px] font-semibold text-ink-soft" title="Change the dates on the HubSpot deal: the app follows it within 30 minutes">Dates from HubSpot</span> : <ExtraDays id={b.id} current={b.extra_days || 0} />}
                   <Pill tone={b.start_date <= today ? "biscuit" : b.status === "pending" ? "line" : "mint"}>{b.start_date <= today ? "In training" : b.status === "pending" ? "Pending" : "Confirmed"}</Pill>
                   <ActionButton className="btn-danger h-9 min-h-0 px-3 text-[13px]" confirm={`Cancel ${b.dog_name || "this booking"}? The kennel frees up straight away.`} action={setBookingStatus.bind(null, b.id, "cancelled")}>Cancel</ActionButton>

@@ -9,6 +9,8 @@ import { buildDrafts, currentRunDate, getRun } from "@/lib/payrollData";
 import { serverClient } from "@/lib/supabase";
 import { isPayMonday, periodLabel, runDates, usDate } from "@/lib/payroll";
 import { isDemo } from "@/lib/supabase";
+import { trainerSignins } from "@/lib/trainerSignin";
+import { SigninHello } from "@/components/SigninHello";
 
 export default async function Trainers({ searchParams }: { searchParams: { view?: string; run?: string } }) {
   await requireRole("admin");
@@ -56,9 +58,11 @@ export default async function Trainers({ searchParams }: { searchParams: { view?
       inNow: use[0].dogs.length, freeNow: use[0].free, away: use[0].cap > 0 && use[0].blocked >= use[0].cap,
       opening: !o ? "not in 16 weeks" : o === weekStart(today) ? "now" : `from ${short(o)}`, active: t.active, flags: t.data_flags?.length || 0 };
   });
+  const notIn = isDemo() ? [] : (await trainerSignins().catch(() => [])).filter((r) => !r.lastSignIn);
   return (
     <>
       {header}
+      {notIn.length > 0 && <SigninHello rows={notIn} />}
       <TrainerList rows={rows} />
     </>
   );

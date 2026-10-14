@@ -7,6 +7,7 @@ import { isDemo, serverClient, serviceClient } from "@/lib/supabase";
 import { addDays, dropOff, short } from "@/lib/dates";
 import { notifyBookings, notifySummary } from "@/lib/bookingEmail";
 import { sendInvite, sendSignInLink } from "@/lib/authEmail";
+import { sendSigninHello } from "@/lib/trainerSignin";
 import { ensureChatsForBookings } from "@/lib/chat";
 import { datesFromHubspot } from "@/lib/hubspot";
 import { syncHubspotDates } from "@/lib/hubspotSync";
@@ -239,4 +240,29 @@ export async function markRead(trainerId: string): Promise<void> {
   if (!v) return;
   const other = v.role === "admin" ? "trainer" : "admin";
   await serverClient().from("messages").update({ read_at: new Date().toISOString() }).eq("trainer_id", trainerId).eq("sender_role", other).is("read_at", null);
+}
+
+/** Admin: email the trainer about this booking now (the "New booking" email, with the calendar invite). Shows the exact error if it fails. */
+export async function emailTrainerAboutBooking(id: string): Promise<Result> {
+  if (isDemo()) return DEMO;
+  const v = await viewerOrThrow();
+  if (v.role !== "admin") return { ok: false, message: "Admins only." };
+  const n = await notifyBookings(serviceClient(), [id], "new");
+  revalidatePath("/", "layout");
+  if (n.skipped) return { ok: false, message: n.skipped };
+  if (n.errors.length) return { ok: false, message: n.errors[0] };
+  return n.sent ? { ok: true, message: "Emailed." } : { ok: false, message: "Nothing sent: booking not found." };
+}
+
+/** Admin: the friendly "your app is ready, here's how to get in" email, to one trainer or to everyone who hasn't signed in. */
+export async function sendSigninHellos(ids: string[]): Promise<Result> {
+  if (isDemo()) return DEMO;
+  const v = await viewerOrThrow();
+  if (v.role !== "admin") return { ok: false, message: "Admins only." };
+  const results = [];
+  for (const id of ids.slice(0, 60)) results.push(await sendSigninHello(id));
+  revalidatePath("/a/trainers");
+  const bad = results.filter((r) => !r.ok);
+  const sent = results.length - bad.length;
+  return bad.length ? { ok: sent > 0, message: `Sent ${sent}. Not sent: ${bad.map((r) => r.message).join("; ")}` } : { ok: true, message: `Sent to ${sent} trainer${sent === 1 ? "" : "s"}.` };
 }
