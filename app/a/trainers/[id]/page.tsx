@@ -4,17 +4,12 @@ import { CalendarPlus, Mail, MapPin, MessageCircle, Phone } from "lucide-react";
 import { getTrainer, listBookings, listTimeOff, requireRole } from "@/lib/data";
 import { soonestOpening, utilisation, weekUsage } from "@/lib/capacity";
 import { addDays, range, short, todayIso, weekStart, weeksFrom } from "@/lib/dates";
-import { clearFlag, emailTrainerAboutBooking, inviteTrainer, setBookingStatus, setTrainerActive } from "@/app/actions";
+import { clearFlag, inviteTrainer, setTrainerActive } from "@/app/actions";
 import { KennelLegend, KennelStrip } from "@/components/KennelStrip";
-import { ActionButton, DeleteTimeOff, ExtraDays, TimeOffForm, TrainerForm } from "@/components/forms";
-import { ReportsToggle } from "@/components/ReportsToggle";
-import { StartChat } from "@/components/StartChat";
-import { listChats } from "@/lib/chatData";
-import { dealKey } from "@/lib/chatTypes";
+import { ActionButton, DeleteTimeOff, TimeOffForm, TrainerForm } from "@/components/forms";
 import { Avatar, Pill, Section } from "@/components/ui";
 import { PayRatesForm } from "@/components/PayRatesForm";
 import { getRates } from "@/lib/payrollData";
-import { datesFromHubspot } from "@/lib/hubspot";
 import { bookingHistory } from "@/lib/history";
 import { BookingHistory } from "@/components/BookingHistory";
 
@@ -23,14 +18,12 @@ export default async function TrainerDetail({ params, searchParams }: { params: 
   const t = await getTrainer(params.id);
   if (!t) notFound();
   const today = todayIso();
-  const [bookings, off, rates, chats] = await Promise.all([listBookings({ trainerId: t.id, from: addDays(today, -30) }), listTimeOff({ trainerId: t.id, from: addDays(today, -7) }), getRates(t.id), listChats()]);
-  const chatByDeal = new Map(chats.filter((c) => c.trainer_id === t.id && c.status === "open").map((c) => [c.deal_key, c.id]));
+  const [bookings, off, rates] = await Promise.all([listBookings({ trainerId: t.id, from: addDays(today, -30) }), listTimeOff({ trainerId: t.id, from: addDays(today, -7) }), getRates(t.id)]);
   const use = weekUsage(t, bookings, off, weeksFrom(today, 16));
   const o2 = soonestOpening(use, 2), o3 = soonestOpening(use, 3);
   const when = (o: string | null) => (!o ? "None in 16 weeks" : o === weekStart(today) ? "Now" : short(o));
   const upcoming = bookings.filter((b) => b.end_date >= today && b.status !== "cancelled");
   const id = t.id;
-  const hubDates = datesFromHubspot();
   const finished = await bookingHistory({ tab: "finished", trainerId: id, limit: 8 });
 
   return (
@@ -77,30 +70,26 @@ export default async function TrainerDetail({ params, searchParams }: { params: 
         </Section>
       )}
 
-      <Section title="Bookings" action={<Link href={`/a/bookings/new?trainer=${id}`} className="btn-mint h-10 min-h-0 px-3 text-[14px]"><CalendarPlus size={16} />Book a dog</Link>}>
+      <Section title="Dogs" action={<Link href={`/a/bookings/new?trainer=${id}`} className="btn-mint h-10 min-h-0 px-3 text-[14px]"><CalendarPlus size={16} />Book a dog</Link>}>
         {upcoming.length ? (
           <ul className="panel divide-y divide-line">
             {upcoming.map((b) => (
-              <li key={b.id} className="flex flex-wrap items-center justify-between gap-3 p-4">
-                <div><p className="font-semibold">{b.dog_name || "Dog"} <span className="font-normal text-ink-soft">with {b.client_name}</span></p><p className="text-[14px] text-ink-soft">{range(b.start_date, b.end_date)}, {b.program || `${b.weeks}-week`}{b.extra_days ? ` + ${b.extra_days} day${b.extra_days > 1 ? "s" : ""}` : ""}{b.rehab ? ", rehab" : ""}</p>
-                  {b.hubspot_deal_id && <a className="text-[13px] font-semibold text-fern underline" href={`https://app.hubspot.com/contacts/21869370/record/0-3/${b.hubspot_deal_id}`} target="_blank" rel="noopener">HubSpot deal</a>}</div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <StartChat bookingId={b.id} chatId={chatByDeal.get(dealKey(b))} />
-                  <ReportsToggle id={b.id} on={!!b.reports_enabled} />
-                  {b.notified_at
-                    ? <span className="text-[12px] font-semibold text-fern" title={`Trainer emailed ${new Date(b.notified_at).toLocaleString("en-US")}`}>Trainer emailed</span>
-                    : <ActionButton className="btn-ghost h-9 min-h-0 px-3 text-[13px]" action={emailTrainerAboutBooking.bind(null, b.id)}>Email trainer</ActionButton>}
-                  {b.hubspot_deal_id && hubDates ? <span className="text-[12px] font-semibold text-ink-soft" title="Change the dates on the HubSpot deal: the app follows it within 30 minutes">Dates from HubSpot</span> : <ExtraDays id={b.id} current={b.extra_days || 0} />}
-                  <Pill tone={b.start_date <= today ? "biscuit" : b.status === "pending" ? "line" : "mint"}>{b.start_date <= today ? "In training" : b.status === "pending" ? "Pending" : "Confirmed"}</Pill>
-                  <ActionButton className="btn-danger h-9 min-h-0 px-3 text-[13px]" confirm={`Cancel ${b.dog_name || "this booking"}? The kennel frees up straight away.`} action={setBookingStatus.bind(null, b.id, "cancelled")}>Cancel</ActionButton>
-                </div>
+              <li key={b.id}>
+                <Link href={`/a/dogs/${b.id}`} className="flex flex-wrap items-center justify-between gap-3 p-4 hover:bg-mint-wash">
+                  <div><p className="font-semibold">{b.dog_name || "Dog"} <span className="font-normal text-ink-soft">with {b.client_name}</span></p><p className="text-[14px] text-ink-soft">{range(b.start_date, b.end_date)}, {b.program || `${b.weeks}-week`}{b.extra_days ? ` + ${b.extra_days} day${b.extra_days > 1 ? "s" : ""}` : ""}{b.rehab ? ", rehab" : ""}</p></div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {!b.notified_at && <Pill tone="heart">Trainer not emailed</Pill>}
+                    <Pill tone={b.start_date <= today ? "biscuit" : b.status === "pending" ? "line" : "mint"}>{b.start_date <= today ? "In care" : b.status === "pending" ? "Pending" : "Upcoming"}</Pill>
+                    <span className="btn-ghost h-9 min-h-0 px-3 text-[13px]">Open</span>
+                  </div>
+                </Link>
               </li>
             ))}
           </ul>
-        ) : <p className="text-[14px] text-ink-soft">No upcoming bookings.</p>}
+        ) : <p className="text-[14px] text-ink-soft">No dogs booked.</p>}
       </Section>
 
-      <Section title="Finished" action={finished.rows.length ? <Link href={`/a/bookings?f=finished&t=${id}`} className="btn-ghost h-10 min-h-0 px-3 text-[14px]">See all</Link> : undefined}>
+      <Section title="Finished" action={finished.rows.length ? <Link href={`/a/dogs?f=finished&t=${id}`} className="btn-ghost h-10 min-h-0 px-3 text-[14px]">See all</Link> : undefined}>
         {finished.rows.length ? <BookingHistory rows={finished.rows} role="admin" showTrainer={false} /> : <p className="text-[14px] text-ink-soft">No finished trainings yet.</p>}
       </Section>
 

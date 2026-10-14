@@ -5,7 +5,7 @@ import { alertAdmins, officeEmail } from "./adminAlert";
 import { INCIDENT_LABEL, IncidentKind } from "./chatRules";
 
 // Incidents that aren't opened by the chat check: forms, bookings and HubSpot.
-// They show on /a/incidents next to the chat ones, and admins are emailed the moment one opens.
+// They show on the admin To do list (/a) next to the chat ones.
 const site = () => (process.env.NEXT_PUBLIC_SITE_URL || "").replace(/\/$/, "");
 
 export type NewIncident = {
@@ -25,10 +25,10 @@ export async function raiseIncident(i: NewIncident, sb: SupabaseClient = service
       kind: i.kind, detail: i.detail.slice(0, 1000), opened_at: now, last_alert_at: now
     });
     if (error) { if (error.code !== "23505") console.error("incident", i.kind, error.message); return false; } // 23505 = already open
-    const link = i.link || (i.chatId ? `${site()}/a/chats/${i.chatId}` : `${site()}/a/incidents`);
+    const link = i.link || (i.chatId ? `${site()}/a/chats/${i.chatId}` : i.bookingId ? `${site()}/a/dogs/${i.bookingId}` : `${site()}/a`);
     const intro = i.office ? `${i.detail} Please check whether a refund or partial pay is needed, and fix it.` : i.detail;
     await alertAdmins(`${INCIDENT_LABEL[i.kind]}: ${i.title}`, intro, [{ text: `${INCIDENT_LABEL[i.kind]}: ${i.title}`, link }],
-      { label: "See all incidents", link: `${site()}/a/incidents` }, i.office ? { alsoTo: [officeEmail()] } : {}).catch(() => {});
+      { label: "Open To do", link: `${site()}/a` }, i.office ? { alsoTo: [officeEmail()] } : {}).catch(() => {});
     return true;
   } catch (e) { console.error("incident", (e as Error).message); return false; }
 }

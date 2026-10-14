@@ -1,0 +1,124 @@
+import "server-only";
+import { serviceClient, isDemo } from "./supabase";
+import { addDays, short } from "./dates";
+import { etParts, INCIDENT_LABEL, IncidentKind } from "./chatRules";
+import { BookingForReports, Kind, RowLike, Todo, kindName, todos } from "./reports";
+import { trainerSignins } from "./trainerSignin";
+import { dealKey } from "./chatTypes";
+
+// The admin "To do" list: everything that needs a person, in one place, most urgent first.
+// Sources: open incidents (chats, forms, bookings, HubSpot, before training), forms sent in for review,
+// unread trainer messages, trainer profile flags, trainers who haven't signed in, and late forms (grouped).
+// Callers must have checked the viewer is an admin: this reads with the service key (the daily email has no session).
+
+export type TodoGroup = "now" | "week" | "later";
+export type TodoItem = {
+  key: string; group: TodoGroup; tone: "heart" | "biscuit" | "line"; text: string; detail?: string; since?: string;
+  primary?: { label: string; href: string; external?: boolean };
+  dogHref?: string; hubspot?: string; incidentId?: string;
+};
+export type TodoData = { items: TodoItem[]; late: (Todo & { trainerName: string })[] };
+
+export const hubspotDeal = (id: string | null | undefined) => (id && /^\d+$/.test(id) ? `https://app.hubspot.com/contacts/21869370/record/0-3/${id}` : undefined);
+export const dogPage = (bookingId: string, tab?: string, hash?: string) => `/a/dogs/${bookingId}${tab ? `?tab=${tab}` : ""}${hash ? `#${hash}` : ""}`;
+
+type Inc = {
+  id: string; kind: IncidentKind; status: string; detail: string | null; opened_at: string; chat_id: string | null; booking_id: string | null; report_id: string | null;
+  chat: { id: string; title: string | null; client_name: string | null; trainer_name: string | null; deal_key: string } | null;
+  booking: { id: string; dog_name: string | null; client_name: string; start_date: string; hubspot_deal_id: string | null; trainer_id: string; trainers: { name: string } | null } | null;
+};
+type B = BookingForReports & { hubspot_deal_id: string | null; reports_enabled?: boolean | null };
+
+const NOW_KINDS: IncidentKind[] = ["client_waiting", "client_pileup", "trainer_silent", "check_vaccines", "booking_cancelled", "length_changed", "overbooked"];
+
+export async function buildTodo(): Promise<TodoData> {
+  if (isDemo()) return { items: [], late: [] };
+  const sb = serviceClient(), today = etParts(new Date()).date;
+  const [{ data: incs }, { data: reps }, { data: msgs }, { data: trainers }, signins, { data: bks }] = await Promise.all([
+    sb.from("chat_incidents").select("id, kind, status, detail, opened_at, chat_id, booking_id, report_id, chat:chats(id, title, client_name, trainer_name, deal_key), booking:bookings!booking_id(id, dog_name, client_name, start_date, hubspot_deal_id, trainer_id, trainers(name))").neq("status", "resolved").order("opened_at"),
+    sb.from("reports").select("id, kind, week_number, booking_id, submitted_at, trainers(name), booking:bookings!booking_id(dog_name, client_name, hubspot_deal_id)").eq("status", "submitted").order("submitted_at"),
+    sb.from("messages").select("trainer_id, created_at, body").eq("sender_role", "trainer").is("read_at", null).order("created_at"),
+    sb.from("trainers").select("id, name, data_flags, active"),
+    trainerSignins().catch(() => []),
+    sb.from("bookings").select("id, trainer_id, client_name, dog_name, start_date, end_date, weeks, status, reports_enabled, hubspot_deal_id").neq("status", "cancelled").gte("end_date", addDays(today, -75))
+  ]);
+  const bookings = (bks || []) as B[];
+  const tName = new Map(((trainers || []) as { id: string; name: string }[]).map((t) => [t.id, t.name]));
+  const bookingOfKey = (key: string) => bookings.find((b) => dealKey(b) === key);
+  const items: TodoItem[] = [];
+
+  // ── Incidents ──
+  for (const i of (incs || []) as unknown as Inc[]) {
+    const bk = i.booking || (i.chat ? bookingOfKey(i.chat.deal_key) : undefined);
+    const bookingId = i.booking?.id || bk?.id;
+    const dog = i.booking?.dog_name || i.chat?.title || bk?.dog_name || "the dog";
+    const client = i.chat?.client_name || i.booking?.client_name || bk?.client_name || "The client";
+    const trainer = i.chat?.trainer_name || i.booking?.trainers?.name || (bk ? tName.get(bk.trainer_id) : "") || "The trainer";
+    const deal = hubspotDeal(i.booking?.hubspot_deal_id || bk?.hubspot_deal_id || (i.chat && /^\d+$/.test(i.chat.deal_key) ? i.chat.deal_key : null));
+    const chat = i.chat_id ? { label: "Open chat", href: `/a/chats/${i.chat_id}` } : undefined;
+    const dogHref = bookingId ? dogPage(bookingId) : undefined;
+    const startsSoon = !!i.booking && i.booking.start_date <= addDays(today, 2);
+    const base = { key: `inc:${i.id}`, since: i.opened_at, incidentId: i.id, dogHref, hubspot: deal, detail: i.detail || undefined };
+    const add = (o: Omit<TodoItem, "key" | "since" | "incidentId" | "dogHref" | "hubspot"> & Partial<TodoItem>) => items.push({ ...base, ...o });
+    switch (i.kind) {
+      case "client_waiting": add({ group: "now", tone: "heart", text: `${client} is waiting for a reply about ${dog}`, primary: chat ? { ...chat, label: "Reply" } : undefined }); break;
+      case "client_pileup": add({ group: "now", tone: "heart", text: `${client} has sent several messages about ${dog}`, primary: chat ? { ...chat, label: "Reply" } : undefined }); break;
+      case "trainer_silent": add({ group: "now", tone: "heart", text: `${trainer} hasn't posted about ${dog} today`, primary: chat }); break;
+      case "reopened": add({ group: "week", tone: "biscuit", text: `${client} started a new chat about ${dog}`, primary: chat }); break;
+      case "ready_to_close": add({ group: "week", tone: "line", text: `${dog}'s chat can be closed`, primary: chat ? { ...chat, label: "Open chat to close" } : undefined }); break;
+      case "intake_media_missing": add({ group: "week", tone: "biscuit", text: `${dog}'s intake form came in without pickup photos or video`, primary: chat }); break;
+      case "handover_photo_missing": add({ group: "week", tone: "biscuit", text: `${dog}'s handover has no photo with the trainer`, primary: i.report_id ? { label: "Open form", href: `/a/reports/${i.report_id}` } : chat }); break;
+      case "overbooked": add({ group: "now", tone: "heart", text: `${trainer} has more dogs than kennels`, primary: i.booking ? { label: "Open trainer", href: `/a/trainers/${i.booking.trainer_id}` } : undefined }); break;
+      case "length_changed": add({ group: "now", tone: "heart", text: `${dog}'s program length changed: check pay and refund`, primary: deal ? { label: "HubSpot deal", href: deal, external: true } : undefined }); break;
+      case "booking_cancelled": add({ group: "now", tone: "heart", text: `${dog}'s training was cancelled: refund or partial pay?`, primary: deal ? { label: "HubSpot deal", href: deal, external: true } : undefined }); break;
+      case "hubspot_problem": add({ group: "week", tone: "biscuit", text: `Check ${dog}'s HubSpot deal`, primary: deal ? { label: "HubSpot deal", href: deal, external: true } : dogHref ? { label: "Open dog", href: dogHref } : undefined }); break;
+      case "not_ready": add({ group: startsSoon ? "now" : "week", tone: "heart", text: `${dog} starts ${i.booking ? short(i.booking.start_date) : "soon"} and isn't ready`, primary: bookingId ? { label: "See what's missing", href: dogPage(bookingId, "before") } : chat }); break;
+      case "check_vaccines": add({ group: "now", tone: "biscuit", text: `${dog}'s vaccine records came in`, primary: bookingId ? { label: "Check vaccines", href: dogPage(bookingId, "before", "vaccines") } : chat }); break;
+      default: add({ group: NOW_KINDS.includes(i.kind) ? "now" : "week", tone: "biscuit", text: `${INCIDENT_LABEL[i.kind] || i.kind}: ${dog}`, primary: chat || (dogHref ? { label: "Open dog", href: dogHref } : undefined) });
+    }
+  }
+
+  // ── Forms sent in, waiting for review ──
+  for (const r of (reps || []) as unknown as { id: string; kind: Kind; week_number: number; booking_id: string; submitted_at: string | null; trainers: { name: string } | null; booking: { dog_name: string | null; client_name: string; hubspot_deal_id: string | null } | null }[]) {
+    items.push({
+      key: `rep:${r.id}`, group: r.kind === "handover" ? "now" : "week", tone: "biscuit", since: r.submitted_at || undefined,
+      text: `${r.trainers?.name || "A trainer"} sent ${r.booking?.dog_name || "a dog"}'s ${kindName(r.kind).toLowerCase()}${r.kind === "weekly" ? ` (week ${r.week_number})` : ""}`,
+      detail: r.kind === "handover" ? "Check it, then send it to the client." : undefined,
+      primary: { label: "Review", href: `/a/reports/${r.id}` }, dogHref: dogPage(r.booking_id), hubspot: hubspotDeal(r.booking?.hubspot_deal_id)
+    });
+  }
+
+  // ── Trainer messages ──
+  const byTrainer = new Map<string, { n: number; first: string; last: string }>();
+  for (const m of (msgs || []) as { trainer_id: string; created_at: string; body: string }[]) {
+    const x = byTrainer.get(m.trainer_id) || { n: 0, first: m.created_at, last: "" };
+    byTrainer.set(m.trainer_id, { n: x.n + 1, first: x.first, last: m.body });
+  }
+  for (const [id, x] of byTrainer) items.push({
+    key: `msg:${id}`, group: "now", tone: "heart", since: x.first, text: `${tName.get(id) || "A trainer"} sent you ${x.n > 1 ? `${x.n} messages` : "a message"}`,
+    detail: x.last.slice(0, 140), primary: { label: "Reply", href: `/a/messages/${id}` }
+  });
+
+  // ── Trainer profiles to check, trainers not signed in ──
+  for (const t of (trainers || []) as { id: string; name: string; data_flags: string[] | null; active: boolean }[]) {
+    if (t.active && t.data_flags?.length) items.push({ key: `flag:${t.id}`, group: "later", tone: "line", text: `Check ${t.name}'s profile`, detail: t.data_flags.join("; "), primary: { label: "Open trainer", href: `/a/trainers/${t.id}` } });
+  }
+  const notIn = signins.filter((s) => !s.lastSignIn);
+  if (notIn.length) items.push({
+    key: "signin", group: "later", tone: "line", text: `${notIn.length} trainer${notIn.length > 1 ? "s haven't" : " hasn't"} signed in yet`,
+    detail: notIn.slice(0, 6).map((s) => s.name).join(", ") + (notIn.length > 6 ? "…" : ""), primary: { label: "Email them", href: "/a/trainers#signin" }
+  });
+
+  // ── Late forms (shown as one group on the page) ──
+  const withForms = bookings.filter((b) => b.reports_enabled);
+  const rows: RowLike[] = [];
+  for (let i = 0; i < withForms.length; i += 150) {
+    const { data } = await sb.from("reports").select("id, booking_id, kind, week_number, status, submitted_at, due_by").in("booking_id", withForms.slice(i, i + 150).map((b) => b.id));
+    rows.push(...((data || []) as RowLike[]));
+  }
+  const late = todos(withForms, rows).filter((t) => t.state === "overdue" || t.state === "changes").map((t) => ({ ...t, trainerName: tName.get(t.booking.trainer_id) || "" }));
+
+  const order: Record<TodoGroup, number> = { now: 0, week: 1, later: 2 };
+  items.sort((a, b) => order[a.group] - order[b.group] || (a.since || "~").localeCompare(b.since || "~"));
+  return { items, late };
+}

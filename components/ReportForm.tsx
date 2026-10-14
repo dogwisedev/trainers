@@ -82,7 +82,7 @@ export function ReportForm(p: Props) {
 
   const run = (fn: () => Promise<ReportResult>, after?: (r: ReportResult) => void) => start(async () => { setRes(null); const r = await fn(); setRes(r); if (!r.missing?.length) setShowMissing(false); else setShowMissing(true); after?.(r); });
   const submit = () => { if (missing.length) { setShowMissing(true); window.scrollTo({ top: 0, behavior: "smooth" }); return; } if (window.confirm("Submit this report for review?")) run(() => submitReportAction(p.id, answers, media), (r) => { if (r.ok) router.refresh(); }); };
-  const approve = () => { if (missing.length) { setShowMissing(true); window.scrollTo({ top: 0, behavior: "smooth" }); return; } if (p.kind !== "handover" || window.confirm(`Send this ${p.status === "approved" ? "corrected " : ""}report to ${s(answers.clientEmail)}?`)) run(() => approveReportAction(p.id, answers, media), (r) => { if (r.ok) { setEditing(false); router.push(r.nextId ? `/a/reports/${r.nextId}` : "/a/reports"); router.refresh(); } else { window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" }); router.refresh(); } }); };
+  const approve = () => { if (missing.length) { setShowMissing(true); window.scrollTo({ top: 0, behavior: "smooth" }); return; } if (p.kind !== "handover" || window.confirm(`Send this ${p.status === "approved" ? "corrected " : ""}report to ${s(answers.clientEmail)}?`)) run(() => approveReportAction(p.id, answers, media), (r) => { if (r.ok) { setEditing(false); router.push(r.nextId ? `/a/reports/${r.nextId}` : "/a"); router.refresh(); } else { window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" }); router.refresh(); } }); };
 
   const ro = !editable;
   const view = useMemo(() => buildReport(p.kind, answers, media, { startDate: p.startDate, endDate: p.endDate, submittedAt: p.submittedAt }), [p.kind, answers, media, p.startDate, p.endDate, p.submittedAt]);
@@ -202,7 +202,7 @@ export function ReportForm(p: Props) {
         <div className="panel p-4">
           <label className="block"><span className="label">What needs changing? (the trainer gets this by email)</span><textarea className="field" rows={3} value={note} onChange={(e) => setNote(e.target.value)} /></label>
           <div className="mt-3 flex gap-2"><button type="button" className="btn-ghost flex-1" onClick={() => setSendBack(false)}>Cancel</button>
-            <button type="button" className="btn-ink flex-1" disabled={pending} onClick={() => run(() => sendBackAction(p.id, note), (r) => { if (r.ok) { router.push(r.nextId ? `/a/reports/${r.nextId}` : "/a/reports"); router.refresh(); } })}>{pending ? "Sending…" : "Send back"}</button></div>
+            <button type="button" className="btn-ink flex-1" disabled={pending} onClick={() => run(() => sendBackAction(p.id, note), (r) => { if (r.ok) { router.push(r.nextId ? `/a/reports/${r.nextId}` : "/a"); router.refresh(); } })}>{pending ? "Sending…" : "Send back"}</button></div>
         </div>
       )}
 
@@ -212,7 +212,7 @@ export function ReportForm(p: Props) {
           {p.mode === "trainer" && editable && <button type="button" className="btn-ink flex-1" disabled={pending} onClick={submit}>{pending ? "Submitting…" : "Submit for review"}</button>}
           {p.mode === "admin" && editable && (
             <>
-              {(p.status === "draft" || p.status === "changes_requested") && <WaiveButton bookingId={p.bookingId} kind={p.kind} week={p.week ?? 0} reportId={p.id} after="/a/reports?f=overdue" className="btn-ghost whitespace-nowrap px-3" />}
+              {(p.status === "draft" || p.status === "changes_requested") && <WaiveButton bookingId={p.bookingId} kind={p.kind} week={p.week ?? 0} reportId={p.id} after="/a" className="btn-ghost whitespace-nowrap px-3" />}
               {p.status !== "approved" && !p.meta.byAdmin && <button type="button" className="btn-ghost whitespace-nowrap px-3" disabled={pending} onClick={() => setSendBack((v) => !v)}>Send back</button>}
               {editing && <button type="button" className="btn-ghost whitespace-nowrap px-3" onClick={() => { setEditing(false); router.refresh(); }}>Cancel</button>}
               <button type="button" className="btn-ink flex-1 whitespace-nowrap px-3" disabled={pending} onClick={approve}>{pending ? (p.kind === "handover" ? "Sending…" : "Saving…") : p.kind !== "handover" ? (editing ? "Save changes" : "Mark as reviewed") : editing ? "Send corrected report" : "Approve and send"}</button>

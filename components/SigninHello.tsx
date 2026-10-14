@@ -18,7 +18,7 @@ export function SigninHello({ rows }: { rows: Row[] }) {
   };
   const sendable = rows.filter((r) => r.email);
   return (
-    <details className="panel mb-4 p-4">
+    <details id="signin" className="panel mb-4 scroll-mt-20 p-4">
       <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-2">
         <span><span className="font-bold">{rows.length} trainer{rows.length === 1 ? " hasn't" : "s haven't"} signed in yet</span> <span className="text-[13px] text-ink-soft">tap to see who</span></span>
         {sendable.length > 0 && (

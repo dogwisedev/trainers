@@ -33,7 +33,7 @@ function shown(q: Q, d: Def, v: string) {
 }
 const when = (iso: string) => new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 
-export function DogProfile({ chatId, role, edit, open, profile, dogId, base }: { chatId: string; role: Role; edit: boolean; open: boolean; profile: Profile; dogId: string; base: string }) {
+export function DogProfile({ chatId, role, edit, open, profile, dogId, base, dogLink }: { chatId: string; role: Role; edit: boolean; open: boolean; profile: Profile; dogId: string; base: string; dogLink?: string }) {
   const dog = profile.dogs.find((d) => d.booking.id === dogId) || profile.dogs[0];
   const many = profile.dogs.length > 1;
   const items = dog.ready.items.filter((i) => role !== "client" || i.who === "client");
@@ -44,7 +44,7 @@ export function DogProfile({ chatId, role, edit, open, profile, dogId, base }: {
       {many && (
         <nav className="flex flex-wrap gap-2" aria-label="Dogs">
           {profile.dogs.map((d) => (
-            <Link key={d.booking.id} href={`${base}?dog=${d.booking.id}`} className={`rounded-full px-3.5 py-1.5 text-[14px] font-semibold ${d.booking.id === dog.booking.id ? "bg-ink text-white" : "border border-line bg-white"}`}>
+            <Link key={d.booking.id} href={dogLink ? dogLink.replace("{id}", d.booking.id) : `${base}?dog=${d.booking.id}`} className={`rounded-full px-3.5 py-1.5 text-[14px] font-semibold ${d.booking.id === dog.booking.id ? "bg-ink text-white" : "border border-line bg-white"}`}>
               {d.name} {!d.ready.ready && <span className="ml-1 rounded-full bg-heart px-1.5 text-[11px] text-white">{d.ready.missing.filter((i) => role !== "client" || i.who === "client").length}</span>}
             </Link>
           ))}

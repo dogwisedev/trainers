@@ -1,75 +1,100 @@
 import Link from "next/link";
-import { Plus } from "lucide-react";
-import { listBookings, listThreads, listTimeOff, listTrainers, requireRole } from "@/lib/data";
-import { soonestOpening, weekUsage } from "@/lib/capacity";
-import { addDays, todayIso, weeksFrom } from "@/lib/dates";
-import { Heatmap } from "@/components/Heatmap";
-import { Avatar, Pill, Section } from "@/components/ui";
+import { ExternalLink, Plus } from "lucide-react";
+import { requireRole } from "@/lib/data";
+import { buildTodo, TodoGroup, TodoItem } from "@/lib/todo";
+import { currentRunDate, getRun } from "@/lib/payrollData";
+import { isPayMonday, periodLabel, runDates } from "@/lib/payroll";
+import { todayIso } from "@/lib/dates";
+import { isDemo } from "@/lib/supabase";
+import { TodoRow } from "@/components/ReportBits";
+import { TodoDone } from "@/components/TodoDone";
+import { Empty } from "@/components/ui";
 
-export default async function AdminHome() {
+export const dynamic = "force-dynamic";
+export const maxDuration = 60;
+const GROUPS: { key: TodoGroup; title: string; hint: string }[] = [
+  { key: "now", title: "Now", hint: "Clients waiting, money, dogs about to start" },
+  { key: "week", title: "This week", hint: "Forms to review, follow-ups" },
+  { key: "later", title: "When you have a minute", hint: "" }
+];
+function ago(iso?: string) {
+  if (!iso) return "";
+  const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  return m < 60 ? `${Math.max(1, m)} min ago` : m < 48 * 60 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} days ago`;
+}
+
+// Admin home: one list of everything that needs a person, most urgent first. Each line has one obvious button.
+export default async function ToDo() {
   await requireRole("admin");
-  const today = todayIso();
-  const [trainers, bookings, off, threads] = await Promise.all([listTrainers(), listBookings({ from: addDays(today, -7) }), listTimeOff({ from: addDays(today, -7) }), listThreads()]);
-  const weeks = weeksFrom(today, 12);
-  const rows = trainers.map((t) => ({ t, use: weekUsage(t, bookings, off, weeks) }));
-  const now = rows.map((r) => r.use[0]);
-  const inNow = now.reduce((n, w) => n + w.dogs.length, 0);
-  const capNow = now.reduce((n, w) => n + Math.max(0, w.cap - w.blocked), 0);
-  const free4 = rows.reduce((n, r) => n + r.use.slice(0, 4).reduce((m, w) => m + w.free, 0), 0);
-  const open3Now = rows.filter((r) => soonestOpening(r.use, 3) === weeks[0]).length;
-  const flagged = trainers.filter((t) => t.data_flags?.length);
-  const fullUp = rows.filter((r) => r.use.slice(0, 8).every((w) => w.free === 0));
-  const unread = threads.filter((t) => t.unread);
-
+  const { items, late } = await buildTodo();
+  // Payslips waiting for approval
+  if (!isDemo()) {
+    try {
+      const run = await currentRunDate(), pay = await getRun(run), drafts = pay.slips.filter((s) => s.status === "draft").length;
+      if (drafts) {
+        const d = runDates(run);
+        items.push({ key: "pay", group: isPayMonday(todayIso()) ? "now" : "week", tone: "biscuit", text: `${drafts} payslip${drafts > 1 ? "s" : ""} to approve`, detail: periodLabel(d.period_start, d.period_end), primary: { label: "Open payslips", href: "/a/trainers?view=pay" } });
+      }
+    } catch { /* payroll not set up: nothing to show */ }
+  }
+  const total = items.length + (late.length ? 1 : 0);
   return (
     <>
-      <div className="flex items-end justify-between gap-4">
-        <div><h1 className="text-[30px] font-extrabold md:text-[38px]">Kennel overview</h1><p className="mt-1 text-ink-soft">{trainers.length} active trainers across the country</p></div>
-        <Link href="/a/bookings/new" className="btn-ink hidden md:inline-flex"><Plus size={18} />New booking</Link>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-[30px] font-extrabold md:text-[38px]">To do</h1>
+          <p className="mt-1 text-ink-soft">{total ? `${total} thing${total > 1 ? "s" : ""} need a person. Most urgent first.` : "Nothing needs you right now."}</p>
+        </div>
+        <Link href="/a/bookings/new" className="btn-ink h-10 min-h-0 px-4"><Plus size={17} />Book a dog</Link>
       </div>
-
-      <div className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Stat big={`${inNow}`} small={`dogs in training now, of ${capNow} kennels`} tone="ink" />
-        <Stat big={`${capNow ? Math.round((inNow / capNow) * 100) : 0}%`} small="of kennels filled this week" />
-        <Stat big={`${free4}`} small="free kennel-weeks in the next 4 weeks" />
-        <Stat big={`${open3Now}`} small="trainers who can start a 3-week program now" />
-      </div>
-
-      <Section title="Who's free, week by week"><Heatmap rows={rows} weeks={weeks} /></Section>
-
-      <div className="grid gap-x-6 md:grid-cols-2 [&>*]:min-w-0">
-        <Section title="Unread messages">
-          {unread.length ? (
+      {!total && <div className="mt-6"><Empty title="All done.">New things show up here as they happen: clients waiting, forms to check, vaccines, payslips.</Empty></div>}
+      {GROUPS.map((g) => {
+        const list = items.filter((i) => i.group === g.key);
+        const showLate = g.key === "week" && late.length > 0;
+        if (!list.length && !showLate) return null;
+        return (
+          <section key={g.key} className="mt-7">
+            <h2 className="mb-2 px-1 text-[13px] font-bold uppercase tracking-wide text-ink-soft">{g.title} <span className="opacity-70">{list.length + (showLate ? 1 : 0)}</span>{g.hint && <span className="ml-2 font-normal normal-case tracking-normal text-ink-faint">{g.hint}</span>}</h2>
             <ul className="panel divide-y divide-line">
-              {unread.map((th) => (
-                <li key={th.trainer.id}><Link href={`/a/messages/${th.trainer.id}`} className="flex items-center gap-3 p-3.5 hover:bg-mint-wash">
-                  <Avatar name={th.trainer.name} size={38} />
-                  <div className="min-w-0 flex-1"><p className="font-semibold">{th.trainer.name}</p><p className="truncate text-[14px] text-ink-soft">{th.last.body}</p></div>
-                  <Pill tone="heart">{th.unread}</Pill>
-                </Link></li>
-              ))}
+              {list.map((i) => <Item key={i.key} i={i} />)}
+              {showLate && (
+                <li className="p-3.5">
+                  <details>
+                    <summary className="flex cursor-pointer list-none items-center gap-3">
+                      <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-biscuit" />
+                      <span className="min-w-0 flex-1 font-semibold">{late.length} form{late.length > 1 ? "s are" : " is"} late</span>
+                      <span className="btn-ghost h-9 min-h-0 px-3 text-[13px]">Show</span>
+                    </summary>
+                    <ul className="mt-2 divide-y divide-line rounded-xl border border-line">{late.map((t) => <TodoRow key={`${t.booking.id}-${t.window.kind}-${t.window.week}`} t={t} mode="admin" />)}</ul>
+                    <p className="mt-2 text-[12px] text-ink-faint">Trainers get reminders. Use &ldquo;Not needed&rdquo; for forms that shouldn&apos;t exist.</p>
+                  </details>
+                </li>
+              )}
             </ul>
-          ) : <p className="text-[14px] text-ink-soft">All caught up.</p>}
-        </Section>
-        <Section title="Needs a look">
-          <ul className="panel divide-y divide-line text-[14px]">
-            {fullUp.map((r) => <li key={r.t.id}><Link className="flex justify-between gap-3 p-3.5 hover:bg-mint-wash" href={`/a/trainers/${r.t.id}`}><span className="shrink-0 font-semibold">{r.t.name}</span><span className="min-w-0 truncate text-ink-soft">No free kennels for 8 weeks</span></Link></li>)}
-            {flagged.map((t) => <li key={t.id}><Link className="flex justify-between gap-3 p-3.5 hover:bg-mint-wash" href={`/a/trainers/${t.id}`}><span className="shrink-0 font-semibold">{t.name}</span><span className="min-w-0 truncate text-ink-soft">{t.data_flags[0]}</span></Link></li>)}
-            {!fullUp.length && !flagged.length && <li className="p-3.5 text-ink-soft">Nothing to check.</li>}
-          </ul>
-        </Section>
-      </div>
-
-      <Link href="/a/bookings/new" aria-label="New booking" className="btn-ink fixed bottom-[calc(84px+env(safe-area-inset-bottom))] right-4 z-20 h-14 w-14 rounded-full p-0 shadow-lg md:hidden"><Plus size={24} /></Link>
+          </section>
+        );
+      })}
     </>
   );
 }
 
-function Stat({ big, small, tone }: { big: string; small: string; tone?: "ink" }) {
+function Item({ i }: { i: TodoItem }) {
+  const dot = { heart: "bg-heart", biscuit: "bg-biscuit", line: "bg-line" }[i.tone];
   return (
-    <div className={`rounded-[22px] p-4 ${tone === "ink" ? "bg-ink text-white" : "border border-line bg-white"}`}>
-      <p className="text-[30px] font-extrabold leading-none">{big}</p>
-      <p className={`mt-2 text-[13px] leading-snug ${tone === "ink" ? "text-white/75" : "text-ink-soft"}`}>{small}</p>
-    </div>
+    <li className="flex flex-wrap items-center gap-x-3 gap-y-2 p-3.5">
+      <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${dot}`} aria-hidden />
+      <div className="min-w-0 flex-1">
+        <p className="font-semibold">{i.text}</p>
+        {(i.detail || i.since) && <p className="text-[13px] text-ink-soft">{i.detail}{i.detail && i.since ? " · " : ""}{i.since && <span className="text-ink-faint">{ago(i.since)}</span>}</p>}
+      </div>
+      <div className="flex flex-wrap items-center gap-1.5">
+        {i.primary && (i.primary.external
+          ? <a href={i.primary.href} target="_blank" rel="noopener" className="btn-ink h-9 min-h-0 px-3 text-[13px]">{i.primary.label}<ExternalLink size={13} /></a>
+          : <Link href={i.primary.href} className="btn-ink h-9 min-h-0 px-3 text-[13px]">{i.primary.label}</Link>)}
+        {i.dogHref && i.primary?.href !== i.dogHref && <Link href={i.dogHref} className="btn-ghost h-9 min-h-0 px-3 text-[13px]">Dog</Link>}
+        {i.hubspot && !i.primary?.external && <a href={i.hubspot} target="_blank" rel="noopener" className="btn-ghost h-9 min-h-0 px-3 text-[13px]">HubSpot<ExternalLink size={13} /></a>}
+        {i.incidentId && <TodoDone id={i.incidentId} />}
+      </div>
+    </li>
   );
 }

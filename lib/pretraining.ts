@@ -234,7 +234,7 @@ export async function syncPretraining(opts: { dealIds?: string[]; sb?: SupabaseC
         const list = dog.ready.missing.map((i) => (i.detail ? `${i.label} (${i.detail})` : i.label)).join("; ");
         if (await raiseIncident({
           kind: "not_ready", title: `${dog.name} (${b.client_name}), ${b.trainers?.name || "trainer"}`, ref, bookingId: b.id, chatId,
-          detail: `${dog.name} starts ${short(b.start_date)} and isn't ready: ${list}.`, link: chatId ? `${site()}/a/chats/${chatId}/profile?dog=${b.id}` : `${site()}/a/ready`
+          detail: `${dog.name} starts ${short(b.start_date)} and isn't ready: ${list}.`, link: `${site()}/a/dogs/${b.id}?tab=before`
         }, sb)) out.incidents.push(`Not ready: ${dog.name}`);
         else {
           // Already open: keep its list current
@@ -252,7 +252,7 @@ async function raiseVaccineCheck(dog: { booking: BookingRow; name: string }, cha
   return raiseIncident({
     kind: "check_vaccines", title: `${dog.name} (${b.client_name}), ${b.trainers?.name || "trainer"}`, ref: `vax:${b.id}`, bookingId: b.id, chatId,
     detail: `${dog.name}'s vaccine records are in and need checking (starts ${short(b.start_date)}). Mark them All OK, or which are missing.`,
-    link: chatId ? `${site()}/a/chats/${chatId}/profile?dog=${b.id}#vaccines` : `${site()}/a/ready`
+    link: `${site()}/a/dogs/${b.id}?tab=before#vaccines`
   }, sb);
 }
 

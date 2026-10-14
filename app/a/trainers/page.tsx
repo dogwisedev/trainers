@@ -11,10 +11,12 @@ import { isPayMonday, periodLabel, runDates, usDate } from "@/lib/payroll";
 import { isDemo } from "@/lib/supabase";
 import { trainerSignins } from "@/lib/trainerSignin";
 import { SigninHello } from "@/components/SigninHello";
+import { KennelOverview } from "@/components/KennelOverview";
 
 export default async function Trainers({ searchParams }: { searchParams: { view?: string; run?: string } }) {
   await requireRole("admin");
   const payView = searchParams.view === "pay";
+  const kennels = searchParams.view === "kennels";
   const current = await currentRunDate();
   const submit = searchParams.run && isPayMonday(searchParams.run) ? searchParams.run : current;
   // The current run refreshes itself whenever the Payslips view opens: every booked day in its two weeks,
@@ -29,12 +31,13 @@ export default async function Trainers({ searchParams }: { searchParams: { view?
       <h1 className="text-[30px] font-extrabold">Trainers</h1>
       <div className="flex items-center gap-2">
         <div className="inline-flex rounded-full border border-line bg-white p-1 text-[14px] font-semibold">
-          <Link href="/a/trainers" className={`rounded-full px-3.5 py-1.5 ${!payView ? "bg-ink text-white" : "text-ink-soft"}`}>Trainers</Link>
+          <Link href="/a/trainers" className={`rounded-full px-3.5 py-1.5 ${!payView && !kennels ? "bg-ink text-white" : "text-ink-soft"}`}>Trainers</Link>
+          <Link href="/a/trainers?view=kennels" className={`rounded-full px-3.5 py-1.5 ${kennels ? "bg-ink text-white" : "text-ink-soft"}`}>Kennels</Link>
           <Link href={`/a/trainers?view=pay${searchParams.run ? `&run=${submit}` : ""}`} className={`rounded-full px-3.5 py-1.5 ${payView ? "bg-ink text-white" : "text-ink-soft"}`}>
             Payslips{pendingCount > 0 && <span className={`ml-1.5 rounded-full px-1.5 text-[12px] ${payView ? "bg-biscuit text-ink" : "bg-biscuit text-ink"}`}>{pendingCount}</span>}
           </Link>
         </div>
-        {!payView && <Link href="/a/trainers/new" className="btn-mint h-10 min-h-0 px-3.5"><UserPlus size={18} />Add</Link>}
+        {!payView && !kennels && <Link href="/a/trainers/new" className="btn-mint h-10 min-h-0 px-3.5"><UserPlus size={18} />Add</Link>}
       </div>
     </div>
   );
@@ -48,6 +51,7 @@ export default async function Trainers({ searchParams }: { searchParams: { view?
       </>
     );
   }
+  if (kennels) return <>{header}<KennelOverview /></>;
   const today = todayIso();
   const [trainers, bookings, off] = await Promise.all([listTrainers({ includeInactive: true }), listBookings({ from: today }), listTimeOff({ from: today })]);
   const weeks = weeksFrom(today, 16);

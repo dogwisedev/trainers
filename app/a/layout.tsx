@@ -8,12 +8,10 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const [unread, reportsToReview, chatsUnread, incidents] = await Promise.all([unreadForAdmin(), pendingReportCount(), unreadChats(v), incidentCount()]);
   return (
     <Shell who={v.name} demo={v.demo} accountHref="/a/account" needsPassword={v.passwordSet === false} nav={[
-      { href: "/a", label: "Overview", icon: "grid" },
-      { href: "/a/trainers", label: "Trainers", icon: "users" },
-      { href: "/a/bookings", label: "Bookings", icon: "calendar", also: ["/a/ready"] },
-      { href: "/a/reports", label: "Reports", icon: "reports", badge: reportsToReview },
+      { href: "/a", label: "To do", icon: "todo", badge: incidents + reportsToReview + unread, also: ["/a/reports"] },
+      { href: "/a/dogs", label: "Dogs", icon: "paw", also: ["/a/bookings"] },
       { href: "/a/chats", label: "Chats", icon: "chats", badge: chatsUnread + unread, also: ["/a/messages"] },
-      { href: "/a/incidents", label: "Incidents", icon: "alert", badge: incidents }
+      { href: "/a/trainers", label: "Trainers", icon: "users" }
     ]}>{children}</Shell>
   );
 }

@@ -91,7 +91,7 @@ export async function runChatChecks(now = new Date()) {
     try {
       const staleLines = stale.map((i) => { const c = chats.find((x) => x.id === i.chat_id)!; return { text: `Still open: ${INCIDENT_LABEL[i.kind]} (${c.title || "dog"}, ${c.client_name || "client"})`, link: `${site()}/a/chats/${c.id}` }; });
       const lines = [...created.map((f) => ({ text: `${INCIDENT_LABEL[f.kind]}: ${f.chat.title || "dog"}, ${f.chat.client_name || "client"}. ${f.detail}.`, link: `${site()}/a/chats/${f.chat.id}` })), ...staleLines];
-      await alertAdmins(`${lines.length} chat incident${lines.length > 1 ? "s" : ""} need attention`, `${lines.length} chat thing${lines.length > 1 ? "s" : ""} for the Dogwise team to look at.`, lines, { label: "See all incidents", link: `${site()}/a/incidents` });
+      await alertAdmins(`${lines.length} chat incident${lines.length > 1 ? "s" : ""} need attention`, `${lines.length} chat thing${lines.length > 1 ? "s" : ""} for the Dogwise team to look at.`, lines, { label: "Open To do", link: `${site()}/a` });
       for (const i of stale) { await sb.from("chat_incidents").update({ last_alert_at: now.toISOString() }).eq("id", i.id); out.realerted++; }
     } catch (e) { out.errors.push(`alert: ${(e as Error).message}`); }
   }
