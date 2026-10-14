@@ -99,6 +99,7 @@ export async function notifyBookings(sb: SupabaseClient, bookingIds: string[], k
         ]
       });
       sent++;
+      if (kind === "new") await sb.from("bookings").update({ notified_at: new Date().toISOString() }).eq("id", r.id); // the safety net skips it
     } catch (e) { errors.push(`${t.name}: ${(e as Error).message}`); }
   }
   return { sent, errors };

@@ -3,6 +3,7 @@ import { soonestOpening, weekUsage } from "@/lib/capacity";
 import { short, todayIso, weekStart, weeksFrom } from "@/lib/dates";
 import { BookingForm, TrainerOption } from "@/components/forms";
 
+export const maxDuration = 60; // booking saves, reads HubSpot, emails the trainer and makes the chat
 export default async function NewBooking({ searchParams }: { searchParams: { trainer?: string } }) {
   await requireRole("admin");
   const today = todayIso();

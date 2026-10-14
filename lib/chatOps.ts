@@ -10,6 +10,7 @@ import { buildTranscript } from "./chatTranscript";
 import { ChatMsg, ChatRow, driveView } from "./chatTypes";
 import { CHAT_KINDS, INCIDENT_LABEL, IncidentKind, RULES, clientDigestDue, clientWaiting, pileUp, readyToClose, trainerSilent } from "./chatRules";
 import { clearFormIncidents } from "./incidents";
+import { catchUpBookings } from "./bookingCatchup";
 
 const site = () => (process.env.NEXT_PUBLIC_SITE_URL || "").replace(/\/$/, "");
 const logo = { filename: "dogwise.png", content: Buffer.from(BRAND_LOGO_PNG_BASE64, "base64"), contentType: "image/png", cid: "dogwise-logo" };
@@ -27,6 +28,7 @@ export async function runChatChecks(now = new Date()) {
   const chats = (chatRows || []) as ChatRow[];
   const out = { chats: chats.length, opened: 0, cleared: 0, realerted: 0, digests: 0, errors: [] as string[] };
   try { out.cleared += await clearFormIncidents(sb); } catch (e) { out.errors.push(`forms: ${(e as Error).message}`); }
+  try { const c = await catchUpBookings(sb); out.errors.push(...c.errors.map((x) => `booking email: ${x}`)); } catch (e) { out.errors.push(`booking email: ${(e as Error).message}`); }
 
   // Bookings per chat (a chat's key is the HubSpot deal id, or the booking id)
   const keys = chats.map((c) => c.deal_key);

@@ -17,6 +17,7 @@ import { syncHubspotDates } from "@/lib/hubspotSync";
 //  201 { bookings, booking, trainer, url }
 //  409 { code: "already_booked" | "full", message, ... }   force: true books anyway when "full"
 
+export const maxDuration = 60; // saves, reads HubSpot, emails the trainer and makes the chat
 const bad = (status: number, body: Record<string, unknown>) => NextResponse.json(body, { status });
 
 export async function POST(req: Request) {
