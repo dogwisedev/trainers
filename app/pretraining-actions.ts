@@ -2,7 +2,7 @@
 import { revalidatePath } from "next/cache";
 import { serviceClient } from "@/lib/supabase";
 import { profileAccess } from "@/lib/pretrainingAccess";
-import { addVaccineFile, reviewVaccines, saveAnswers, setSlot } from "@/lib/pretraining";
+import { addVaccineFile, reviewVaccines, saveAnswers, setCleared, setSlot } from "@/lib/pretraining";
 import { findFile } from "@/lib/drive";
 
 export type ProfileResult = { ok: boolean; message: string };
@@ -32,6 +32,16 @@ export async function reviewVaccinesAction(chatId: string, bookingId: string, ok
     const g = await guard(chatId, bookingId, true);
     if (!g) return NO;
     const r = await reviewVaccines(g.dealId, bookingId, ok, missing, g.who);
+    revalidatePath("/", "layout");
+    return r;
+  } catch (e) { return { ok: false, message: (e as Error).message }; }
+}
+
+export async function setClearedAction(chatId: string, bookingId: string, cleared: boolean): Promise<ProfileResult> {
+  try {
+    const g = await guard(chatId, bookingId, true);
+    if (!g) return NO;
+    const r = await setCleared(g.dealId, bookingId, cleared, g.who);
     revalidatePath("/", "layout");
     return r;
   } catch (e) { return { ok: false, message: (e as Error).message }; }

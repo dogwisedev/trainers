@@ -56,7 +56,7 @@ export default async function ReadyPage({ searchParams }: { searchParams: { all?
                 <div className="min-w-0 flex-1">
                   <p className="font-bold">{x?.dog.name || r.dog_name || "Dog"} <span className="font-normal text-ink-soft">{r.client_name}, {r.trainers?.name || "no trainer"}</span></p>
                   <p className={`text-[13px] ${soon ? "font-semibold text-heart" : "text-ink-soft"}`}>Starts {short(r.start_date)}</p>
-                  {x ? (x.ready.ready ? <Pill>Ready</Pill> : (
+                  {x ? (x.ready.ready ? <Pill>{x.dog.cleared ? `OK to start (${x.dog.cleared.by})` : "Ready"}</Pill> : (
                     <div className="mt-1 flex flex-wrap gap-1.5">{x.ready.missing.map((i) => <Pill key={i.key} tone={i.who === "admin" ? "line" : "heart"}>{i.label}</Pill>)}</div>
                   )) : <p className="text-[13px] text-ink-faint">Not checked against HubSpot yet.</p>}
                 </div>
