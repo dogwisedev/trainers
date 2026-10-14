@@ -15,6 +15,8 @@ import { Avatar, Pill, Section } from "@/components/ui";
 import { PayRatesForm } from "@/components/PayRatesForm";
 import { getRates } from "@/lib/payrollData";
 import { datesFromHubspot } from "@/lib/hubspot";
+import { bookingHistory } from "@/lib/history";
+import { BookingHistory } from "@/components/BookingHistory";
 
 export default async function TrainerDetail({ params, searchParams }: { params: { id: string }; searchParams: { saved?: string; emailed?: string } }) {
   await requireRole("admin");
@@ -29,6 +31,7 @@ export default async function TrainerDetail({ params, searchParams }: { params: 
   const upcoming = bookings.filter((b) => b.end_date >= today && b.status !== "cancelled");
   const id = t.id;
   const hubDates = datesFromHubspot();
+  const finished = await bookingHistory({ tab: "finished", trainerId: id, limit: 8 });
 
   return (
     <>
@@ -92,6 +95,10 @@ export default async function TrainerDetail({ params, searchParams }: { params: 
             ))}
           </ul>
         ) : <p className="text-[14px] text-ink-soft">No upcoming bookings.</p>}
+      </Section>
+
+      <Section title="Finished" action={finished.rows.length ? <Link href={`/a/bookings?f=finished&t=${id}`} className="btn-ghost h-10 min-h-0 px-3 text-[14px]">See all</Link> : undefined}>
+        {finished.rows.length ? <BookingHistory rows={finished.rows} role="admin" showTrainer={false} /> : <p className="text-[14px] text-ink-soft">No finished trainings yet.</p>}
       </Section>
 
       <Section title="Time off">

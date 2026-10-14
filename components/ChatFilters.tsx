@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Search, X } from "lucide-react";
 
 /** Search box (names and message text) and, for admins, a trainer filter. Works through the page URL, so it can be shared and refreshed. */
-export function ChatFilters({ base, q, t, f, trainers }: { base: string; q: string; t?: string; f?: string; trainers?: { id: string; name: string }[] }) {
+export function ChatFilters({ base, q, t, f, trainers, placeholder = "Search dog, client or messages" }: { base: string; q: string; t?: string; f?: string; trainers?: { id: string; name: string }[]; placeholder?: string }) {
   const router = useRouter();
   const [text, setText] = useState(q);
   const go = (next: { t?: string; q?: string }) => {
@@ -29,7 +29,7 @@ export function ChatFilters({ base, q, t, f, trainers }: { base: string; q: stri
       )}
       <div className="relative min-w-[180px] flex-1">
         <label htmlFor="chat-search" className="sr-only">Search chats</label>
-        <input id="chat-search" type="search" className="field pr-10" placeholder="Search dog, client or messages" value={text} onChange={(e) => setText(e.target.value)} />
+        <input id="chat-search" type="search" className="field pr-10" placeholder={placeholder} value={text} onChange={(e) => setText(e.target.value)} />
         <button type="submit" className="absolute right-1 top-1/2 grid h-9 w-9 -translate-y-1/2 place-items-center rounded-full text-ink-soft" aria-label="Search"><Search size={17} /></button>
       </div>
       {(q || t) && <button type="button" className="btn-ghost h-11 min-h-0 px-3 text-[14px]" onClick={() => { setText(""); router.push(f ? `${base}?f=${f}` : base); }}><X size={16} />Clear</button>}
