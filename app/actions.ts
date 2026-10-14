@@ -8,6 +8,7 @@ import { addDays, dropOff, short } from "@/lib/dates";
 import { notifyBookings, notifySummary } from "@/lib/bookingEmail";
 import { sendInvite, sendSignInLink } from "@/lib/authEmail";
 import { sendSigninHello } from "@/lib/trainerSignin";
+import { cleanDealId } from "@/lib/dealId";
 import { ensureChatsForBookings } from "@/lib/chat";
 import { datesFromHubspot } from "@/lib/hubspot";
 import { syncHubspotDates } from "@/lib/hubspotSync";
@@ -165,7 +166,7 @@ export async function saveBooking(_: Result | null, f: FormData): Promise<Result
   const row = {
     trainer_id: str(f, "trainer_id"), client_name: str(f, "client_name"), dog_name: str(f, "dog_name"), ...(str(f, "client_email") ? { client_email: str(f, "client_email") } : {}),
     program: str(f, "program") || `${weeks}-week`, start_date: s, end_date: dropOff(s, weeks, extra), weeks, extra_days: extra,
-    status: str(f, "status") || "confirmed", notes: str(f, "notes"), hubspot_deal_id: str(f, "hubspot_deal_id"), created_by: v.userId,
+    status: str(f, "status") || "confirmed", notes: str(f, "notes"), hubspot_deal_id: cleanDealId(str(f, "hubspot_deal_id")), created_by: v.userId,
     rehab: f.get("rehab") === "on" || /rehab|\bRR\b/i.test(str(f, "program") || "")
   };
   const id = str(f, "id");

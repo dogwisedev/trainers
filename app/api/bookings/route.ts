@@ -7,6 +7,7 @@ import { notifyBookings } from "@/lib/bookingEmail";
 import { ensureChatsForBookings } from "@/lib/chat";
 import { datesFromHubspot } from "@/lib/hubspot";
 import { syncHubspotDates } from "@/lib/hubspotSync";
+import { cleanDealId } from "@/lib/dealId";
 
 // Book a Closed Won HubSpot deal into a trainer's calendar (used by the Sales extension).
 // POST /api/bookings   header x-api-key: BOOKING_KEY
@@ -27,7 +28,7 @@ export async function POST(req: Request) {
   const b = await req.json().catch(() => ({}));
   const trainerId = String(b.trainer_id || ""), client = String(b.client_name || "").trim();
   const clientEmail = /^\S+@\S+\.\S+$/.test(String(b.client_email || "").trim()) ? String(b.client_email).trim().toLowerCase().slice(0, 200) : null;
-  const dealId = b.hubspot_deal_id ? String(b.hubspot_deal_id) : null;
+  const dealId = cleanDealId(b.hubspot_deal_id); // digits only, even if the whole HubSpot link was pasted
   const rawDogs: Record<string, unknown>[] = Array.isArray(b.dogs) && b.dogs.length
     ? b.dogs
     : [{ dog_name: b.dog_name, program: b.program, weeks: b.weeks, start_date: b.start_date, notes: b.notes }];
