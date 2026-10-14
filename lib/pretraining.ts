@@ -7,7 +7,7 @@ import { raiseIncident, resolveIncidents } from "./incidents";
 import { DealProps, PropDef, dealContacts, hubspotConfigured, optionValue, propDefs, readContacts, readDeals, updateContact, updateDeal } from "./hubspot";
 import {
   Answers, CLIENT_KEYS, CONTACT_PROPS, DEAL_PROPS, DOG_KEYS, DOG_NAME_PROPS, QUESTIONS, Ready, VACCINE_FILE_PROP, VACCINES, VaccineFile, VaccineState,
-  checklist, isYes, matchSlots, vaccineStatus
+  checklist, clearReady, isYes, matchSlots, vaccineStatus
 } from "./pretrainingFields";
 
 // Before-training checklist. HubSpot is the source of truth:
@@ -21,11 +21,11 @@ const site = () => (process.env.NEXT_PUBLIC_SITE_URL || "").replace(/\/$/, "");
 
 type BookingRow = { id: string; dog_name: string | null; client_name: string; start_date: string; end_date: string; status: string; trainer_id: string; created_at: string; hubspot_deal_id: string | null; trainers?: { name: string } | null };
 type DealRow = { deal_id: string; contact_id: string | null; deal: DealProps; contact: DealProps; pending: Record<string, string>; synced_at: string | null; sync_error: string | null };
-type DogRow = { booking_id: string; deal_id: string; slot: number; slot_set_by: string | null; answers: Answers; vaccines: VaccineState; changes: Record<string, { by: string; role: string; at: string }> };
+type DogRow = { booking_id: string; deal_id: string; slot: number; slot_set_by: string | null; cleared_by?: string | null; cleared_at?: string | null; answers: Answers; vaccines: VaccineState; changes: Record<string, { by: string; role: string; at: string }> };
 
 export type DogView = {
   booking: BookingRow; slot: number; slotSetBy: string | null; name: string; answers: Answers; vaccines: VaccineState; files: VaccineFile[];
-  vaccine: ReturnType<typeof vaccineStatus>; changes: DogRow["changes"]; ready: Ready; changedSinceStart: boolean;
+  vaccine: ReturnType<typeof vaccineStatus>; changes: DogRow["changes"]; ready: Ready; changedSinceStart: boolean; cleared: { by: string; at: string } | null;
 };
 export type Profile = {
   dealId: string; contactId: string | null; client: Answers; deal: DealProps; dogs: DogView[]; howMany: number | null;
@@ -74,7 +74,8 @@ function buildProfile(dealId: string, row: DealRow | null, dogRows: DogRow[], bo
     const changes = d?.changes || {};
     return {
       booking: b, slot, slotSetBy: d?.slot_set_by || null, name: names[slot - 1] || b.dog_name || `Dog ${slot}`, answers, vaccines, files, vaccine, changes,
-      ready: checklist({ client, dog: answers, vaccines: vaccine, balanceLink, dogsMismatch: mismatch }),
+      ready: d?.cleared_by ? clearReady(checklist({ client, dog: answers, vaccines: vaccine, balanceLink, dogsMismatch: mismatch })) : checklist({ client, dog: answers, vaccines: vaccine, balanceLink, dogsMismatch: mismatch }),
+      cleared: d?.cleared_by ? { by: d.cleared_by, at: d.cleared_at || "" } : null,
       changedSinceStart: Object.values(changes).some((c) => c.role === "client" && c.at.slice(0, 10) >= b.start_date)
     };
   }).sort((a, b) => a.slot - b.slot);
@@ -131,6 +132,30 @@ export async function readinessFor(bookingIds: string[]): Promise<Map<string, { 
   return out;
 }
 
+/**
+ * Sends answers to the HubSpot contact. If HubSpot refuses some values (an option it doesn't allow), those are named and
+ * left out so the rest still go through. Anything not sent (no permission, HubSpot down) stays waiting for the next try.
+ */
+async function pushContact(contactId: string, props: Record<string, string>): Promise<{ pending: Record<string, string>; error: string | null; sent: number }> {
+  const left = { ...props }, refused: string[] = [];
+  const named = () => refused.map((k) => QUESTIONS.find((q) => q.key === k)?.label || k).join("; ");
+  for (let i = 0; i < 4 && Object.keys(left).length; i++) {
+    try {
+      await updateContact(contactId, left);
+      return { pending: {}, sent: Object.keys(left).length, error: refused.length ? `HubSpot refused the answer to: ${named()}. Change it to one of the options HubSpot allows.` : null };
+    } catch (e) {
+      const m = (e as Error).message;
+      const bad = [...m.matchAll(/\\?"(?:name|propertyName)\\?"\s*:\s*\\?"([a-z0-9_]+)/g)].map((x) => x[1]).filter((k) => k in left);
+      if (/HubSpot 400/.test(m) && bad.length) { for (const k of bad) { refused.push(k); delete left[k]; } continue; }
+      const why = /HubSpot 403/.test(m) && /scope/i.test(m)
+        ? "HubSpot token can't write to contacts yet: add the crm.objects.contacts.write scope to the private app."
+        : `HubSpot didn't accept the answers: ${m}`.slice(0, 400);
+      return { pending: left, sent: 0, error: `${why}${refused.length ? ` Also refused: ${named()}.` : ""}` };
+    }
+  }
+  return { pending: left, sent: 0, error: refused.length ? `HubSpot refused: ${named()}.` : null };
+}
+
 // ── Sync (cron) ──────────────────────────────────────────────────────────────
 
 export type PretrainingResult = { deals: number; dogs: number; pushed: number; incidents: string[]; errors: string[] };
@@ -171,8 +196,8 @@ export async function syncPretraining(opts: { dealIds?: string[]; sb?: SupabaseC
       let pending = { ...(old?.pending || {}) }, syncError: string | null = contactId ? null : "No contact on the HubSpot deal";
       // 1. Answers saved in the app that HubSpot didn't take yet
       if (contactId && Object.keys(pending).length) {
-        try { await updateContact(contactId, pending); contact = { ...contact, ...pending }; out.pushed += Object.keys(pending).length; pending = {}; }
-        catch (e) { syncError = `HubSpot didn't accept some answers: ${(e as Error).message}`.slice(0, 500); }
+        const r = await pushContact(contactId, pending);
+        contact = { ...contact, ...pending }; out.pushed += r.sent; pending = r.pending; syncError = r.error;
       }
       await sb.from("pretraining_deals").upsert({ deal_id: dealId, contact_id: contactId, deal, contact, pending, synced_at: now, sync_error: syncError, updated_at: now });
       // 2. One row per dog, with its slot on the deal (dog 1 = k9___dog_name, dog 2 = dog_2_name…)
@@ -275,8 +300,9 @@ export async function saveAnswers(dealId: string, bookingId: string, values: Rec
   if (Object.keys(toContact).length) {
     let pending = { ...(row.pending || {}), ...toContact }, error: string | null = null;
     if (row.contact_id && hubspotConfigured()) {
-      try { await updateContact(row.contact_id, pending); pending = {}; }
-      catch (e) { error = `HubSpot didn't accept some answers: ${(e as Error).message}`.slice(0, 500); note = "Saved. It'll reach HubSpot shortly."; }
+      const r = await pushContact(row.contact_id, pending);
+      pending = r.pending; error = r.error;
+      if (Object.keys(pending).length) note = "Saved. It'll reach HubSpot shortly.";
     } else note = "Saved. It'll reach HubSpot shortly.";
     await sb.from("pretraining_deals").update({ contact: { ...(row.contact || {}), ...toContact }, pending, sync_error: error, updated_at: at }).eq("deal_id", dealId);
   }
@@ -354,8 +380,17 @@ export async function chatReadiness(dealKey: string, forClient: boolean): Promis
   const sb = serviceClient();
   const { data: bks } = await sb.from("bookings").select("id").eq("hubspot_deal_id", dealKey).neq("status", "cancelled");
   const r = await readinessFor(((bks || []) as { id: string }[]).map((b) => b.id));
-  if (!r.size) return null;
+  if (!r.size || [...r.values()].every((x) => x.dog.cleared)) return null; // admin said OK to start: no card, no pop-up
   const left = [...r.values()].reduce((n, x) => n + x.ready.missing.filter((i) => !forClient || i.who === "client").length, 0);
   const { data: row } = await sb.from("pretraining_deals").select("deal").eq("deal_id", dealKey).maybeSingle();
   return { left, balanceLink: str((row?.deal as DealProps | undefined)?.remaining_balance_link).trim() };
+}
+
+/** Admin: "OK to start" (or undo). The client stops being asked, "Not ready" closes. HubSpot isn't changed. */
+export async function setCleared(dealId: string, bookingId: string, cleared: boolean, who: { name: string }) {
+  const sb = serviceClient();
+  const { error } = await sb.from("pretraining_dogs").update(cleared ? { cleared_by: who.name, cleared_at: new Date().toISOString() } : { cleared_by: null, cleared_at: null }).eq("booking_id", bookingId).eq("deal_id", dealId);
+  if (error) return { ok: false, message: error.message };
+  if (cleared) await resolveIncidents({ kinds: ["not_ready"], ref: `ready:${bookingId}` }, who.name, "Marked OK to start", sb);
+  return { ok: true, message: cleared ? "Marked OK to start. The client won't be asked for anything more." : "Back to normal: the client sees what's missing again." };
 }

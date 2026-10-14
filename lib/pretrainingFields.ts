@@ -144,20 +144,25 @@ export function vaccineStatus(v: VaccineState, dealSaysYes: boolean, hasFile: bo
 
 // ── The checklist ────────────────────────────────────────────────────────────
 export type Item = { key: string; label: string; done: boolean; detail?: string; who: "client" | "admin"; section?: SectionId };
-export type Ready = { items: Item[]; missing: Item[]; formsDone: boolean; intakeDone: boolean; managerDone: boolean; ready: boolean };
+export type Ready = { items: Item[]; missing: Item[]; formsDone: boolean; intakeDone: boolean; managerDone: boolean; ready: boolean; waived?: Item[] };
+/** An admin said "OK to start": nothing counts as missing any more (the client isn't asked, no incidents). What was missing is kept in `waived`. */
+export const clearReady = (r: Ready): Ready => ({ ...r, ready: true, missing: [], waived: r.missing });
 
 export function checklist(o: {
   client: Answers; dog: Answers; vaccines: ReturnType<typeof vaccineStatus>; balanceLink: string; dogsMismatch?: string | null;
 }): Ready {
   const sec = (id: SectionId) => SECTIONS.find((s) => s.id === id)!.questions;
-  const left = (ids: SectionId[], a: Answers) => ids.reduce((n, id) => n + missingIn(sec(id), a).length, 0);
-  const count = (n: number) => (n ? `${n} question${n > 1 ? "s" : ""} left` : undefined);
-  const home = left(["home", "vet"], o.client), dog = left(["dog", "health"], o.dog), goals = left(["goals", "behaviour", "handling"], o.dog);
+  const gaps = (ids: SectionId[], a: Answers) => ids.flatMap((id) => missingIn(sec(id), a));
+  // Name the questions when there are only a few, so it's obvious what's missing
+  const say = (qs: Q[]) => (!qs.length ? undefined : qs.length <= 3 ? qs.map((q) => q.label.replace(/\?$/, "")).join("; ") : `${qs.length} questions left`);
+  const homeQ = gaps(["home", "vet"], o.client), dogQ = gaps(["dog", "health"], o.dog), goalsQ = gaps(["goals", "behaviour", "handling"], o.dog);
+  const home = homeQ.length, dog = dogQ.length, goals = goalsQ.length;
+  const count = (_n: number, qs: Q[]) => say(qs);
   const food = missingIn(sec("food").slice(0, 1), o.dog).length, meds = missingIn(sec("food").slice(1), o.dog).length;
   const items: Item[] = [
-    { key: "home", label: "Your details, vet and emergency contact", done: !home, detail: count(home), who: "client", section: "home" },
-    { key: "dog", label: "About the dog and health", done: !dog, detail: count(dog), who: "client", section: "dog" },
-    { key: "goals", label: "Training goals and behaviour", done: !goals, detail: count(goals), who: "client", section: "goals" },
+    { key: "home", label: "Your details, vet and emergency contact", done: !home, detail: count(home, homeQ), who: "client", section: "home" },
+    { key: "dog", label: "About the dog and health", done: !dog, detail: count(dog, dogQ), who: "client", section: dogQ.some((q) => sec("dog").includes(q)) ? "dog" : "health" },
+    { key: "goals", label: "Training goals and behaviour", done: !goals, detail: count(goals, goalsQ), who: "client", section: goalsQ.some((q) => sec("goals").includes(q)) ? "goals" : goalsQ.some((q) => sec("behaviour").includes(q)) ? "behaviour" : "handling" },
     { key: "food", label: "Food", done: !food, who: "client", section: "food" },
     { key: "meds", label: "Medication", done: !meds, who: "client", section: "food" },
     { key: "vaccines", label: "Vaccines", done: o.vaccines.ok, detail: o.vaccines.ok ? undefined : o.vaccines.label, who: "client", section: "health" }
