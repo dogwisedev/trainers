@@ -4,10 +4,10 @@ import { useRouter } from "next/navigation";
 import { useMemo, useRef, useState, useTransition } from "react";
 import { Check, Circle, CreditCard, FileText, Pencil, Upload } from "lucide-react";
 import { Pill } from "@/components/ui";
-import { addVaccineFileAction, reviewVaccinesAction, saveProfileAction, setSlotAction } from "@/app/pretraining-actions";
+import { addVaccineFileAction, reviewVaccinesAction, saveProfileAction, setClearedAction, setSlotAction } from "@/app/pretraining-actions";
 import { uploadToDrive } from "@/lib/driveUpload";
 import { driveView } from "@/lib/chatTypes";
-import { Answers, Q, SECTIONS, Section, VACCINES, asked, blank, missingIn } from "@/lib/pretrainingFields";
+import { Answers, INTAKE_QS, MANAGER_QS, Q, SECTIONS, Section, VACCINES, asked, blank, missingIn } from "@/lib/pretrainingFields";
 import type { Profile } from "@/lib/pretraining";
 
 type Role = "admin" | "trainer" | "client";
@@ -37,7 +37,7 @@ export function DogProfile({ chatId, role, edit, open, profile, dogId, base }: {
   const dog = profile.dogs.find((d) => d.booking.id === dogId) || profile.dogs[0];
   const many = profile.dogs.length > 1;
   const items = dog.ready.items.filter((i) => role !== "client" || i.who === "client");
-  const left = items.filter((i) => !i.done);
+  const left = dog.cleared ? [] : items.filter((i) => !i.done);
   const answersFor = (s: Section) => (s.scope === "client" ? profile.client : dog.answers);
   return (
     <div className="space-y-4">
@@ -53,11 +53,12 @@ export function DogProfile({ chatId, role, edit, open, profile, dogId, base }: {
 
       <section className={`panel p-4 ${left.length ? "" : "border-fern bg-mint-wash"}`} aria-labelledby="ready-title">
         <h2 id="ready-title" className="text-[18px] font-extrabold">{left.length ? `${left.length} thing${left.length > 1 ? "s" : ""} left before training` : `${dog.name} is ready for training`}</h2>
+        {dog.cleared && role !== "client" && <p className="text-[13px] font-semibold text-fern">Marked OK to start by {dog.cleared.by}{dog.cleared.at ? `, ${when(dog.cleared.at)}` : ""}. The client isn&apos;t asked for anything more.</p>}
         <p className="mb-3 text-[13px] text-ink-soft">{dog.name} starts {new Date(`${dog.booking.start_date}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" })}{role !== "client" && dog.booking.trainers?.name ? ` with ${dog.booking.trainers.name}` : ""}.</p>
         <ul className="space-y-1.5">
           {items.map((i) => (
             <li key={i.key} className="flex items-start gap-2 text-[15px]">
-              {i.done ? <Check size={18} className="mt-0.5 shrink-0 text-fern" aria-label="Done" /> : <Circle size={18} className="mt-0.5 shrink-0 text-heart" aria-label="To do" />}
+              {i.done ? <Check size={18} className="mt-0.5 shrink-0 text-fern" aria-label="Done" /> : <Circle size={18} className={`mt-0.5 shrink-0 ${dog.cleared ? "text-ink-faint" : "text-heart"}`} aria-label={dog.cleared ? "Not needed" : "To do"} />}
               <span>{i.section && !i.done ? <a href={`#${i.section}`} className="font-semibold underline">{i.label}</a> : <span className={i.done ? "text-ink-soft" : "font-semibold"}>{i.label}</span>}{i.detail && <span className="text-ink-soft">: {i.detail}</span>}{role !== "client" && i.who === "admin" && <span className="text-[12px] text-ink-faint"> (team)</span>}</span>
             </li>
           ))}
@@ -69,6 +70,7 @@ export function DogProfile({ chatId, role, edit, open, profile, dogId, base }: {
       </section>
 
       {role === "admin" && <AdminBits chatId={chatId} profile={profile} dog={dog} />}
+      {role === "admin" && (dog.cleared || dog.ready.missing.length > 0) && <ClearButton chatId={chatId} bookingId={dog.booking.id} cleared={!!dog.cleared} />}
 
       <Vaccines chatId={chatId} role={role} edit={edit && open} dog={dog} dealYes={profile.deal.vaccines_in_order_} />
 
@@ -80,11 +82,30 @@ export function DogProfile({ chatId, role, edit, open, profile, dogId, base }: {
   );
 }
 
+function ClearButton({ chatId, bookingId, cleared }: { chatId: string; bookingId: string; cleared: boolean }) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [msg, setMsg] = useState("");
+  const click = () => {
+    if (!cleared && !window.confirm("Mark this dog OK to start? The client won't be asked for anything more, and no \"Not ready\" incident will open. HubSpot isn't changed.")) return;
+    start(async () => { const r = await setClearedAction(chatId, bookingId, !cleared); setMsg(r.message); router.refresh(); });
+  };
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <button type="button" className={cleared ? "btn-ghost" : "btn-ink"} disabled={pending} onClick={click}>{cleared ? "Undo OK to start" : "OK to start: stop asking the client"}</button>
+      {msg && <span role="status" className="text-[13px] font-semibold">{msg}</span>}
+    </div>
+  );
+}
+
 function AdminBits({ chatId, profile, dog }: { chatId: string; profile: Profile; dog: Profile["dogs"][number] }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [msg, setMsg] = useState("");
   const names = ["k9___dog_name", "dog_2_name", "dog_3_name", "dog_4_name"].map((k) => String(profile.deal[k] || ""));
+  const contacts = String(profile.deal.__contacts || "").split(";").filter(Boolean);
+  const all = { ...dog.answers, ...profile.client };
+  const intakeLost = contacts.length <= 1 && MANAGER_QS().some((q) => !blank(dog.answers[q.key])) && INTAKE_QS().filter((q) => q.key !== "phone").every((q) => blank(all[q.key]));
   return (
     <section className="panel space-y-2 p-4 text-[13px] text-ink-soft">
       <p>
@@ -92,6 +113,12 @@ function AdminBits({ chatId, profile, dog }: { chatId: string; profile: Profile;
         {" "}<a className="underline" href={`https://app.hubspot.com/contacts/21869370/record/0-3/${profile.dealId}`} target="_blank" rel="noopener">Deal</a>
         {profile.contactId && <> · <a className="underline" href={`https://app.hubspot.com/contacts/21869370/record/0-1/${profile.contactId}`} target="_blank" rel="noopener">Contact</a></>}
       </p>
+      {contacts.length > 1 && (
+        <p className="font-semibold text-[#8A5A00]">This deal has {contacts.length} contacts in HubSpot ({contacts.map((id, i) => <span key={id}>{i ? ", " : ""}<a className="underline" href={`https://app.hubspot.com/contacts/21869370/record/0-1/${id}`} target="_blank" rel="noopener">{id}</a></span>)}). The app fills gaps from all of them, but please merge them in HubSpot.</p>
+      )}
+      {intakeLost && (
+        <p className="font-semibold text-[#8A5A00]">The Client manager answers are here but none of the intake answers. The intake form was probably submitted without the client&apos;s email, so HubSpot made a second contact. Search HubSpot for {dog.booking.client_name} and merge that contact into this one: the answers then show here within 30 minutes.</p>
+      )}
       {profile.syncError && <p className="font-semibold text-heart">{profile.syncError}{profile.pendingCount ? ` (${profile.pendingCount} answer${profile.pendingCount > 1 ? "s" : ""} waiting)` : ""}</p>}
       {profile.dogs.length > 1 && (
         <label className="flex flex-wrap items-center gap-2">

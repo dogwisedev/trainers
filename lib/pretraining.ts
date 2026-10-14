@@ -7,7 +7,7 @@ import { raiseIncident, resolveIncidents } from "./incidents";
 import { DealProps, PropDef, dealContacts, hubspotConfigured, optionValue, propDefs, readContacts, readDeals, updateContact, updateDeal } from "./hubspot";
 import {
   Answers, CLIENT_KEYS, CONTACT_PROPS, DEAL_PROPS, DOG_KEYS, DOG_NAME_PROPS, QUESTIONS, Ready, VACCINE_FILE_PROP, VACCINES, VaccineFile, VaccineState,
-  checklist, clearReady, isYes, matchSlots, vaccineStatus
+  balanceOwed, blank, checklist, clearReady, isYes, matchSlots, vaccineStatus
 } from "./pretrainingFields";
 
 // Before-training checklist. HubSpot is the source of truth:
@@ -63,7 +63,7 @@ function buildProfile(dealId: string, row: DealRow | null, dogRows: DogRow[], bo
   const howMany = parseInt(str(deal.how_many_dogs_need_training_), 10) || null;
   const mismatch = howMany && howMany !== bookings.length ? `HubSpot says ${howMany} dog${howMany > 1 ? "s" : ""}, ${bookings.length} booked in the app` : null;
   const dealYes = isYes(deal.vaccines_in_order_);
-  const balanceLink = str(deal.remaining_balance_link).trim();
+  const balanceLink = balanceOwed(deal);
   const dogs = bookings.map((b): DogView => {
     const d = dogRows.find((x) => x.booking_id === b.id);
     const slot = d?.slot || 1;
@@ -172,10 +172,10 @@ export async function syncPretraining(opts: { dealIds?: string[]; sb?: SupabaseC
   if (!dealIds.length) return out;
   out.deals = dealIds.length;
 
-  let deals: Map<string, DealProps>, contactOf: Map<string, string>, contacts: Map<string, DealProps>, dealDefs: Map<string, PropDef>;
+  let deals: Map<string, DealProps>, contactOf: Map<string, string[]>, contacts: Map<string, DealProps>, dealDefs: Map<string, PropDef>;
   try {
     [deals, contactOf, dealDefs] = await Promise.all([readDeals(dealIds, DEAL_PROPS), dealContacts(dealIds), propDefs("deals")]);
-    contacts = await readContacts([...contactOf.values()], CONTACT_PROPS);
+    contacts = await readContacts([...contactOf.values()].flat(), CONTACT_PROPS);
   } catch (e) { out.errors.push((e as Error).message); return out; }
 
   const [{ data: rows }, { data: dogRows }, { data: chats }, bookings] = await Promise.all([
@@ -191,8 +191,15 @@ export async function syncPretraining(opts: { dealIds?: string[]; sb?: SupabaseC
       const deal = deals.get(dealId);
       if (!deal) continue; // missing deals are reported by the date sync
       const old = ((rows || []) as DealRow[]).find((r) => r.deal_id === dealId);
-      const contactId = contactOf.get(dealId) || null;
-      let contact = contactId ? contacts.get(contactId) || {} : {};
+      // A client can be two contacts (a form link without their email makes a new one). Read them all: the main one
+      // (has an email, then most answers) is where the app writes; the others fill its blanks. Merging them in HubSpot is the real fix.
+      const ids = contactOf.get(dealId) || [];
+      const answered = (c: DealProps) => CONTACT_PROPS.filter((k) => !blank(c[k])).length;
+      const ranked = ids.map((id) => ({ id, c: contacts.get(id) || {} })).sort((a, b) => Number(!blank(b.c.email)) - Number(!blank(a.c.email)) || answered(b.c) - answered(a.c));
+      const contactId = ranked[0]?.id || null;
+      let contact: DealProps = { ...(ranked[0]?.c || {}) };
+      for (const o of ranked.slice(1)) for (const k of CONTACT_PROPS) if (blank(contact[k]) && !blank(o.c[k])) contact[k] = o.c[k];
+      deal.__contacts = ids.join(";");
       let pending = { ...(old?.pending || {}) }, syncError: string | null = contactId ? null : "No contact on the HubSpot deal";
       // 1. Answers saved in the app that HubSpot didn't take yet
       if (contactId && Object.keys(pending).length) {
@@ -383,7 +390,7 @@ export async function chatReadiness(dealKey: string, forClient: boolean): Promis
   if (!r.size || [...r.values()].every((x) => x.dog.cleared)) return null; // admin said OK to start: no card, no pop-up
   const left = [...r.values()].reduce((n, x) => n + x.ready.missing.filter((i) => !forClient || i.who === "client").length, 0);
   const { data: row } = await sb.from("pretraining_deals").select("deal").eq("deal_id", dealKey).maybeSingle();
-  return { left, balanceLink: str((row?.deal as DealProps | undefined)?.remaining_balance_link).trim() };
+  return { left, balanceLink: balanceOwed((row?.deal as DealProps | undefined) || {}) };
 }
 
 /** Admin: "OK to start" (or undo). The client stops being asked, "Not ready" closes. HubSpot isn't changed. */

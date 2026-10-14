@@ -123,15 +123,15 @@ export async function readContacts(ids: string[], properties: string[]): Promise
   return out;
 }
 
-/** Each deal's contact (the first one associated). */
-export async function dealContacts(dealIds: string[]): Promise<Map<string, string>> {
-  const out = new Map<string, string>();
+/** Every contact on each deal (a client can end up as two contacts when a form link misses their email). */
+export async function dealContacts(dealIds: string[]): Promise<Map<string, string[]>> {
+  const out = new Map<string, string[]>();
   const uniq = [...new Set(dealIds.filter((id) => /^\d+$/.test(id)))];
   for (let i = 0; i < uniq.length; i += 100) {
     const res = await hs<{ results?: { from: { id: string }; to: { toObjectId: number | string }[] }[] }>("/crm/v4/associations/deals/contacts/batch/read", {
       method: "POST", body: JSON.stringify({ inputs: uniq.slice(i, i + 100).map((id) => ({ id })) })
     });
-    for (const r of res.results || []) if (r.to?.[0]) out.set(String(r.from.id), String(r.to[0].toObjectId));
+    for (const r of res.results || []) if (r.to?.length) out.set(String(r.from.id), [...new Set(r.to.map((t) => String(t.toObjectId)))]);
   }
   return out;
 }
