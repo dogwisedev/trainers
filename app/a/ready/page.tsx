@@ -22,7 +22,7 @@ export default async function ReadyPage({ searchParams }: { searchParams: { all?
   ]);
   const chatOf = new Map(((chats || []) as { id: string; deal_key: string }[]).map((c) => [c.deal_key, c.id]));
   const link = (r: Row) => (chatOf.get(r.hubspot_deal_id!) ? `/a/chats/${chatOf.get(r.hubspot_deal_id!)}/profile?dog=${r.id}` : null);
-  const toCheck = rows.filter((r) => { const x = ready.get(r.id); return x && !x.dog.vaccine.ok && (x.dog.vaccines.status === "review" || (!x.dog.vaccines.status && x.dog.files.length > 0)); });
+  const toCheck = rows.filter((r) => ready.get(r.id)?.dog.vaccine.toCheck);
   const showAll = searchParams.all === "1";
   const list = rows.filter((r) => showAll || !ready.get(r.id)?.ready.ready);
   return (

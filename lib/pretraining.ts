@@ -51,7 +51,11 @@ async function bookingsFor(sb: SupabaseClient, dealIds: string[]) {
   return (data || []) as unknown as BookingRow[];
 }
 
-function buildProfile(dealId: string, row: DealRow | null, dogRows: DogRow[], bookings: BookingRow[], clientJoined: boolean, defs: Profile["defs"]): Profile {
+/** "Missing vaccines" on the deal (option values like "Dhlpp;Rabies") as our labels. */
+const dealMissing = (deal: DealProps) => str(deal.missing_vaccines).split(";").map((x) => x.trim()).filter(Boolean)
+  .map((x) => VACCINES.find((v) => v.toLowerCase() === x.toLowerCase()) || x);
+
+function buildProfile(dealId: string, row: DealRow | null, dogRows: DogRow[], bookings: BookingRow[], defs: Profile["defs"]): Profile {
   const contact = { ...(row?.contact || {}), ...(row?.pending || {}) } as DealProps;
   const deal = row?.deal || {};
   const client = pick(contact, CLIENT_KEYS);
@@ -66,11 +70,11 @@ function buildProfile(dealId: string, row: DealRow | null, dogRows: DogRow[], bo
     const answers = slot === 1 ? pick(contact, DOG_KEYS) : { ...Object.fromEntries(DOG_KEYS.map((k) => [k, ""])), ...(d?.answers || {}) };
     const vaccines = d?.vaccines || {};
     const files = [...(slot === 1 ? hubspotFiles(contact) : []), ...(vaccines.files || [])];
-    const vaccine = vaccineStatus(vaccines, dealYes, files.length > 0);
+    const vaccine = vaccineStatus(vaccines, dealYes, files.length > 0, dealMissing(deal));
     const changes = d?.changes || {};
     return {
       booking: b, slot, slotSetBy: d?.slot_set_by || null, name: names[slot - 1] || b.dog_name || `Dog ${slot}`, answers, vaccines, files, vaccine, changes,
-      ready: checklist({ client, dog: answers, vaccines: vaccine, balanceLink, clientJoined, dogsMismatch: mismatch }),
+      ready: checklist({ client, dog: answers, vaccines: vaccine, balanceLink, dogsMismatch: mismatch }),
       changedSinceStart: Object.values(changes).some((c) => c.role === "client" && c.at.slice(0, 10) >= b.start_date)
     };
   }).sort((a, b) => a.slot - b.slot);
@@ -101,12 +105,8 @@ export async function loadProfile(dealId: string, freshMinutes = 10): Promise<Pr
   }
   const bookings = await bookingsFor(sb, [dealId]);
   if (!bookings.length) return null;
-  const [{ data: dogs }, { data: chat }, defs] = await Promise.all([
-    sb.from("pretraining_dogs").select("*").eq("deal_id", dealId),
-    sb.from("chats").select("client_user_id").eq("deal_key", dealId).eq("status", "open").maybeSingle(),
-    fieldDefs()
-  ]);
-  return buildProfile(dealId, row as DealRow | null, (dogs || []) as DogRow[], bookings, !!chat?.client_user_id, defs);
+  const [{ data: dogs }, defs] = await Promise.all([sb.from("pretraining_dogs").select("*").eq("deal_id", dealId), fieldDefs()]);
+  return buildProfile(dealId, row as DealRow | null, (dogs || []) as DogRow[], bookings, defs);
 }
 
 /** Ready / missing per booking, from the copy in the database (no HubSpot calls): for badges and the admin list. */
@@ -117,17 +117,15 @@ export async function readinessFor(bookingIds: string[]): Promise<Map<string, { 
   const { data: bks } = await sb.from("bookings").select("hubspot_deal_id").in("id", bookingIds.slice(0, 300));
   const dealIds = [...new Set(((bks || []) as { hubspot_deal_id: string | null }[]).map((b) => b.hubspot_deal_id).filter((x): x is string => !!x && /^\d+$/.test(x)))];
   if (!dealIds.length) return out;
-  const [{ data: rows }, { data: dogs }, { data: chats }, bookings] = await Promise.all([
+  const [{ data: rows }, { data: dogs }, bookings] = await Promise.all([
     sb.from("pretraining_deals").select("*").in("deal_id", dealIds),
     sb.from("pretraining_dogs").select("*").in("deal_id", dealIds),
-    sb.from("chats").select("deal_key, client_user_id").in("deal_key", dealIds).eq("status", "open"),
     bookingsFor(sb, dealIds)
   ]);
   for (const id of dealIds) {
     const row = ((rows || []) as DealRow[]).find((r) => r.deal_id === id);
     if (!row?.synced_at) continue; // never read from HubSpot yet: say nothing rather than "everything missing"
-    const joined = ((chats || []) as { deal_key: string; client_user_id: string | null }[]).some((c) => c.deal_key === id && c.client_user_id);
-    const p = buildProfile(id, row, ((dogs || []) as DogRow[]).filter((d) => d.deal_id === id), bookings.filter((b) => b.hubspot_deal_id === id), joined, {});
+    const p = buildProfile(id, row, ((dogs || []) as DogRow[]).filter((d) => d.deal_id === id), bookings.filter((b) => b.hubspot_deal_id === id), {});
     for (const d of p.dogs) if (bookingIds.includes(d.booking.id)) out.set(d.booking.id, { ready: d.ready, dog: d });
   }
   return out;
@@ -189,11 +187,14 @@ export async function syncPretraining(opts: { dealIds?: string[]; sb?: SupabaseC
       }
       // 3. Readiness: tick "forms" in HubSpot, list what's missing, incidents a week out
       const { data: fresh } = await sb.from("pretraining_dogs").select("*").eq("deal_id", dealId);
-      const joined = ((chats || []) as { deal_key: string; client_user_id: string | null }[]).some((c) => c.deal_key === dealId && c.client_user_id);
-      const p = buildProfile(dealId, { deal_id: dealId, contact_id: contactId, deal, contact, pending, synced_at: now, sync_error: syncError }, (fresh || []) as DogRow[], bks, joined, {});
+      const p = buildProfile(dealId, { deal_id: dealId, contact_id: contactId, deal, contact, pending, synced_at: now, sync_error: syncError }, (fresh || []) as DogRow[], bks, {});
       await writeDealChecklist(dealId, deal, dealDefs, p).catch((e) => out.errors.push(`deal ${dealId}: ${(e as Error).message}`));
       const chatId = ((chats || []) as { id: string; deal_key: string }[]).find((c) => c.deal_key === dealId)?.id || null;
       for (const dog of p.dogs) {
+        // Vaccine records waiting for a check: tell admins straight away, whenever the start is
+        const vref = `vax:${dog.booking.id}`;
+        if (!dog.vaccine.toCheck) await resolveIncidents({ kinds: ["check_vaccines"], ref: vref }, "automatic", "Vaccines checked", sb);
+        else if (!opts.quietIncidents && await raiseVaccineCheck(dog, chatId, sb)) out.incidents.push(`Check vaccines: ${dog.name}`);
         const ref = `ready:${dog.booking.id}`, b = dog.booking;
         const due = addDays(b.start_date, -READY_DAYS) <= t && t <= b.end_date;
         if (dog.ready.ready || t > b.end_date) { await resolveIncidents({ kinds: ["not_ready"], ref }, "automatic", "Everything is in", sb); continue; }
@@ -213,13 +214,36 @@ export async function syncPretraining(opts: { dealIds?: string[]; sb?: SupabaseC
   return out;
 }
 
-/** HubSpot deal checklist: "forms" ticked once every answer is in (never unticked), and pre_training_missing if that property exists. */
+/** "Check vaccines" incident: records are in (uploaded in the app or on the HubSpot form) and nobody has checked them. */
+async function raiseVaccineCheck(dog: { booking: BookingRow; name: string }, chatId: string | null, sb: SupabaseClient) {
+  const b = dog.booking;
+  return raiseIncident({
+    kind: "check_vaccines", title: `${dog.name} (${b.client_name}), ${b.trainers?.name || "trainer"}`, ref: `vax:${b.id}`, bookingId: b.id, chatId,
+    detail: `${dog.name}'s vaccine records are in and need checking (starts ${short(b.start_date)}). Mark them All OK, or which are missing.`,
+    link: chatId ? `${site()}/a/chats/${chatId}/profile?dog=${b.id}#vaccines` : `${site()}/a/ready`
+  }, sb);
+}
+
+/**
+ * HubSpot deal checklist: "forms" ticked as each form is completed in the app (ticks are only added, never removed).
+ * A tick-box list: each option whose label says "intake" is ticked when the intake answers are in; "manager" when the
+ * Client manager answers are in (an option with a number, e.g. "Client manager 2", is that dog; without one, every dog).
+ * A single Yes / tick: set once both forms are complete for every dog. Also fills pre_training_missing if that property exists.
+ */
 async function writeDealChecklist(dealId: string, deal: DealProps, defs: Map<string, PropDef>, p: Profile) {
   const props: Record<string, string> = {};
   const formsDef = defs.get("forms");
-  if (formsDef && p.dogs.length && p.dogs.every((d) => d.ready.formsDone) && !isYes(deal.forms)) {
-    const yes = formsDef.type === "bool" ? "true" : optionValue(formsDef, "Yes") || optionValue(formsDef, "Done") || optionValue(formsDef, "Complete") || (formsDef.type === "string" ? "Yes" : null);
-    if (yes) props.forms = yes;
+  if (formsDef && p.dogs.length) {
+    const intake = p.dogs.every((d) => d.ready.intakeDone);
+    const manager = (label: string) => { const n = label.match(/\b([1-4])\b/); return n ? !!p.dogs.find((d) => d.slot === Number(n[1]))?.ready.managerDone : p.dogs.every((d) => d.ready.managerDone); };
+    if (formsDef.fieldType === "checkbox" && formsDef.options.length) {
+      const have = new Set(str(deal.forms).split(";").map((x) => x.trim()).filter(Boolean)), before = have.size;
+      for (const o of formsDef.options) if ((/intake/i.test(o.label) && intake) || (/manager/i.test(o.label) && manager(o.label))) have.add(o.value);
+      if (have.size !== before) props.forms = [...have].join(";");
+    } else if (p.dogs.every((d) => d.ready.formsDone) && !isYes(deal.forms)) {
+      const yes = formsDef.type === "bool" ? "true" : optionValue(formsDef, "Yes") || optionValue(formsDef, "Done") || optionValue(formsDef, "Complete") || (formsDef.type === "string" ? "Yes" : null);
+      if (yes) props.forms = yes;
+    }
   }
   if (defs.has("pre_training_missing")) {
     const text = p.dogs.flatMap((d) => d.ready.missing.filter((i) => i.who === "client").map((i) => (p.dogs.length > 1 ? `${i.label} (${d.name})` : i.label))).join("; ");
@@ -276,6 +300,11 @@ export async function addVaccineFile(bookingId: string, file: { id: string; name
   const files = [...(v.files || []), { id: file.id, name: file.name, at: new Date().toISOString(), by: who.name, source: "app" as const }];
   const status = who.role === "client" && v.status !== "ok" ? "review" : v.status;
   await sb.from("pretraining_dogs").update({ vaccines: { ...v, files, status }, updated_at: new Date().toISOString() }).eq("booking_id", bookingId);
+  if (status === "review") {
+    const { data: b } = await sb.from("bookings").select("id, dog_name, client_name, start_date, hubspot_deal_id, trainers(name)").eq("id", bookingId).maybeSingle();
+    const { data: chat } = b?.hubspot_deal_id ? await sb.from("chats").select("id").eq("deal_key", b.hubspot_deal_id).eq("status", "open").maybeSingle() : { data: null };
+    if (b) await raiseVaccineCheck({ booking: b as unknown as BookingRow, name: b.dog_name || "Dog" }, chat?.id || null, sb);
+  }
   return { ok: true, message: who.role === "client" ? "Thanks! The team will check it." : "Added." };
 }
 
@@ -288,6 +317,7 @@ export async function reviewVaccines(dealId: string, bookingId: string, ok: bool
   if (!d) return { ok: false, message: "Dog not found." };
   const vac: VaccineState = { ...(d.vaccines || {}), status: ok ? "ok" : "missing", missing: ok ? [] : missing.filter((m) => (VACCINES as readonly string[]).includes(m)), reviewedBy: who.name, reviewedAt: new Date().toISOString() };
   await sb.from("pretraining_dogs").update({ vaccines: vac, updated_at: new Date().toISOString() }).eq("booking_id", bookingId);
+  await resolveIncidents({ kinds: ["check_vaccines"], ref: `vax:${bookingId}` }, who.name, ok ? "All OK" : `Missing: ${vac.missing?.join(", ")}`, sb);
   // The deal holds one answer for all its dogs: Yes only when every dog is approved
   const { data: row } = await sb.from("pretraining_deals").select("deal").eq("deal_id", dealId).maybeSingle();
   const dealYes = isYes((row?.deal as DealProps | undefined)?.vaccines_in_order_);

@@ -7,6 +7,7 @@ import { ChatThread } from "@/components/ChatThread";
 import { ArchivedNotice } from "@/components/ChatBits";
 import { ReopenChat } from "@/components/ChatActions";
 import { ClipboardList, CreditCard } from "lucide-react";
+import { BeforeTrainingPopup } from "@/components/BeforeTrainingPopup";
 import { chatReadiness } from "@/lib/pretraining";
 
 export default async function ClientChat({ params }: { params: { id: string } }) {
@@ -18,6 +19,7 @@ export default async function ClientChat({ params }: { params: { id: string } })
     <>
       <h1 className="text-[26px] font-extrabold leading-tight">{chat.title || "Your dog"}</h1>
       <p className="mb-4 text-[14px] text-ink-soft">{chat.trainer_name ? `Training with ${chat.trainer_name}. ` : ""}<Link href="/c" className="underline">All chats</Link>{ready && <> · <Link href={`/c/${chat.id}/profile`} className="underline">Your dog&apos;s details</Link></>}</p>
+      {ready && (ready.left > 0 || ready.balanceLink) && <BeforeTrainingPopup href={`/c/${chat.id}/profile`} left={ready.left} balanceLink={ready.balanceLink} dog={chat.title || "your dog"} />}
       {ready && (ready.left > 0 || ready.balanceLink) && (
         <div className="panel mb-4 space-y-3 border-biscuit p-4">
           {ready.left > 0 && (

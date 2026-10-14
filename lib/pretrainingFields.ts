@@ -94,6 +94,22 @@ export const SECTIONS: Section[] = [
 ];
 
 export const QUESTIONS = SECTIONS.flatMap((s) => s.questions);
+/** Which HubSpot form each question comes from: the Client manager form (one per dog) or the Client intake form (everything else). */
+export const MANAGER_KEYS = new Set([
+  "has_your_dog_been_spayed__neutered", "are_your_dogs_crate_trained_", "does_your_dog_get_car_sick_", "have_you_hired_a_professional_dog_trainer_before_",
+  "where_does_your_dog_sleep_and_are_they_allowed_on_furniture_", "where_does_your_dog_stay_when_no_one_is_home__and_for_how_long_are_they_left_alone_",
+  "what_are_the_most_important_things_you_would_like_to_change_about_your_dog_s_behaviours_", "if_you_selected_any_of_the_following_behaviors__please_give_u_more_detail_on_when_this_occurs__bark",
+  "how_food_motivated_is_your_dog_", "how_toy_motivated_is_your_dog_", "how_often_does_your_dog_show_aggressive_behaviours_towards_adults_",
+  "how_often_does_your_dog_show_aggressive_behaviour_towards_children_", "how_often_does_your_dog_show_aggressive_behaviours_towards_other_dogs_",
+  "how_often_does_your_dog_show_aggressive_behaviour_towards_other_animals_", "how_often_does_your_dog_bark_at_a_new_dog_", "how_often_does_your_dog_bark_at_another_human_",
+  "has_your_dog_ever_bitten_another_dog___if_so__please_describe_", "has_your_dog_ever_bitten_a_person___if_so__please_describe_",
+  "has_your_dog_displayed_any_medical_illness_within_the_last_7_days__i_e__coughing__nasal_discharge__", "what_cues_or_behaviours_does_your_dog_already_know_",
+  "can_your_dog_still_perform_these_bahavioural_cues_regardless_of_distractions_or_environment_", "how_would_you_describe_your_dog_s_level_of_socialization_with_other_dogs_",
+  "is_your_dog_comfortable_with_having_collars_and_harnesses_being_put_on_or_taken_off", "is_your_dog_comfortable_being_handled_and_groomed",
+  "any_additional_information_about_your_dog_that_we_should_know_about"
+]);
+export const INTAKE_QS = () => QUESTIONS.filter((q) => !MANAGER_KEYS.has(q.key));
+export const MANAGER_QS = () => QUESTIONS.filter((q) => MANAGER_KEYS.has(q.key));
 export const CLIENT_KEYS = QUESTIONS.filter((q) => q.scope === "client").map((q) => q.key);
 export const DOG_KEYS = QUESTIONS.filter((q) => q.scope === "dog").map((q) => q.key);
 /** Contact properties the app reads from HubSpot (the questions, plus the vaccine file from the HubSpot form). */
@@ -117,19 +133,21 @@ export const missingIn = (qs: Q[], a: Answers) => qs.filter((q) => q.required &&
 export type VaccineFile = { id: string; name: string; at: string; by: string; source?: "app" | "hubspot" };
 export type VaccineState = { status?: "ok" | "missing" | "review"; missing?: string[]; files?: VaccineFile[]; reviewedBy?: string; reviewedAt?: string; note?: string };
 /** Where a dog's vaccines stand. The deal's "Vaccines in order? = Yes" (ticked in HubSpot) covers every dog on the deal. */
-export function vaccineStatus(v: VaccineState, dealSaysYes: boolean, hasFile: boolean): { ok: boolean; label: string; missing: string[] } {
-  if (dealSaysYes || v.status === "ok") return { ok: true, label: "Approved", missing: [] };
-  if (v.status === "missing") return { ok: false, label: `Missing: ${(v.missing || []).join(", ") || "records"}`, missing: v.missing || [] };
-  if (v.status === "review" || hasFile) return { ok: false, label: "Records sent, waiting for the team to check", missing: [] };
-  return { ok: false, label: "Upload the vaccine records", missing: [] };
+export function vaccineStatus(v: VaccineState, dealSaysYes: boolean, hasFile: boolean, dealMissing: string[] = []): { ok: boolean; label: string; missing: string[]; toCheck: boolean } {
+  if (v.status === "review") return { ok: false, label: "Records sent, waiting for the team to check", missing: [], toCheck: true };
+  if (v.status === "ok" || (!v.status && dealSaysYes)) return { ok: true, label: "Approved", missing: [], toCheck: false };
+  const miss = v.status === "missing" ? v.missing || [] : dealMissing; // checked in the app, or in HubSpot ("Missing vaccines" on the deal)
+  if (v.status === "missing" || miss.length) return { ok: false, label: `Missing: ${miss.join(", ") || "records"}`, missing: miss, toCheck: false };
+  if (hasFile) return { ok: false, label: "Records sent, waiting for the team to check", missing: [], toCheck: true };
+  return { ok: false, label: "Upload the vaccine records", missing: [], toCheck: false };
 }
 
 // ── The checklist ────────────────────────────────────────────────────────────
 export type Item = { key: string; label: string; done: boolean; detail?: string; who: "client" | "admin"; section?: SectionId };
-export type Ready = { items: Item[]; missing: Item[]; formsDone: boolean; ready: boolean };
+export type Ready = { items: Item[]; missing: Item[]; formsDone: boolean; intakeDone: boolean; managerDone: boolean; ready: boolean };
 
 export function checklist(o: {
-  client: Answers; dog: Answers; vaccines: ReturnType<typeof vaccineStatus>; balanceLink: string; clientJoined: boolean; dogsMismatch?: string | null;
+  client: Answers; dog: Answers; vaccines: ReturnType<typeof vaccineStatus>; balanceLink: string; dogsMismatch?: string | null;
 }): Ready {
   const sec = (id: SectionId) => SECTIONS.find((s) => s.id === id)!.questions;
   const left = (ids: SectionId[], a: Answers) => ids.reduce((n, id) => n + missingIn(sec(id), a).length, 0);
@@ -145,10 +163,11 @@ export function checklist(o: {
     { key: "vaccines", label: "Vaccines", done: o.vaccines.ok, detail: o.vaccines.ok ? undefined : o.vaccines.label, who: "client", section: "health" }
   ];
   if (o.balanceLink.trim()) items.push({ key: "balance", label: "Pay the remaining balance", done: false, who: "client" });
-  items.push({ key: "chat", label: "Client has joined the chat", done: o.clientJoined, who: "admin" });
   if (o.dogsMismatch) items.push({ key: "dogs", label: "Number of dogs", done: false, detail: o.dogsMismatch, who: "admin" });
   const missing = items.filter((i) => !i.done);
-  return { items, missing, formsDone: !home && !dog && !goals && !food && !meds, ready: !missing.length };
+  const both = { ...o.dog, ...o.client };
+  const intakeDone = !missingIn(INTAKE_QS(), both).length, managerDone = !missingIn(MANAGER_QS(), o.dog).length;
+  return { items, missing, formsDone: intakeDone && managerDone, intakeDone, managerDone, ready: !missing.length };
 }
 
 /** Which deal name slot a booking's dog is: matched by name, case and spaces ignored. */

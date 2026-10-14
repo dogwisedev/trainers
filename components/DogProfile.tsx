@@ -112,7 +112,7 @@ function Vaccines({ chatId, role, edit, dog, dealYes }: { chatId: string; role: 
   const [pending, start] = useTransition();
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState("");
-  const [miss, setMiss] = useState<string[]>(dog.vaccines.missing || []);
+  const [miss, setMiss] = useState<string[]>(dog.vaccine.missing || []);
   const file = useRef<HTMLInputElement>(null);
   const upload = async (f: File) => {
     setMsg(""); setBusy("Uploading…");
