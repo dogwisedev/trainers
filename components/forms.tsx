@@ -156,7 +156,7 @@ export function BookingForm({ trainers, defaultTrainer, defaultStart }: { traine
       </div>
       <F label="Client's email" hint="Reports are sent here once approved."><input name="client_email" type="email" inputMode="email" className="field" placeholder="jessica@example.com" /></F>
       <div className="grid grid-cols-2 gap-3">
-        <F label="Start"><input type="date" name="start_date" required defaultValue={defaultStart} className="field" /></F>
+        <F label="Pickup" hint="Drop-off is the same weekday, the program's weeks later (Sunday to Sunday)"><input type="date" name="start_date" required defaultValue={defaultStart} className="field" /></F>
         <F label="Program length">
           <select name="weeks" defaultValue="3" className="field">{[1, 2, 3, 4, 5, 6, 7, 8].map((w) => <option key={w} value={w}>{w} week{w > 1 ? "s" : ""}</option>)}</select>
         </F>

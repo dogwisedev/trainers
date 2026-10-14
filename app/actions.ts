@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { getViewer } from "@/lib/data";
 import { isDemo, serverClient, serviceClient } from "@/lib/supabase";
-import { addDays, short } from "@/lib/dates";
+import { addDays, dropOff, short } from "@/lib/dates";
 import { notifyBookings, notifySummary } from "@/lib/bookingEmail";
 import { sendInvite, sendSignInLink } from "@/lib/authEmail";
 import { ensureChatsForBookings } from "@/lib/chat";
@@ -163,7 +163,7 @@ export async function saveBooking(_: Result | null, f: FormData): Promise<Result
   const s = start; // exactly as entered: no rounding to Sunday
   const row = {
     trainer_id: str(f, "trainer_id"), client_name: str(f, "client_name"), dog_name: str(f, "dog_name"), ...(str(f, "client_email") ? { client_email: str(f, "client_email") } : {}),
-    program: str(f, "program") || `${weeks}-week`, start_date: s, end_date: addDays(s, weeks * 7 - 1 + extra), weeks, extra_days: extra,
+    program: str(f, "program") || `${weeks}-week`, start_date: s, end_date: dropOff(s, weeks, extra), weeks, extra_days: extra,
     status: str(f, "status") || "confirmed", notes: str(f, "notes"), hubspot_deal_id: str(f, "hubspot_deal_id"), created_by: v.userId,
     rehab: f.get("rehab") === "on" || /rehab|\bRR\b/i.test(str(f, "program") || "")
   };
@@ -189,7 +189,7 @@ export async function setExtraDays(id: string, extra: number): Promise<Result> {
   if (!b) return { ok: false, message: "Booking not found." };
   if (b.hubspot_deal_id && datesFromHubspot()) return { ok: false, message: "This booking's dates come from HubSpot: change them on the deal." };
   const n = Math.min(13, Math.max(0, Math.round(extra)));
-  const { error } = await sb.from("bookings").update({ extra_days: n, end_date: addDays(b.start_date, (b.weeks || 1) * 7 - 1 + n) }).eq("id", id);
+  const { error } = await sb.from("bookings").update({ extra_days: n, end_date: dropOff(b.start_date, b.weeks || 1, n) }).eq("id", id);
   revalidatePath("/", "layout");
   if (error) return { ok: false, message: error.message };
   const sentNote = notifySummary(await notifyBookings(sb, [id], "changed"));

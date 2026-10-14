@@ -68,7 +68,7 @@ export default async function TrainerHome() {
         {withYou.length ? (
           <ul className="space-y-2.5">
             {withYou.map((b) => {
-              const total = daysBetween(b.start_date, b.end_date) + 1, done = Math.min(total, daysBetween(b.start_date, today) + 1);
+              const total = Math.max(1, daysBetween(b.start_date, b.end_date)), done = Math.min(total, daysBetween(b.start_date, today) + 1);
               return (
                 <li key={b.id} className="panel p-4">
                   <div className="flex items-start justify-between gap-3">

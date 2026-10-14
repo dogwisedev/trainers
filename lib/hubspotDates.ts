@@ -5,13 +5,13 @@
 //    so dogs that start later keep their gap.
 //  - The deal's end date (if HubSpot has one) is when the LAST dog goes home: the dog(s) that end last take it.
 //    Other dogs keep their own length. No end date in HubSpot = every dog keeps its length.
-//  - Extra days = days in care beyond the program's full weeks (0 to 13). Pay follows the days in care.
+//  - End dates are drop-off days. Days in care = drop-off minus pickup; extra days = beyond the program's full weeks (0 to 13).
 import { addDays, daysBetween } from "./dates";
 
 export type PlanIn = { id: string; dog_name: string | null; start_date: string; end_date: string; weeks: number | null; extra_days: number | null };
 export type PlanOut = { id: string; start: string; end: string; extra: number; weeks: number; oldDays: number; newDays: number; changed: boolean };
 
-const days = (s: string, e: string) => daysBetween(s, e) + 1;
+const days = (s: string, e: string) => Math.max(1, daysBetween(s, e)); // end = drop-off day, not a day in care
 
 export function planDeal(list: PlanIn[], hsStart: string, hsEnd: string | null): { plan: PlanOut[]; problem?: string } {
   if (!list.length) return { plan: [] };

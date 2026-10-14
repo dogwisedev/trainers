@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { isDemo, serviceClient } from "@/lib/supabase";
 import { weekUsage } from "@/lib/capacity";
-import { addDays, daysBetween, short, weekStart, weeksFrom } from "@/lib/dates";
+import { addDays, daysBetween, dropOff, short, weekStart, weeksFrom } from "@/lib/dates";
 import { Booking, TimeOff, Trainer } from "@/lib/types";
 import { notifyBookings } from "@/lib/bookingEmail";
 import { ensureChatsForBookings } from "@/lib/chat";
@@ -42,7 +42,7 @@ export async function POST(req: Request) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(d.start)) return bad(400, { message: `${label}: pick a start date.` });
     if (d.weeks < 1 || d.weeks > 12) return bad(400, { message: `${label}: program length must be 1 to 12 weeks.` });
     if (d.end && (!/^\d{4}-\d{2}-\d{2}$/.test(d.end) || d.end < d.start)) return bad(400, { message: `${label}: the end date must be on or after the start date.` });
-    if (d.end && daysBetween(d.start, d.end) + 1 - d.weeks * 7 > 13) return bad(400, { message: `${label}: the dates are more than 13 days longer than a ${d.weeks}-week program. Check the program length.` });
+    if (d.end && daysBetween(d.start, d.end) - d.weeks * 7 > 13) return bad(400, { message: `${label}: the dates are more than 13 days longer than a ${d.weeks}-week program. Check the program length.` });
   }
 
   const sb = serviceClient();
@@ -65,8 +65,8 @@ export async function POST(req: Request) {
   // Rows to insert, one per dog
   const rows = dogs.map((d) => {
     const s = d.start;
-    const end = d.end || addDays(s, d.weeks * 7 - 1 + d.extra);
-    const extra = d.end ? Math.max(0, daysBetween(s, d.end) + 1 - d.weeks * 7) : d.extra;
+    const end = d.end || dropOff(s, d.weeks, d.extra);                       // end_date = the drop-off day
+    const extra = d.end ? Math.max(0, daysBetween(s, d.end) - d.weeks * 7) : d.extra;
     return {
       trainer_id: trainerId, client_name: client.slice(0, 120), dog_name: d.name || null, ...(clientEmail ? { client_email: clientEmail } : {}),
       program: d.program || `${d.weeks}-week`, start_date: s, end_date: end, weeks: d.weeks, extra_days: extra,

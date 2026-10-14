@@ -83,10 +83,12 @@ export function draftLines(bookings: BookingLike[], rates: Rates, runWeeks: stri
   const periodStart = runWeeks[0], periodEnd = addDays(runWeeks[runWeeks.length - 1], 6); // 14 days, Sunday to Saturday
   for (const b of bookings) {
     if (b.status === "cancelled") continue;
-    const programWeeks = b.weeks || Math.max(1, Math.floor((daysBetween(b.start_date, b.end_date) + 1) / 7));
-    const extra = Math.max(0, b.extra_days ?? (daysBetween(b.start_date, b.end_date) + 1 - programWeeks * 7));
+    // Paid days run from pickup to the night before drop-off (end_date is the drop-off day, not paid)
+    const care = daysBetween(b.start_date, b.end_date), last = care > 0 ? addDays(b.end_date, -1) : b.end_date;
+    const programWeeks = b.weeks || Math.max(1, Math.floor(Math.max(1, care) / 7));
+    const extra = Math.max(0, b.extra_days ?? (care - programWeeks * 7));
     const from = b.start_date > periodStart ? b.start_date : periodStart;
-    const to = b.end_date < periodEnd ? b.end_date : periodEnd;
+    const to = last < periodEnd ? last : periodEnd;
     if (from > to) continue;
     const days = daysBetween(from, to) + 1, fromDay = daysBetween(b.start_date, from);
     const amount = payForDays(rates, programWeeks, !!b.rehab, fromDay, days);
