@@ -4,6 +4,7 @@ import { isDemo, serviceClient } from "./supabase";
 import { addDays, short } from "./dates";
 import { etParts } from "./chatRules";
 import { raiseIncident, resolveIncidents } from "./incidents";
+import { alertAdmins } from "./adminAlert";
 import { DealProps, PropDef, dealContacts, hubspotConfigured, optionValue, propDefs, readContacts, readDeals, updateContact, updateDeal } from "./hubspot";
 import {
   Answers, CLIENT_KEYS, CONTACT_PROPS, DEAL_PROPS, DOG_KEYS, DOG_NAME_PROPS, QUESTIONS, Ready, VACCINE_FILE_PROP, VACCINES, VaccineFile, VaccineState,
@@ -232,13 +233,23 @@ export async function syncPretraining(opts: { dealIds?: string[]; sb?: SupabaseC
         if (dog.ready.ready || t > b.end_date) { await resolveIncidents({ kinds: ["not_ready"], ref }, "automatic", "Everything is in", sb); continue; }
         if (!due || opts.quietIncidents) continue;
         const list = dog.ready.missing.map((i) => (i.detail ? `${i.label} (${i.detail})` : i.label)).join("; ");
+        const soon = b.start_date <= addDays(t, 2);
         if (await raiseIncident({
-          kind: "not_ready", title: `${dog.name} (${b.client_name}), ${b.trainers?.name || "trainer"}`, ref, bookingId: b.id, chatId,
+          kind: "not_ready", urgent: soon, title: `${dog.name} (${b.client_name}), ${b.trainers?.name || "trainer"}`, ref, bookingId: b.id, chatId,
           detail: `${dog.name} starts ${short(b.start_date)} and isn't ready: ${list}.`, link: `${site()}/a/dogs/${b.id}?tab=before`
         }, sb)) out.incidents.push(`Not ready: ${dog.name}`);
         else {
           // Already open: keep its list current
           await sb.from("chat_incidents").update({ detail: `${dog.name} starts ${short(b.start_date)} and isn't ready: ${list}.` }).eq("ref", ref).eq("kind", "not_ready").neq("status", "resolved");
+          // Two days out and still not ready: email admins once
+          if (soon) {
+            const { data: open } = await sb.from("chat_incidents").select("id").eq("ref", ref).eq("kind", "not_ready").neq("status", "resolved").is("last_alert_at", null).maybeSingle();
+            if (open) {
+              await alertAdmins(`Not ready: ${dog.name} starts ${short(b.start_date)}`, `${dog.name} (${b.client_name}, with ${b.trainers?.name || "the trainer"}) starts ${short(b.start_date)} and still isn't ready: ${list}.`,
+                [{ text: `${dog.name}: see what's missing`, link: `${site()}/a/dogs/${b.id}?tab=before` }], { label: "Open To do", link: `${site()}/a` }).catch(() => {});
+              await sb.from("chat_incidents").update({ last_alert_at: new Date().toISOString() }).eq("id", open.id);
+            }
+          }
         }
       }
     } catch (e) { out.errors.push(`deal ${dealId}: ${(e as Error).message}`); }

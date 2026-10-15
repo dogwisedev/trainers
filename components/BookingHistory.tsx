@@ -29,6 +29,7 @@ export function BookingHistory({ rows, role, showTrainer = true, ready = {} }: {
               {role === "admin" && <Link href={`/a/dogs/${b.id}`} className="btn-ink h-8 min-h-0 px-2.5 text-[13px]">Open</Link>}
               {role === "trainer" && chatOk && <Link href={`${base}/chats/${b.chat!.id}`} className="btn-ghost h-8 min-h-0 px-2.5 text-[13px]">Chat{b.chat!.status === "closed" ? " (closed)" : ""}</Link>}
               {role === "trainer" && b.chat && b.hubspot_deal_id && <Link href={`${base}/chats/${b.chat.id}/profile?dog=${b.id}`} className="btn-ghost h-8 min-h-0 px-2.5 text-[13px]">Dog profile</Link>}
+              {role === "trainer" && b.status !== "cancelled" && <Link href={`/t/followup?b=${b.id}`} className="btn-ghost h-8 min-h-0 px-2.5 text-[13px]">Log follow-up</Link>}
               {role === "trainer" && b.reports.map((r) => <Link key={r.id} href={`${base}/reports/${r.id}`} className="rounded-full border border-line bg-white px-2.5 py-1 font-semibold hover:bg-mint-wash">{repLabel(r)}</Link>)}
               {role === "admin" && b.hubspot_deal_id && <a href={`https://app.hubspot.com/contacts/21869370/record/0-3/${b.hubspot_deal_id}`} target="_blank" rel="noopener" className="px-1 text-ink-soft underline">HubSpot</a>}
             </div>

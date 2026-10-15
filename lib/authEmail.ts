@@ -42,12 +42,12 @@ export async function sendInvite(email: string, name: string): Promise<{ userId:
   const link = `${site()}/auth/confirm?token_hash=${encodeURIComponent(data.properties.hashed_token)}&type=${type}&next=/t`;
   const first = name.replace(/".*?"\s*/, "").split(" ")[0] || "there";
   await sendMail({
-    to: email, subject: "Your DogwiseTrainers login",
-    html: emailHtml("Welcome to DogwiseTrainers",
+    to: email, subject: "Your Dogwise Academy app login",
+    html: emailHtml("Welcome to the Dogwise Academy app",
       `Hi ${first}, this is where you'll see the dogs booked with you, block time off, get your payslips and message the Dogwise team.`,
-      "Open DogwiseTrainers", link,
+      "Open the app", link,
       "The button signs you straight in. Then choose a password (there's a prompt at the top) so you can sign in with your email and password any time. The link works once and expires in 24 hours."),
-    text: `Hi ${first}, open DogwiseTrainers: ${link}\nThen choose a password so you can sign in any time. The link works once.`,
+    text: `Hi ${first}, open the Dogwise Academy app: ${link}\nThen choose a password so you can sign in any time. The link works once.`,
     attachments: [logo]
   });
   return { userId: data.user.id };
@@ -60,10 +60,10 @@ export async function sendSignInLink(email: string): Promise<void> {
   if (error || !data?.properties?.hashed_token) throw new Error(error?.message || "Couldn't create the sign-in link.");
   const link = `${site()}/auth/confirm?token_hash=${encodeURIComponent(data.properties.hashed_token)}&type=magiclink`;
   await sendMail({
-    to: email, subject: "Your DogwiseTrainers sign-in link",
-    html: emailHtml("Sign in to DogwiseTrainers", "Tap the button to sign in. It works in any browser or on your phone.", "Sign me in", link,
+    to: email, subject: "Your Dogwise Academy sign-in link",
+    html: emailHtml("Sign in to Dogwise Academy", "Tap the button to sign in. It works in any browser or on your phone.", "Sign me in", link,
       "This link works once and expires in an hour. Forgotten your password? Sign in with this link, then set a new one from the Password link in the menu."),
-    text: `Sign in to DogwiseTrainers: ${link}\nThis link works once and expires in an hour.`,
+    text: `Sign in to Dogwise Academy: ${link}\nThis link works once and expires in an hour.`,
     attachments: [logo]
   });
 }

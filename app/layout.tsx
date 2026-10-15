@@ -2,10 +2,10 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "DogwiseTrainers",
+  title: "Dogwise Academy",
   description: "Kennel calendar and trainer hub for Dogwise Academy",
   manifest: "/manifest.webmanifest",
-  icons: { icon: "/icons/icon-64.png", apple: "/icons/icon-192.png" },
+  icons: { icon: [{ url: "/icons/icon-32.png", sizes: "32x32" }, { url: "/icons/icon-64.png", sizes: "64x64" }], apple: "/icons/apple-touch-icon.png" },
   appleWebApp: { capable: true, title: "Dogwise", statusBarStyle: "default" }
 };
 export const viewport: Viewport = { width: "device-width", initialScale: 1, viewportFit: "cover", themeColor: "#BFF6C3" };

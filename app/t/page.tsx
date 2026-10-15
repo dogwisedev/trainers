@@ -96,7 +96,7 @@ export default async function TrainerHome() {
             ))}
           </ul>
         ) : <Empty title="Nothing booked yet." >New dogs show up here as soon as they're booked.</Empty>}
-        <Link href="/t/past" className="mt-3 inline-block text-[14px] font-semibold underline">Past dogs</Link>
+        <span className="mt-3 flex gap-4 text-[14px] font-semibold"><Link href="/t/past" className="underline">Past dogs</Link><Link href="/t/followup" className="underline">Log a follow-up session</Link></span>
       </Section>
 
       <Section title="Time off" action={<Link href="/t/calendar#time-off" className="btn-mint h-10 min-h-0 px-3 text-[14px]"><CalendarPlus size={16} />Block dates</Link>}>

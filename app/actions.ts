@@ -4,11 +4,12 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { getViewer } from "@/lib/data";
 import { isDemo, serverClient, serviceClient } from "@/lib/supabase";
-import { addDays, dropOff, short } from "@/lib/dates";
+import { addDays, dropOff, short, todayIso } from "@/lib/dates";
 import { notifyBookings, notifySummary } from "@/lib/bookingEmail";
 import { sendInvite, sendSignInLink } from "@/lib/authEmail";
 import { sendSigninHello } from "@/lib/trainerSignin";
 import { cleanDealId } from "@/lib/dealId";
+import { validMiles } from "@/lib/trips";
 import { ensureChatsForBookings } from "@/lib/chat";
 import { datesFromHubspot } from "@/lib/hubspot";
 import { syncHubspotDates } from "@/lib/hubspotSync";
@@ -266,4 +267,23 @@ export async function sendSigninHellos(ids: string[]): Promise<Result> {
   const bad = results.filter((r) => !r.ok);
   const sent = results.length - bad.length;
   return bad.length ? { ok: sent > 0, message: `Sent ${sent}. Not sent: ${bad.map((r) => r.message).join("; ")}` } : { ok: true, message: `Sent to ${sent} trainer${sent === 1 ? "" : "s"}.` };
+}
+
+/** Trainer: a follow-up session (date, miles driven, what was done). Becomes a trip for mileage pay, and shows on the dog's page for admins. */
+export async function logFollowupAction(_: Result | null, f: FormData): Promise<Result> {
+  if (isDemo()) return DEMO;
+  const v = await viewerOrThrow();
+  if (v.role !== "trainer" || !v.trainerId) return { ok: false, message: "Only trainers can log follow-up sessions." };
+  const bookingId = String(f.get("booking_id") || ""), date = String(f.get("date") || ""), notes = String(f.get("notes") || "").trim();
+  const miles = validMiles(f.get("miles"));
+  if (!bookingId) return { ok: false, message: "Pick the dog." };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date > todayIso()) return { ok: false, message: "Pick the date of the session (today or earlier)." };
+  if (miles === null) return { ok: false, message: "Enter the miles you drove (0 if none)." };
+  if (notes.length < 5) return { ok: false, message: "Say briefly what you worked on." };
+  const sb = serviceClient();
+  const { data: b } = await sb.from("bookings").select("id, trainer_id").eq("id", bookingId).maybeSingle();
+  if (!b || b.trainer_id !== v.trainerId) return { ok: false, message: "That dog isn't one of yours." };
+  const { error } = await sb.from("trips").insert({ trainer_id: v.trainerId, booking_id: bookingId, kind: "followup", trip_date: date, miles, notes: notes.slice(0, 2000), created_by: v.name });
+  revalidatePath("/", "layout");
+  return error ? { ok: false, message: error.message } : { ok: true, message: `Saved: ${miles} miles on ${date}. It's added to your next payslip.` };
 }

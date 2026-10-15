@@ -9,11 +9,11 @@
 //  - Missed weekly report / late handover: up to $100 off each (the % is Sean's call).
 import { addDays, toDate } from "./dates";
 
-export type Rates = { w2: number | null; w3: number | null; w4: number | null; w4_rehab: number | null; w5_rehab: number | null; w6_rehab: number | null; report_deduction: number };
+export type Rates = { w2: number | null; w3: number | null; w4: number | null; w4_rehab: number | null; w5_rehab: number | null; w6_rehab: number | null; report_deduction: number; mileage_rate?: number | null; mileage_free_miles?: number | null };
 export const RATE_FIELDS: [keyof Rates, string][] = [
   ["w2", "2 weeks"], ["w3", "3 weeks"], ["w4", "4 weeks"], ["w4_rehab", "4 weeks rehab"], ["w5_rehab", "5 weeks rehab"], ["w6_rehab", "6 weeks rehab"]
 ];
-export const EMPTY_RATES: Rates = { w2: null, w3: null, w4: null, w4_rehab: null, w5_rehab: null, w6_rehab: null, report_deduction: 100 };
+export const EMPTY_RATES: Rates = { w2: null, w3: null, w4: null, w4_rehab: null, w5_rehab: null, w6_rehab: null, report_deduction: 100, mileage_rate: null, mileage_free_miles: 0 };
 
 const ANCHOR = "2026-10-05"; // a submission Monday (paid Fri Oct 9, 2026)
 const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
@@ -115,4 +115,26 @@ export function periodLabel(start: string, end: string) {
   const s = toDate(start), e = toDate(end);
   const mon = (d: Date) => d.toLocaleDateString("en-US", { month: "short", timeZone: "UTC" });
   return s.getUTCMonth() === e.getUTCMonth() ? `${mon(s)} ${ord(s.getUTCDate())} - ${ord(e.getUTCDate())}` : `${mon(s)} ${ord(s.getUTCDate())} - ${mon(e)} ${ord(e.getUTCDate())}`;
+}
+
+// ── Mileage ─────────────────────────────────────────────────────────────
+// Per trip: (miles driven − the trainer's free miles) × their rate per mile. Nothing below the free miles.
+// e.g. 40 miles, paid over 20 miles, at $0.30 = 20 × 0.30 = $6.00. Trips come from the pickup and drop-off forms
+// and from follow-up sessions, and are paid in the pay run whose two weeks contain the trip date.
+export type TripLike = { id: string; trainer_id: string; booking_id: string | null; kind: "pickup" | "dropoff" | "followup"; trip_date: string; miles: number | string; client?: string | null; dog?: string | null };
+export const TRIP_LABEL: Record<TripLike["kind"], string> = { pickup: "Pickup", dropoff: "Drop-off", followup: "Follow-up session" };
+export function mileagePay(miles: number, freeMiles: number, rate: number | null | undefined): { paidMiles: number; amount: number | null } {
+  const paidMiles = Math.max(0, Math.round((miles - (freeMiles || 0)) * 10) / 10);
+  return { paidMiles, amount: rate == null ? null : round2(paidMiles * rate) };
+}
+export type RouteLine = { kind: "route"; booking_id: string | null; client: string; dog: string; program: string; amount: number; days: null; weeks_completed: null; week_from: null; missingRate: boolean; trip_id: string };
+/** One pay line per trip in the pay period. */
+export function routeLines(trips: TripLike[], rates: Rates, periodStart: string, periodEnd: string): RouteLine[] {
+  return trips.filter((t) => t.trip_date >= periodStart && t.trip_date < periodEnd).sort((a, b) => a.trip_date.localeCompare(b.trip_date)).map((t) => {
+    const miles = Number(t.miles), free = Number(rates.mileage_free_miles || 0), rate = rates.mileage_rate == null ? null : Number(rates.mileage_rate);
+    const p = mileagePay(miles, free, rate);
+    const what = `${TRIP_LABEL[t.kind]} ${t.trip_date.slice(5).replace("-", "/")}: ${miles} mi`;
+    const program = p.amount == null ? `${what} (no mileage rate set)` : p.paidMiles ? `${what}, ${p.paidMiles} paid at $${rate!.toFixed(2)}` : `${what}, under ${free} mi`;
+    return { kind: "route", booking_id: t.booking_id, client: t.client || "", dog: t.dog || "", program, amount: p.amount ?? 0, days: null, weeks_completed: null, week_from: null, missingRate: p.amount == null, trip_id: t.id };
+  });
 }

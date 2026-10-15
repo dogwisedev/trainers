@@ -3,7 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import seed from "./demo-seed.json";
 import { isDemo, serverClient } from "./supabase";
 import { addDays, todayIso } from "./dates";
-import { BookingLike, EMPTY_RATES, Rates, draftLines, payMondayOnOrAfter, payMondayOnOrBefore, runDates, sumLines } from "./payroll";
+import { BookingLike, EMPTY_RATES, Rates, TripLike, draftLines, payMondayOnOrAfter, payMondayOnOrBefore, routeLines, runDates, sumLines } from "./payroll";
 import { SlipData, SlipLine } from "./payslipDoc";
 import { Trainer } from "./types";
 
@@ -63,22 +63,28 @@ export async function buildDrafts(sb: SupabaseClient, submitDate: string) {
   if (runErr) throw new Error(runErr.message);
 
   const lastDay = addDays(r.weeks[1], 6);
-  const [{ data: trainers }, { data: bookings }, { data: rateRows }, { data: existing }] = await Promise.all([
+  const [{ data: trainers }, { data: bookings }, { data: rateRows }, { data: existing }, { data: tripRows }] = await Promise.all([
     sb.from("trainers").select("id, name, address"),
     sb.from("bookings").select("id, trainer_id, client_name, dog_name, start_date, end_date, weeks, extra_days, rehab, status").neq("status", "cancelled").lte("start_date", lastDay).gte("end_date", r.weeks[0]),
     sb.from("trainer_rates").select("*"),
-    sb.from("payslips").select("id, trainer_id, status, adjustments, total, payslip_lines(booking_id, kind, auto, days, weeks_completed, amount, program, client, dog)").eq("pay_run_id", run.id)
+    sb.from("payslips").select("id, trainer_id, status, adjustments, total, payslip_lines(booking_id, kind, auto, days, weeks_completed, amount, program, client, dog)").eq("pay_run_id", run.id),
+    // Trips in these two weeks (pickups, drop-offs, follow-up sessions), for mileage pay. No table yet = no mileage lines.
+    sb.from("trips").select("id, trainer_id, booking_id, kind, trip_date, miles, bookings(client_name, dog_name)").gte("trip_date", r.weeks[0]).lte("trip_date", lastDay)
   ]);
+  const trips = ((tripRows || []) as unknown as (TripLike & { bookings: { client_name: string; dog_name: string | null } | null })[]).map((t) => ({ ...t, client: t.bookings?.client_name || "", dog: t.bookings?.dog_name || "" }));
   const rateOf = (id: string) => { const x = (rateRows || []).find((q) => q.trainer_id === id); return x ? { ...EMPTY_RATES, ...x, report_deduction: Number(x.report_deduction ?? 100) } as Rates : EMPTY_RATES; };
   let built = 0, skipped = 0, missingRates = 0, unchanged = 0;
   type L = { booking_id: string | null; kind: string; auto: boolean; days?: number | null; amount: number | string; program?: string | null; client?: string | null; dog?: string | null };
-  const sig = (l: L) => [l.booking_id, l.days ?? "", Number(l.amount ?? 0).toFixed(2), l.program ?? "", l.client ?? "", l.dog ?? ""].join("|");
+  const sig = (l: L) => [l.kind, l.booking_id, l.days ?? "", Number(l.amount ?? 0).toFixed(2), l.program ?? "", l.client ?? "", l.dog ?? ""].join("|");
 
   for (const t of trainers || []) {
     const prev = (existing || []).find((p) => p.trainer_id === t.id) as { id: string; status: string; payslip_lines?: L[] } | undefined;
     // A booking line edited by hand stays as it is: don't add an automatic one next to it.
     const handEdited = new Set((prev?.payslip_lines || []).filter((l) => l.kind === "training" && !l.auto && l.booking_id).map((l) => l.booking_id));
-    const lines = draftLines(((bookings || []) as BookingLike[]).filter((b) => b.trainer_id === t.id && !handEdited.has(b.id)), rateOf(t.id), r.weeks);
+    const lines = [
+      ...draftLines(((bookings || []) as BookingLike[]).filter((b) => b.trainer_id === t.id && !handEdited.has(b.id)), rateOf(t.id), r.weeks),
+      ...routeLines(trips.filter((x) => x.trainer_id === t.id), rateOf(t.id), r.weeks[0], addDays(lastDay, 1))
+    ];
     if (prev?.status === "approved") { skipped++; continue; }
     if (!lines.length && !prev) continue;
     missingRates += lines.filter((l) => l.missingRate).length;
@@ -104,9 +110,9 @@ export async function buildDrafts(sb: SupabaseClient, submitDate: string) {
     await sb.from("payslip_lines").delete().eq("payslip_id", slipId).eq("auto", true);
     if (lines.length) {
       const { error } = await sb.from("payslip_lines").insert(lines.map((l, i) => ({
-        payslip_id: slipId, kind: "training", booking_id: l.booking_id, weeks_completed: l.weeks_completed, days: l.days, week_from: l.week_from,
+        payslip_id: slipId, kind: l.kind, booking_id: l.booking_id, weeks_completed: l.weeks_completed, days: l.days, week_from: l.week_from,
         client: l.client, dog: l.dog, program: l.program, amount: l.amount, auto: true, sort: i,
-        description: l.missingRate ? `No pay rate set for ${l.program}` : null
+        description: l.kind === "training" && l.missingRate ? `No pay rate set for ${l.program}` : null
       })));
       if (error) throw new Error(error.message);
     }

@@ -39,6 +39,21 @@ export function PayRatesForm({ trainerId, rates }: { trainerId: string; rates: R
           <input name="report_deduction" inputMode="decimal" defaultValue={rates.report_deduction ?? 100} className="field pl-7" /></span>
         <span className="mt-1 block text-[12px] text-ink-faint">Missed weekly report or late handover, at 100%.</span>
       </label>
+      <fieldset className="rounded-xl border border-line p-3.5">
+        <legend className="px-1 text-[14px] font-bold">Mileage</legend>
+        <div className="grid grid-cols-2 gap-3">
+          <label className="block">
+            <span className="label">Pay per mile</span>
+            <span className="relative block"><span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-faint">$</span>
+              <input name="mileage_rate" inputMode="decimal" defaultValue={rates.mileage_rate ?? ""} className="field pl-7" placeholder="No mileage pay" /></span>
+          </label>
+          <label className="block">
+            <span className="label">Paid over (miles per trip)</span>
+            <input name="mileage_free_miles" inputMode="decimal" defaultValue={rates.mileage_free_miles ?? 0} className="field" />
+          </label>
+        </div>
+        <p className="mt-2 text-[12px] text-ink-faint">Each pickup, drop-off and follow-up session: (miles − paid-over miles) × pay per mile. e.g. 40 miles, paid over 20, at $0.30 = $6.00. Added to the payslip for the pay period the trip falls in.</p>
+      </fieldset>
       <Save />
       {r && <p role="status" className={`rounded-xl px-3 py-2 text-[14px] ${r.ok ? "bg-mint-wash text-fern" : "bg-heart-wash text-heart"}`}>{r.message}</p>}
     </form>

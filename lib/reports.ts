@@ -125,9 +125,9 @@ export const INTAKE_SECTIONS: Section[] = [
     { key: "snout", label: "Snout to tail: thorough check of the dog's physical well-being, with the owner present", type: "textarea", required: true },
     { key: "concerns", label: "Did the client raise any training concerns at pickup that we didn't already know about?", type: "textarea" }
   ] },
-  { title: "Route (optional)", fields: [
-    { key: "route", label: "Route taken for pickup", type: "text" },
-    { key: "mileage", label: "Mileage", type: "number" }
+  { title: "Route and mileage", fields: [
+    { key: "mileage", label: "Miles driven for this pickup", type: "number", required: true, hint: "Round trip. Used for your mileage pay. Enter 0 if the client brought the dog to you." },
+    { key: "route", label: "Route taken (optional)", type: "text" }
   ] }
 ];
 
@@ -141,6 +141,11 @@ export const HANDOVER_AFTER: Field[] = [
   { key: "healthAtHandover", label: "Snout to tail: findings from the health check at the handover session, with the owner present", type: "textarea", required: true },
   { key: "extra", label: "Anything else to tell the client", type: "textarea" },
   { key: "overall", label: "Overall trainer review of the program", type: "textarea", required: true, hint: "Biggest opportunities and challenges, top 5 issues and outcomes, overall review." }
+];
+/** Drop-off mileage: for the trainer's pay, never shown to the client (not in the handover report). */
+export const HANDOVER_ROUTE: Field[] = [
+  { key: "mileage", label: "Miles driven for this drop-off", type: "number", required: true, hint: "Round trip. Used for your mileage pay, not sent to the client. Enter 0 if the client collected the dog." },
+  { key: "route", label: "Route taken (optional)", type: "text" }
 ];
 export type Item = { title: string; text: string };
 
@@ -169,13 +174,14 @@ export function healthFlags(kind: Kind, a: Answers): string[] {
 }
 
 /** Missing required things, in plain words. Empty = ready to submit. */
-export function validate(kind: Kind, a: Answers, media: MediaItem[]): string[] {
+/** `skip`: questions not to insist on (admins approving forms sent before mileage was asked). */
+export function validate(kind: Kind, a: Answers, media: MediaItem[], opts: { skip?: string[] } = {}): string[] {
   const missing: string[] = [];
   const need = (label: string, ok: boolean) => { if (!ok) missing.push(label); };
   need("Dog's name", !!s(a.dogName)); need("Trainer's name", !!s(a.trainerName));
   if (kind === "handover") { need("Client's name", !!s(a.clientName)); need("Client's email", /^\S+@\S+\.\S+$/.test(s(a.clientEmail))); }
   const check = (f: Field) => {
-    if (!("required" in f) || !f.required) return;
+    if (!("required" in f) || !f.required || opts.skip?.includes(f.key)) return;
     if (f.type === "multi") { const picked = arr(a[f.key]); need(f.label, picked.length > 0 || !!s(a[`${f.key}_other`])); }
     else if (f.type === "yesno") {
       need(f.label, a[f.key] === "yes" || a[f.key] === "no");
@@ -184,12 +190,13 @@ export function validate(kind: Kind, a: Answers, media: MediaItem[]): string[] {
     }
     else if (f.type === "confirm") need(f.label, a[f.key] === true);
     else if (f.type === "date") need(f.label, /^\d{4}-\d{2}-\d{2}$/.test(s(a[f.key])));
+    else if (f.type === "number") need(f.label, /^\d+(\.\d+)?$/.test(s(String(a[f.key] ?? ""))) && Number(a[f.key]) <= 2000);
     else need(f.label, !!s(a[f.key]));
   };
   if (kind === "weekly") WEEKLY_SECTIONS.forEach((sec) => sec.fields.forEach(check));
   else if (kind === "intake") INTAKE_SECTIONS.forEach((sec) => sec.fields.forEach(check));
   else {
-    HANDOVER_SIMPLE.forEach(check); HANDOVER_AFTER.forEach(check);
+    HANDOVER_SIMPLE.forEach(check); HANDOVER_AFTER.forEach(check); HANDOVER_ROUTE.forEach(check);
     const t = items(a.training).filter((i) => i.title || i.text), h = items(a.homework).filter((i) => i.title || i.text);
     need("At least one training item", t.length > 0 && t.every((i) => i.text));
     need("At least one homework item", h.length > 0 && h.every((i) => i.text));

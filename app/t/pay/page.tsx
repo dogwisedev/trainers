@@ -3,10 +3,16 @@ import { requireRole } from "@/lib/data";
 import { listMyPayslips } from "@/lib/payrollData";
 import { money, periodLabel, usDate } from "@/lib/payroll";
 import { Empty } from "@/components/ui";
+import { tripsFor } from "@/lib/trips";
+import { TRIP_LABEL } from "@/lib/payroll";
+import { isDemo } from "@/lib/supabase";
 
 export default async function MyPay() {
   const v = await requireRole("trainer");
   const slips = v.trainerId ? await listMyPayslips(v.trainerId) : [];
+  const year = new Date().getFullYear();
+  const trips = v.trainerId && !isDemo() ? await tripsFor({ trainerId: v.trainerId, from: `${year}-01-01` }) : [];
+  const total = Math.round(trips.reduce((n, t) => n + Number(t.miles), 0) * 10) / 10;
   return (
     <>
       <h1 className="text-[30px] font-extrabold">Pay</h1>
@@ -23,6 +29,23 @@ export default async function MyPay() {
           ))}
         </ul>
       ) : <Empty title="No payslips yet.">They appear here once the Dogwise team approves them.</Empty>}
+
+      <section className="mt-8">
+        <div className="mb-2 flex flex-wrap items-end justify-between gap-2">
+          <div><h2 className="text-[20px] font-extrabold">Your miles in {year}</h2><p className="text-[13px] text-ink-soft">{trips.length} trip{trips.length === 1 ? "" : "s"}, {total} miles. Keep this for tax time.</p></div>
+          <Link href="/t/followup" className="btn-ghost h-9 min-h-0 px-3 text-[13px]">Log a follow-up session</Link>
+        </div>
+        {trips.length ? (
+          <ul className="panel divide-y divide-line text-[14px]">
+            {trips.map((t) => (
+              <li key={t.id} className="flex items-center justify-between gap-3 p-3">
+                <span><span className="font-semibold">{usDate(t.trip_date)}</span> <span className="text-ink-soft">{TRIP_LABEL[t.kind]}{t.bookings?.dog_name ? `, ${t.bookings.dog_name}` : ""}</span></span>
+                <span className="font-semibold">{Number(t.miles)} mi</span>
+              </li>
+            ))}
+          </ul>
+        ) : <p className="text-[14px] text-ink-soft">Miles from your pickup, drop-off and follow-up forms show here.</p>}
+      </section>
     </>
   );
 }

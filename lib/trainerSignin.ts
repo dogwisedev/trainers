@@ -82,15 +82,15 @@ export async function sendSigninHello(trainerId: string): Promise<{ ok: boolean;
     const li = (s: string) => `<li style="margin:0 0 6px">${s}</li>`;
     await sendMail({
       to: email,
-      subject: `${first}, your DogwiseTrainers app is ready for you`,
-      text: `Hi ${first},\n\nWe noticed you haven't had a chance to open DogwiseTrainers yet, so here's a quick hand.\n\nIt's where you'll find the dogs booked with you, each dog's forms (intake, weekly health check, handover), your chats with clients and the Dogwise team, and your payslips.\n\n1. Open this link: it signs you straight in, no password needed: ${link}\n2. Choose a password when it asks, so you can sign in any time.\n3. On your phone, add it to your home screen so it's one tap away.\n\nThe link works for ${VALID_DAYS} days. Any trouble, just reply to this email and we'll help.\n\nThe Dogwise team`,
+      subject: `${first}, your Dogwise Academy app is ready for you`,
+      text: `Hi ${first},\n\nWe noticed you haven't had a chance to open the Dogwise Academy app yet, so here's a quick hand.\n\nIt's where you'll find the dogs booked with you, each dog's forms (intake, weekly health check, handover), your chats with clients and the Dogwise team, and your payslips.\n\n1. Open this link: it signs you straight in, no password needed: ${link}\n2. Choose a password when it asks, so you can sign in any time.\n3. On your phone, add it to your home screen so it's one tap away.\n\nThe link works for ${VALID_DAYS} days. Any trouble, just reply to this email and we'll help.\n\nThe Dogwise team`,
       html: `<div style="background:#f4f5f8;padding:24px 12px;font-family:Inter,Segoe UI,Roboto,Helvetica,Arial,sans-serif">
   <div style="max-width:540px;margin:0 auto;background:#ffffff;border-radius:18px;overflow:hidden;border:1px solid #E7E3F3">
     <div style="height:6px;background:linear-gradient(90deg,#2A1971,#6B4FE0)"></div>
     <div style="padding:26px">
       <img src="cid:dogwise-logo" alt="Dogwise Academy" width="140" style="display:block;height:auto">
       <div style="font-size:22px;font-weight:800;color:#2A1971;margin-top:18px">Hi ${esc(first)}, your app is ready</div>
-      <p style="font-size:15px;line-height:1.6;color:#41395E;margin:8px 0 12px">We noticed you haven't had a chance to open DogwiseTrainers yet, so here's a quick hand. It's where you'll find:</p>
+      <p style="font-size:15px;line-height:1.6;color:#41395E;margin:8px 0 12px">We noticed you haven't had a chance to open the Dogwise Academy app yet, so here's a quick hand. It's where you'll find:</p>
       <ul style="font-size:15px;line-height:1.5;color:#41395E;margin:0 0 16px;padding-left:20px">
         ${li("the dogs booked with you, with their dates")}${li("each dog's forms: intake, weekly health check and handover")}${li("your chats with clients and the Dogwise team")}${li("your payslips")}
       </ul>

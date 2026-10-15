@@ -7,6 +7,7 @@ import { dealKey } from "@/lib/chatTypes";
 import { ensureReport, getReport, pickupMedia } from "@/lib/reportData";
 import type { Booking } from "@/lib/types";
 import { messageTrainer, raiseIncident, resolveIncidents } from "@/lib/incidents";
+import { saveFormTrip } from "@/lib/trips";
 import { buildReport, reportHtml, reportText } from "@/lib/reportDoc";
 import { reportPdf } from "@/lib/reportPdf";
 import { mailConfigured, sendMail } from "@/lib/mail";
@@ -77,6 +78,9 @@ export async function submitReportAction(id: string, answers: Answers, media: Me
     const dog = s(a.dogName), flags = healthFlags(b.report.kind, a);
     const label = `${dog || "Dog"} (${s(a.clientName) || b.booking.client_name}), ${b.trainer.name}`;
     let mediaNote = "";
+    // Miles from the pickup / drop-off form become a trip, for mileage pay
+    if (b.report.kind === "intake" || b.report.kind === "handover") await saveFormTrip({ reportId: id, trainerId: b.trainer.id, bookingId: b.booking.id, kind: b.report.kind === "intake" ? "pickup" : "dropoff",
+      date: b.report.kind === "intake" ? s(a.pickupDate) || b.booking.start_date : b.booking.end_date, miles: a.mileage, route: s(a.route), by: b.trainer.name });
     if (pickup && pickup.count === 0) {
       await raiseIncident({ kind: "intake_media_missing", title: label, chatId: pickup.chatId, bookingId: b.booking.id, reportId: id, ref: `report:${id}`,
         detail: `${b.trainer.name} submitted the intake form for ${dog || "the dog"} with no pickup photos or video in the chat${pickup.chatId ? "" : " (the dog has no chat yet)"}.`,
@@ -136,7 +140,7 @@ export async function approveReportAction(id: string, answers: Answers, media: M
     if (!b) return { ok: false, message: "Report not found." };
     const corrected = b.report.status === "approved";
     const a = cleanAnswers(answers), m = cleanMedia(media, b.report.media, b.booking.id);
-    const missing = validate(b.report.kind, a, m);
+    const missing = validate(b.report.kind, a, m, { skip: ["mileage"] }); // forms sent before miles were asked can still be approved
     if (missing.length) return { ok: false, message: b.report.kind === "handover" ? "A few things are still needed before it can go to the client." : "A few things are still needed.", missing };
     const sb = serverClient();
     const { error } = await sb.from("reports").update({
@@ -144,6 +148,8 @@ export async function approveReportAction(id: string, answers: Answers, media: M
       submitted_at: b.report.submitted_at || new Date().toISOString(), review_note: null
     }).eq("id", id);
     if (error) return { ok: false, message: error.message };
+    if (b.report.kind === "intake" || b.report.kind === "handover") await saveFormTrip({ reportId: id, trainerId: b.trainer.id, bookingId: b.booking.id, kind: b.report.kind === "intake" ? "pickup" : "dropoff",
+      date: b.report.kind === "intake" ? s(a.pickupDate) || b.booking.start_date : b.booking.end_date, miles: a.mileage, route: s(a.route), by: v.name }); // admin may have corrected the miles
     if (b.report.kind !== "handover") {
       // Intake forms and weekly health checks stay internal: "approve" just means an admin has looked at it.
       const { data: nxt } = await sb.from("reports").select("id").eq("status", "submitted").neq("id", id).order("submitted_at", { ascending: true }).limit(1);

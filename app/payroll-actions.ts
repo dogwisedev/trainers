@@ -165,6 +165,11 @@ export async function saveRatesAction(_: Result | null, f: FormData): Promise<Re
   for (const [k] of RATE_FIELDS) { const v = String(f.get(k) ?? "").replace(/[$,\s]/g, ""); row[k] = v === "" ? null : Number(v); }
   const d = String(f.get("report_deduction") ?? "").replace(/[$,\s]/g, "");
   row.report_deduction = d === "" ? 100 : Number(d);
+  // Mileage: $ per mile, paid on the miles of each trip above the free miles
+  const mr = String(f.get("mileage_rate") ?? "").replace(/[$,\s]/g, ""), mf = String(f.get("mileage_free_miles") ?? "").replace(/[,\s]/g, "");
+  if (mr !== "" && !(Number(mr) >= 0 && Number(mr) < 10)) return { ok: false, message: "Pay per mile looks wrong: enter it in dollars, e.g. 0.30." };
+  row.mileage_rate = mr === "" ? null : Number(mr);
+  row.mileage_free_miles = mf === "" ? 0 : Math.max(0, Number(mf) || 0);
   const { error } = await serverClient().from("trainer_rates").upsert(row, { onConflict: "trainer_id" });
   revalidatePath(`/a/trainers/${trainer_id}`);
   return error ? { ok: false, message: error.message } : { ok: true, message: "Pay rates saved. Rebuild drafts to apply them." };

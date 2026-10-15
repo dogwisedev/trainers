@@ -29,7 +29,7 @@ type Inc = {
 };
 type B = BookingForReports & { hubspot_deal_id: string | null; reports_enabled?: boolean | null };
 
-const NOW_KINDS: IncidentKind[] = ["client_waiting", "client_pileup", "trainer_silent", "check_vaccines", "booking_cancelled", "length_changed", "overbooked"];
+const NOW_KINDS: IncidentKind[] = ["trainer_report", "client_waiting", "client_pileup", "trainer_silent", "check_vaccines", "booking_cancelled", "length_changed", "overbooked"];
 
 export async function buildTodo(): Promise<TodoData> {
   if (isDemo()) return { items: [], late: [] };
@@ -73,6 +73,7 @@ export async function buildTodo(): Promise<TodoData> {
       case "booking_cancelled": add({ group: "now", tone: "heart", text: `${dog}'s training was cancelled: refund or partial pay?`, primary: deal ? { label: "HubSpot deal", href: deal, external: true } : undefined }); break;
       case "hubspot_problem": add({ group: "week", tone: "biscuit", text: `Check ${dog}'s HubSpot deal`, primary: deal ? { label: "HubSpot deal", href: deal, external: true } : dogHref ? { label: "Open dog", href: dogHref } : undefined }); break;
       case "not_ready": add({ group: startsSoon ? "now" : "week", tone: "heart", text: `${dog} starts ${i.booking ? short(i.booking.start_date) : "soon"} and isn't ready`, primary: bookingId ? { label: "See what's missing", href: dogPage(bookingId, "before") } : chat }); break;
+      case "trainer_report": add({ group: "now", tone: "heart", text: `${trainer} reported an incident with ${dog}`, primary: bookingId ? { label: "Read the report", href: dogPage(bookingId, undefined, "incident-reports") } : chat }); break;
       case "check_vaccines": add({ group: "now", tone: "biscuit", text: `${dog}'s vaccine records came in`, primary: bookingId ? { label: "Check vaccines", href: dogPage(bookingId, "before", "vaccines") } : chat }); break;
       default: add({ group: NOW_KINDS.includes(i.kind) ? "now" : "week", tone: "biscuit", text: `${INCIDENT_LABEL[i.kind] || i.kind}: ${dog}`, primary: chat || (dogHref ? { label: "Open dog", href: dogHref } : undefined) });
     }

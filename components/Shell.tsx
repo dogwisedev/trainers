@@ -86,13 +86,7 @@ function DemoNote() {
 export function Brand({ small = false }: { small?: boolean }) {
   return (
     <Link href="/" className="flex items-center gap-2.5">
-      <span className={`grid place-items-center rounded-2xl bg-mint ${small ? "h-9 w-9" : "h-11 w-11"}`}>
-        <Image src="/logo.png" alt="" width={small ? 28 : 34} height={small ? 28 : 34} />
-      </span>
-      <span className="leading-none">
-        <span className={`block font-extrabold tracking-tight ${small ? "text-[17px]" : "text-[19px]"}`}>Dogwise<span className="text-fern">Trainers</span></span>
-        {!small && <span className="mt-1 block text-[12px] text-ink-faint">Dogwise Academy</span>}
-      </span>
+      <Image src="/brand-logo.png" alt="Dogwise Academy" width={small ? 112 : 140} height={small ? 36 : 45} priority />
     </Link>
   );
 }

@@ -11,6 +11,9 @@ import { ChatMsg, ChatRow, driveView } from "./chatTypes";
 import { CHAT_KINDS, INCIDENT_LABEL, IncidentKind, RULES, clientDigestDue, clientWaiting, pileUp, readyToClose, trainerSilent } from "./chatRules";
 import { clearFormIncidents } from "./incidents";
 import { catchUpBookings } from "./bookingCatchup";
+import { sendDailyDigest } from "./digest";
+
+const URGENT_CHAT: IncidentKind[] = ["client_waiting", "client_pileup"];
 
 const site = () => (process.env.NEXT_PUBLIC_SITE_URL || "").replace(/\/$/, "");
 const logo = { filename: "dogwise.png", content: Buffer.from(BRAND_LOGO_PNG_BASE64, "base64"), contentType: "image/png", cid: "dogwise-logo" };
@@ -29,6 +32,7 @@ export async function runChatChecks(now = new Date()) {
   const out = { chats: chats.length, opened: 0, cleared: 0, realerted: 0, digests: 0, errors: [] as string[] };
   try { out.cleared += await clearFormIncidents(sb); } catch (e) { out.errors.push(`forms: ${(e as Error).message}`); }
   try { const c = await catchUpBookings(sb); out.errors.push(...c.errors.map((x) => `booking email: ${x}`)); } catch (e) { out.errors.push(`booking email: ${(e as Error).message}`); }
+  try { if (await sendDailyDigest(sb)) out.digests++; } catch (e) { out.errors.push(`daily summary: ${(e as Error).message}`); }
 
   // Bookings per chat (a chat's key is the HubSpot deal id, or the booking id)
   const keys = chats.map((c) => c.deal_key);
@@ -83,10 +87,12 @@ export async function runChatChecks(now = new Date()) {
 
   const created: { chat: ChatRow; kind: IncidentKind; detail: string }[] = [];
   for (const f of fresh) {
-    const { error } = await sb.from("chat_incidents").insert({ chat_id: f.chat.id, kind: f.kind, detail: f.detail, opened_at: now.toISOString(), last_alert_at: now.toISOString() });
-    if (!error) { created.push(f); out.opened++; }
+    const urgent = URGENT_CHAT.includes(f.kind);
+    const { error } = await sb.from("chat_incidents").insert({ chat_id: f.chat.id, kind: f.kind, detail: f.detail, opened_at: now.toISOString(), last_alert_at: urgent ? now.toISOString() : null });
+    if (!error) { if (urgent) created.push(f); out.opened++; }
   }
-  const stale = live.filter((i) => i.status === "open" && openIds.has(i.chat_id) && now.getTime() - ms(i.last_alert_at || i.opened_at) > RULES.realertHours * 3600000);
+  // Only a waiting client is emailed straight away (and again if still waiting). Everything else is in To do and the daily summary.
+  const stale = live.filter((i) => i.status === "open" && URGENT_CHAT.includes(i.kind) && openIds.has(i.chat_id) && now.getTime() - ms(i.last_alert_at || i.opened_at) > RULES.realertHours * 3600000);
   if (created.length || stale.length) {
     try {
       const staleLines = stale.map((i) => { const c = chats.find((x) => x.id === i.chat_id)!; return { text: `Still open: ${INCIDENT_LABEL[i.kind]} (${c.title || "dog"}, ${c.client_name || "client"})`, link: `${site()}/a/chats/${c.id}` }; });

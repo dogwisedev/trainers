@@ -10,7 +10,7 @@ import type { IncidentRow } from "@/lib/chatData";
 
 const TONE = {
   trainer_silent: "heart", client_waiting: "heart", client_pileup: "heart", reopened: "biscuit", ready_to_close: "line",
-  intake_media_missing: "biscuit", handover_photo_missing: "biscuit", overbooked: "heart", length_changed: "heart", booking_cancelled: "heart", hubspot_problem: "biscuit", not_ready: "heart", check_vaccines: "biscuit"
+  intake_media_missing: "biscuit", handover_photo_missing: "biscuit", overbooked: "heart", length_changed: "heart", booking_cancelled: "heart", hubspot_problem: "biscuit", not_ready: "heart", check_vaccines: "biscuit", trainer_report: "heart"
 } as const;
 /** Dog, client and trainer, from the chat or else the booking. */
 const who = (i: IncidentRow) => ({

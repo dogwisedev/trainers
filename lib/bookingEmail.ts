@@ -23,7 +23,7 @@ export function bookingIcs(b: B, trainer: { name: string; email: string }, kind:
   const organizer = process.env.SMTP_USER || "info@dogwiseacademy.com";
   const title = `${b.dog_name || "Dog"} (${b.client_name}) with Dogwise`;
   const lines = [
-    "BEGIN:VCALENDAR", "PRODID:-//Dogwise Academy//DogwiseTrainers//EN", "VERSION:2.0", "CALSCALE:GREGORIAN",
+    "BEGIN:VCALENDAR", "PRODID:-//Dogwise Academy//Trainers//EN", "VERSION:2.0", "CALSCALE:GREGORIAN",
     `METHOD:${kind === "cancelled" ? "CANCEL" : "REQUEST"}`,
     "BEGIN:VEVENT",
     `UID:booking-${b.id}@dogwisetrainers`,
@@ -32,7 +32,7 @@ export function bookingIcs(b: B, trainer: { name: string; email: string }, kind:
     `DTSTART;VALUE=DATE:${icsDate(b.start_date)}`,
     `DTEND;VALUE=DATE:${icsDate(addDays(b.end_date, 1))}`,
     `SUMMARY:${icsText(kind === "cancelled" ? `Cancelled: ${title}` : title)}`,
-    `DESCRIPTION:${icsText(`${b.program || `${b.weeks}-week`}${b.extra_days ? ` + ${b.extra_days} days` : ""}. ${b.notes ? `Notes: ${b.notes}. ` : ""}Open in DogwiseTrainers: ${site}/t`)}`,
+    `DESCRIPTION:${icsText(`${b.program || `${b.weeks}-week`}${b.extra_days ? ` + ${b.extra_days} days` : ""}. ${b.notes ? `Notes: ${b.notes}. ` : ""}Open in the Dogwise Academy app: ${site}/t`)}`,
     `URL:${site}/t`,
     `ORGANIZER;CN=Dogwise Academy:mailto:${organizer}`,
     `ATTENDEE;CN=${icsText(trainer.name)};ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:${trainer.email}`,

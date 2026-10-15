@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Plus } from "lucide-react";
 import { approveReportAction, resendReportAction, saveReportAction, sendBackAction, submitReportAction, ReportResult } from "@/app/report-actions";
 import { MediaPicker } from "@/components/MediaPicker";
-import { Answers, Field, HANDOVER_AFTER, HANDOVER_SIMPLE, INTAKE_SECTIONS, Item, Kind, MEDIA_ADVICE, MediaItem, Status, WEEKLY_SECTIONS, arr, deadlineHint, hasTrainerPhoto, raw, rawItems, s, validate } from "@/lib/reports";
+import { Answers, Field, HANDOVER_AFTER, HANDOVER_ROUTE, HANDOVER_SIMPLE, INTAKE_SECTIONS, Item, Kind, MEDIA_ADVICE, MediaItem, Status, WEEKLY_SECTIONS, arr, deadlineHint, hasTrainerPhoto, raw, rawItems, s, validate } from "@/lib/reports";
 import { buildReport, reportHtml } from "@/lib/reportDoc";
 import { WaiveButton } from "@/components/WaiveButton";
 
@@ -64,7 +64,7 @@ export function ReportForm(p: Props) {
 
   const waived = p.status === "waived";
   const editable = !waived && (p.mode === "trainer" ? p.status === "draft" || p.status === "changes_requested" : p.status !== "approved" || editing);
-  const missing = useMemo(() => validate(p.kind, answers, media), [p.kind, answers, media]);
+  const missing = useMemo(() => validate(p.kind, answers, media, p.mode === "admin" ? { skip: ["mileage"] } : {}), [p.kind, answers, media, p.mode]);
   const set = (k: string, v: unknown) => { setAnswers((a) => ({ ...a, [k]: v })); setDirty(true); };
   const setM = (m: MediaItem[]) => { setMedia(m); setDirty(true); };
 
@@ -184,6 +184,7 @@ export function ReportForm(p: Props) {
                 </>
               ))}
               {card("Health check and review", HANDOVER_AFTER.map(renderField))}
+              {card("Route and mileage (not sent to the client)", HANDOVER_ROUTE.map(renderField))}
               {card("Photo with the trainer", (
                 <>
                   <span className="label">Photo of the dog with the trainer</span>

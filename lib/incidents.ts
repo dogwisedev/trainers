@@ -7,12 +7,14 @@ import { INCIDENT_LABEL, IncidentKind } from "./chatRules";
 // Incidents that aren't opened by the chat check: forms, bookings and HubSpot.
 // They show on the admin To do list (/a) next to the chat ones.
 const site = () => (process.env.NEXT_PUBLIC_SITE_URL || "").replace(/\/$/, "");
+const URGENT: IncidentKind[] = ["booking_cancelled", "length_changed", "overbooked"];
 
 export type NewIncident = {
   kind: IncidentKind; title: string; detail: string;
   chatId?: string | null; bookingId?: string | null; reportId?: string | null;
   ref?: string | null;    // what it's about ('deal:123', 'booking:<id>', 'report:<id>'): one live incident per thing and kind
   office?: boolean;       // money involved: copy the office (info@) and ask them to sort out refund / partial pay
+  urgent?: boolean;       // email admins straight away (default: money and overbooking only; the rest is in To do and the daily summary)
   link?: string;          // where "Open" goes in the email
 };
 
@@ -20,11 +22,13 @@ export type NewIncident = {
 export async function raiseIncident(i: NewIncident, sb: SupabaseClient = serviceClient()): Promise<boolean> {
   try {
     const now = new Date().toISOString();
+    const email = !!(i.office || (i.urgent ?? URGENT.includes(i.kind)));
     const { error } = await sb.from("chat_incidents").insert({
       chat_id: i.chatId || null, booking_id: i.bookingId || null, report_id: i.reportId || null, ref: i.ref || null,
-      kind: i.kind, detail: i.detail.slice(0, 1000), opened_at: now, last_alert_at: now
+      kind: i.kind, detail: i.detail.slice(0, 1000), opened_at: now, last_alert_at: email ? now : null
     });
     if (error) { if (error.code !== "23505") console.error("incident", i.kind, error.message); return false; } // 23505 = already open
+    if (!email) return true;
     const link = i.link || (i.chatId ? `${site()}/a/chats/${i.chatId}` : i.bookingId ? `${site()}/a/dogs/${i.bookingId}` : `${site()}/a`);
     const intro = i.office ? `${i.detail} Please check whether a refund or partial pay is needed, and fix it.` : i.detail;
     await alertAdmins(`${INCIDENT_LABEL[i.kind]}: ${i.title}`, intro, [{ text: `${INCIDENT_LABEL[i.kind]}: ${i.title}`, link }],

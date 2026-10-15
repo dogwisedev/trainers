@@ -15,7 +15,7 @@ export const NAVY = "#2A1971", VIOLET = "#6B4FE0", LAVENDER = "#F4F1FF", LINE = 
 export const lineLead = (l: SlipLine) => (l.kind === "deduction" ? (l.pct != null ? `${l.pct}%` : "") : l.days ? (l.days % 7 === 0 ? l.days / 7 : `${l.days} day${l.days === 1 ? "" : "s"}`) : l.weeks_completed ?? "");
 /** Client column: deductions and "other" lines put their description here. */
 export const lineClient = (l: SlipLine) => (l.kind === "deduction" || l.kind === "other" ? l.description || "" : l.client || "");
-export const lineProgram = (l: SlipLine) => (l.kind === "route" ? "Route" : l.kind === "training" ? l.program || "" : "");
+export const lineProgram = (l: SlipLine) => (l.kind === "route" ? l.program || "Route" : l.kind === "training" ? l.program || "" : "");
 export const splitAddress = (a: string | null) => String(a || "").split(/\s*,\s*(?=[^,]*,\s*[A-Z]{2}\b)|\n/).map((x) => x.trim()).filter(Boolean);
 const leadText = (l: SlipLine) => { const v = lineLead(l); return v === "" ? "" : typeof v === "number" ? `${v} wk${v === 1 ? "" : "s"}` : v; };
 

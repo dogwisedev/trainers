@@ -12,6 +12,7 @@ import { expectedReports, kindName, Kind, Status } from "@/lib/reports";
 import { datesFromHubspot } from "@/lib/hubspot";
 import { loadProfile, readinessFor } from "@/lib/pretraining";
 import { dogPage, hubspotDeal } from "@/lib/todo";
+import { TRIP_LABEL } from "@/lib/payroll";
 import { emailTrainerAboutBooking, setBookingStatus } from "@/app/actions";
 import { ActionButton, ExtraDays } from "@/components/forms";
 import { ReportsToggle } from "@/components/ReportsToggle";
@@ -42,11 +43,13 @@ export default async function DogPageView({ params, searchParams }: { params: { 
   const key = dealKey(b), deal = hubspotDeal(b.hubspot_deal_id), today = etParts(new Date()).date;
   const { data: chatRows } = await sb.from("chats").select("*").eq("deal_key", key).order("created_at", { ascending: false });
   const chat = (((chatRows || []) as ChatRow[]).find((c) => c.status === "open") || (chatRows || [])[0] || null) as ChatRow | null;
-  const [{ data: siblings }, { data: reps }, { data: incs }, ready] = await Promise.all([
+  const [{ data: siblings }, { data: reps }, { data: incs }, ready, { data: ireports }, { data: trips }] = await Promise.all([
     b.hubspot_deal_id ? sb.from("bookings").select("id, dog_name, status").eq("hubspot_deal_id", b.hubspot_deal_id).neq("id", b.id) : Promise.resolve({ data: [] }),
     sb.from("reports").select("id, kind, week_number, status").eq("booking_id", b.id),
     sb.from("chat_incidents").select("id, kind, detail, opened_at").neq("status", "resolved").or(`booking_id.eq.${b.id}${chat ? `,chat_id.eq.${chat.id}` : ""}`).order("opened_at"),
-    readinessFor([b.id])
+    readinessFor([b.id]),
+    sb.from("incident_reports").select("*").eq("booking_id", b.id).order("occurred_at", { ascending: false }),
+    sb.from("trips").select("id, kind, trip_date, miles, notes, created_by").eq("booking_id", b.id).order("trip_date")
   ]);
   const r = ready.get(b.id);
   const missing = r?.ready.missing.length ?? null;
@@ -120,6 +123,34 @@ export default async function DogPageView({ params, searchParams }: { params: { 
                 {!(b.hubspot_deal_id && datesFromHubspot()) && b.status !== "cancelled" && <span className="flex items-center gap-2">Extra days <ExtraDays id={b.id} current={b.extra_days || 0} /></span>}
               </div>
             </section>
+            {((ireports || []) as IReport[]).length > 0 && (
+              <section id="incident-reports" className="scroll-mt-20">
+                <h2 className="mb-2 text-[13px] font-bold uppercase tracking-wide text-ink-soft">Incident reports</h2>
+                <ul className="space-y-3">
+                  {((ireports || []) as IReport[]).map((x) => (
+                    <li key={x.id} className="panel border-heart p-4">
+                      <p className="font-bold">{x.kind} <span className="font-normal text-ink-soft">{new Date(x.occurred_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}, reported by {x.reported_by}</span></p>
+                      <dl className="mt-2 space-y-2 text-[14px]">
+                        <Fact k="What happened" v={x.what} />
+                        {x.action && <Fact k="What they did" v={x.action} />}
+                        <Fact k="Vet" v={x.vet ? `Yes: ${x.vet_details || ""}` : "No"} />
+                        <Fact k="Client told" v={x.client_told ? "Yes" : "No"} />
+                      </dl>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+            {((trips || []) as Trip[]).length > 0 && (
+              <section className="panel p-4">
+                <h2 className="mb-2 text-[15px] font-bold">Trips (mileage)</h2>
+                <ul className="divide-y divide-line text-[14px]">
+                  {((trips || []) as Trip[]).map((t) => (
+                    <li key={t.id} className="py-2"><span className="font-semibold">{short(t.trip_date)}</span> {TRIP_LABEL[t.kind]}, {Number(t.miles)} mi{t.notes ? <span className="block text-[13px] text-ink-soft">{t.notes}</span> : null}</li>
+                  ))}
+                </ul>
+              </section>
+            )}
             {((siblings || []) as { id: string; dog_name: string | null; status: string }[]).length > 0 && (
               <section className="panel p-4">
                 <h2 className="mb-2 text-[15px] font-bold">Other dogs on this deal</h2>
@@ -143,6 +174,9 @@ export default async function DogPageView({ params, searchParams }: { params: { 
     </>
   );
 }
+
+type IReport = { id: string; kind: string; occurred_at: string; reported_by: string; what: string; action: string | null; vet: boolean; vet_details: string | null; client_told: boolean };
+type Trip = { id: string; kind: "pickup" | "dropoff" | "followup"; trip_date: string; miles: number; notes: string | null };
 
 function Fact({ k, v }: { k: string; v: string }) {
   return <div><dt className="text-[13px] text-ink-soft">{k}</dt><dd className="whitespace-pre-wrap text-[15px]">{v}</dd></div>;
