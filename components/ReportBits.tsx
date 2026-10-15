@@ -18,8 +18,8 @@ export function TodoRow({ t, mode }: { t: Todo & { trainerName?: string }; mode:
   const href = t.report?.id ? `/${mode === "admin" ? "a" : "t"}/reports/${t.report.id}` : `/${mode === "admin" ? "a" : "t"}/reports/new?${q}`;
   const verb = t.state === "changes" ? "Fix" : t.state === "draft" ? "Continue" : mode === "admin" ? "Fill in" : "Start";
   return (
-    <li className="flex items-center gap-3 p-3.5">
-      <div className="min-w-0 flex-1">
+    <li className="flex flex-wrap items-center gap-x-3 gap-y-2 p-3.5">
+      <div className="min-w-[55%] flex-1">
         <p className="truncate font-bold">{t.booking.dog_name || "Dog"} <span className="font-normal text-ink-soft">{todoLabel(t)}</span></p>
         <p className="truncate text-[13px] text-ink-soft">{mode === "admin" && t.trainerName ? `${t.trainerName}, ` : ""}{t.booking.client_name}</p>
       </div>

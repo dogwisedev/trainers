@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Avatar } from "@/components/ui";
 import { notFound } from "next/navigation";
 import { requireRole } from "@/lib/data";
 import { getChat, listChatMessages } from "@/lib/chatData";
@@ -17,7 +18,10 @@ export default async function ClientChat({ params }: { params: { id: string } })
   const [{ messages, hasMore }, ready] = await Promise.all([listChatMessages(chat.id), chat.status === "open" ? chatReadiness(chat.deal_key, true) : Promise.resolve(null)]);
   return (
     <>
-      <h1 className="text-[26px] font-extrabold leading-tight">{chat.title || "Your dog"}</h1>
+      <div className="flex items-center gap-3">
+        {chat.trainer_name && <Avatar name={chat.trainer_name} size={44} />}
+        <h1 className="text-[26px] font-extrabold leading-tight">{chat.title || "Your dog"}</h1>
+      </div>
       <p className="mb-4 text-[14px] text-ink-soft">{chat.trainer_name ? `Training with ${chat.trainer_name}. ` : ""}<Link href="/c" className="underline">All chats</Link>{ready && <> · <Link href={`/c/${chat.id}/profile`} className="underline">Your dog&apos;s details</Link></>}</p>
       {ready && (ready.left > 0 || ready.balanceLink) && <BeforeTrainingPopup href={`/c/${chat.id}/profile`} left={ready.left} balanceLink={ready.balanceLink} dog={chat.title || "your dog"} />}
       {ready && (ready.left > 0 || ready.balanceLink) && (

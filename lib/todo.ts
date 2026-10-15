@@ -12,8 +12,9 @@ import { dealKey } from "./chatTypes";
 // Callers must have checked the viewer is an admin: this reads with the service key (the daily email has no session).
 
 export type TodoGroup = "now" | "week" | "later";
+export type TodoIcon = "chat" | "vaccine" | "form" | "money" | "alert" | "dog" | "message" | "people" | "pay" | "deal" | "camera";
 export type TodoItem = {
-  key: string; group: TodoGroup; tone: "heart" | "biscuit" | "line"; text: string; detail?: string; since?: string;
+  key: string; group: TodoGroup; tone: "heart" | "biscuit" | "line"; icon?: TodoIcon; text: string; detail?: string; since?: string;
   primary?: { label: string; href: string; external?: boolean };
   dogHref?: string; hubspot?: string; incidentId?: string;
 };
@@ -59,7 +60,10 @@ export async function buildTodo(): Promise<TodoData> {
     const dogHref = bookingId ? dogPage(bookingId) : undefined;
     const startsSoon = !!i.booking && i.booking.start_date <= addDays(today, 2);
     const base = { key: `inc:${i.id}`, since: i.opened_at, incidentId: i.id, dogHref, hubspot: deal, detail: i.detail || undefined };
-    const add = (o: Omit<TodoItem, "key" | "since" | "incidentId" | "dogHref" | "hubspot"> & Partial<TodoItem>) => items.push({ ...base, ...o });
+    const ICON: Partial<Record<IncidentKind, TodoIcon>> = { client_waiting: "chat", client_pileup: "chat", trainer_silent: "chat", reopened: "chat", ready_to_close: "chat",
+      intake_media_missing: "camera", handover_photo_missing: "camera", overbooked: "dog", length_changed: "money", booking_cancelled: "money", hubspot_problem: "deal",
+      not_ready: "dog", check_vaccines: "vaccine", trainer_report: "alert" };
+    const add = (o: Omit<TodoItem, "key" | "since" | "incidentId" | "dogHref" | "hubspot"> & Partial<TodoItem>) => items.push({ ...base, icon: ICON[i.kind] || "alert", ...o });
     switch (i.kind) {
       case "client_waiting": add({ group: "now", tone: "heart", text: `${client} is waiting for a reply about ${dog}`, primary: chat ? { ...chat, label: "Reply" } : undefined }); break;
       case "client_pileup": add({ group: "now", tone: "heart", text: `${client} has sent several messages about ${dog}`, primary: chat ? { ...chat, label: "Reply" } : undefined }); break;
@@ -72,7 +76,7 @@ export async function buildTodo(): Promise<TodoData> {
       case "length_changed": add({ group: "now", tone: "heart", text: `${dog}'s program length changed: check pay and refund`, primary: deal ? { label: "HubSpot deal", href: deal, external: true } : undefined }); break;
       case "booking_cancelled": add({ group: "now", tone: "heart", text: `${dog}'s training was cancelled: refund or partial pay?`, primary: deal ? { label: "HubSpot deal", href: deal, external: true } : undefined }); break;
       case "hubspot_problem": add({ group: "week", tone: "biscuit", text: `Check ${dog}'s HubSpot deal`, primary: deal ? { label: "HubSpot deal", href: deal, external: true } : dogHref ? { label: "Open dog", href: dogHref } : undefined }); break;
-      case "not_ready": add({ group: startsSoon ? "now" : "week", tone: "heart", text: `${dog} starts ${i.booking ? short(i.booking.start_date) : "soon"} and isn't ready`, primary: bookingId ? { label: "See what's missing", href: dogPage(bookingId, "before") } : chat }); break;
+      case "not_ready": add({ group: startsSoon ? "now" : "week", tone: "heart", detail: (i.detail || "").replace(/^.*?isn't ready:\s*/, "Missing: ").replace(/\.$/, "") || undefined, text: `${dog} starts ${i.booking ? short(i.booking.start_date) : "soon"} and isn't ready`, primary: bookingId ? { label: "See what's missing", href: dogPage(bookingId, "before") } : chat }); break;
       case "trainer_report": add({ group: "now", tone: "heart", text: `${trainer} reported an incident with ${dog}`, primary: bookingId ? { label: "Read the report", href: dogPage(bookingId, undefined, "incident-reports") } : chat }); break;
       case "check_vaccines": add({ group: "now", tone: "biscuit", text: `${dog}'s vaccine records came in`, primary: bookingId ? { label: "Check vaccines", href: dogPage(bookingId, "before", "vaccines") } : chat }); break;
       default: add({ group: NOW_KINDS.includes(i.kind) ? "now" : "week", tone: "biscuit", text: `${INCIDENT_LABEL[i.kind] || i.kind}: ${dog}`, primary: chat || (dogHref ? { label: "Open dog", href: dogHref } : undefined) });
@@ -82,7 +86,7 @@ export async function buildTodo(): Promise<TodoData> {
   // ── Forms sent in, waiting for review ──
   for (const r of (reps || []) as unknown as { id: string; kind: Kind; week_number: number; booking_id: string; submitted_at: string | null; trainers: { name: string } | null; booking: { dog_name: string | null; client_name: string; hubspot_deal_id: string | null } | null }[]) {
     items.push({
-      key: `rep:${r.id}`, group: r.kind === "handover" ? "now" : "week", tone: "biscuit", since: r.submitted_at || undefined,
+      key: `rep:${r.id}`, group: r.kind === "handover" ? "now" : "week", tone: "biscuit", icon: "form", since: r.submitted_at || undefined,
       text: `${r.trainers?.name || "A trainer"} sent ${r.booking?.dog_name || "a dog"}'s ${kindName(r.kind).toLowerCase()}${r.kind === "weekly" ? ` (week ${r.week_number})` : ""}`,
       detail: r.kind === "handover" ? "Check it, then send it to the client." : undefined,
       primary: { label: "Review", href: `/a/reports/${r.id}` }, dogHref: dogPage(r.booking_id), hubspot: hubspotDeal(r.booking?.hubspot_deal_id)
@@ -96,17 +100,17 @@ export async function buildTodo(): Promise<TodoData> {
     byTrainer.set(m.trainer_id, { n: x.n + 1, first: x.first, last: m.body });
   }
   for (const [id, x] of byTrainer) items.push({
-    key: `msg:${id}`, group: "now", tone: "heart", since: x.first, text: `${tName.get(id) || "A trainer"} sent you ${x.n > 1 ? `${x.n} messages` : "a message"}`,
+    key: `msg:${id}`, group: "now", tone: "heart", icon: "message", since: x.first, text: `${tName.get(id) || "A trainer"} sent you ${x.n > 1 ? `${x.n} messages` : "a message"}`,
     detail: x.last.slice(0, 140), primary: { label: "Reply", href: `/a/messages/${id}` }
   });
 
   // ── Trainer profiles to check, trainers not signed in ──
   for (const t of (trainers || []) as { id: string; name: string; data_flags: string[] | null; active: boolean }[]) {
-    if (t.active && t.data_flags?.length) items.push({ key: `flag:${t.id}`, group: "later", tone: "line", text: `Check ${t.name}'s profile`, detail: t.data_flags.join("; "), primary: { label: "Open trainer", href: `/a/trainers/${t.id}` } });
+    if (t.active && t.data_flags?.length) items.push({ key: `flag:${t.id}`, group: "later", tone: "line", icon: "people", text: `Check ${t.name}'s profile`, detail: t.data_flags.join("; "), primary: { label: "Open trainer", href: `/a/trainers/${t.id}` } });
   }
   const notIn = signins.filter((s) => !s.lastSignIn);
   if (notIn.length) items.push({
-    key: "signin", group: "later", tone: "line", text: `${notIn.length} trainer${notIn.length > 1 ? "s haven't" : " hasn't"} signed in yet`,
+    key: "signin", group: "later", tone: "line", icon: "people", text: `${notIn.length} trainer${notIn.length > 1 ? "s haven't" : " hasn't"} signed in yet`,
     detail: notIn.slice(0, 6).map((s) => s.name).join(", ") + (notIn.length > 6 ? "…" : ""), primary: { label: "Email them", href: "/a/trainers#signin" }
   });
 

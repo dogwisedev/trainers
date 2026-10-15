@@ -22,7 +22,7 @@ import { AdminChatPanel } from "@/components/AdminChatPanel";
 import { DogProfile } from "@/components/DogProfile";
 import { TodoDone } from "@/components/TodoDone";
 import { WaiveButton } from "@/components/WaiveButton";
-import { Pill } from "@/components/ui";
+import { Avatar, Pill } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60; // the Before training tab reads HubSpot; closing a chat saves to Drive
@@ -62,11 +62,14 @@ export default async function DogPageView({ params, searchParams }: { params: { 
     <>
       <Link href="/a/dogs" className="mb-2 inline-flex items-center gap-1 text-[14px] font-semibold text-ink-soft hover:text-ink"><ChevronLeft size={17} />Dogs</Link>
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
+        <div className="flex min-w-0 items-start gap-3">
+          <Avatar name={b.dog_name || "Dog"} size={52} />
+          <div className="min-w-0">
           <h1 className="flex flex-wrap items-center gap-2 text-[30px] font-extrabold leading-tight">{b.dog_name || "Dog"} <Pill tone={status.tone}>{status.label}</Pill>
             {b.status !== "cancelled" && b.end_date >= today && missing !== null && <Link href={dogPage(b.id, "before")}><Pill tone={missing ? "heart" : "mint"}>{missing ? `${missing} missing before training` : r?.dog.cleared ? "OK to start" : "Ready"}</Pill></Link>}
           </h1>
-          <p className="mt-1 text-[15px] text-ink-soft">{b.client_name} · with {b.trainers ? <Link href={`/a/trainers/${b.trainers.id}`} className="underline">{b.trainers.name}</Link> : "no trainer"} · {short(b.start_date)} to {short(b.end_date)}</p>
+          <p className="mt-1 text-[15px] text-ink-soft">{b.client_name}, with {b.trainers ? <Link href={`/a/trainers/${b.trainers.id}`} className="underline">{b.trainers.name}</Link> : "no trainer"}<span className="block text-[14px]">{short(b.start_date)} to {short(b.end_date)}</span></p>
+          </div>
         </div>
         {deal ? <a href={deal} target="_blank" rel="noopener" className="btn-ink h-10 min-h-0 px-4">HubSpot deal<ExternalLink size={15} /></a>
           : <span className="text-[13px] text-ink-faint">No HubSpot deal linked</span>}
@@ -86,7 +89,7 @@ export default async function DogPageView({ params, searchParams }: { params: { 
           <div className="space-y-5">
             {((incs || []) as { id: string; kind: IncidentKind; detail: string | null }[]).length > 0 && (
               <section>
-                <h2 className="mb-2 text-[13px] font-bold uppercase tracking-wide text-ink-soft">To do for {b.dog_name || "this dog"}</h2>
+                <h2 className="group-title">To do for {b.dog_name || "this dog"}</h2>
                 <ul className="panel divide-y divide-line">
                   {((incs || []) as { id: string; kind: IncidentKind; detail: string | null }[]).map((i) => (
                     <li key={i.id} className="flex flex-wrap items-center gap-3 p-3.5">
@@ -125,7 +128,7 @@ export default async function DogPageView({ params, searchParams }: { params: { 
             </section>
             {((ireports || []) as IReport[]).length > 0 && (
               <section id="incident-reports" className="scroll-mt-20">
-                <h2 className="mb-2 text-[13px] font-bold uppercase tracking-wide text-ink-soft">Incident reports</h2>
+                <h2 className="group-title">Incident reports</h2>
                 <ul className="space-y-3">
                   {((ireports || []) as IReport[]).map((x) => (
                     <li key={x.id} className="panel border-heart p-4">

@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { Users } from "lucide-react";
+import { IconTile } from "@/components/ui";
 import { requireRole, unreadForAdmin } from "@/lib/data";
 import { chatSpans, listChats, searchChatMessages } from "@/lib/chatData";
 import { chatUnread } from "@/lib/chatTypes";
@@ -22,12 +24,10 @@ export default async function AdminChats({ searchParams }: { searchParams: { f?:
     <>
       <h1 className="text-[30px] font-extrabold">Chats</h1>
       <p className="mb-4 mt-1 text-ink-soft">One chat per booking: the client, the trainer and the whole Dogwise team. Any admin can open any chat.</p>
-      <Link href="/a/messages" className="panel mb-4 flex items-center justify-between gap-3 p-3.5 hover:bg-mint-wash">
-        <span><span className="font-bold">Trainer messages</span> <span className="text-[13px] text-ink-soft">direct messages with trainers</span></span>
-        {teamUnread > 0 && <span className="rounded-full bg-heart px-2 text-[12px] font-bold text-white">{teamUnread}</span>}
-      </Link>
-      <Link href="/a/ready" className="panel mb-4 flex items-center justify-between gap-3 p-3.5 hover:bg-mint-wash">
-        <span><span className="font-bold">Before training</span> <span className="text-[13px] text-ink-soft">forms, vaccines and balance for dogs starting soon</span></span>
+      <Link href="/a/messages" className="panel mb-4 flex items-center gap-3 px-3.5 py-3 hover:bg-paper/60">
+        <IconTile tone="ink"><Users size={19} /></IconTile>
+        <span className="min-w-0 flex-1"><span className="block font-bold">Trainer messages</span><span className="block text-[13px] text-ink-soft">Direct messages with trainers</span></span>
+        {teamUnread > 0 && <span className="grid h-[22px] min-w-[22px] place-items-center rounded-full bg-heart px-1.5 text-[12px] font-bold text-white">{teamUnread}</span>}
       </Link>
       <ChatFilters base="/a/chats" q={q} t={t} f={closed ? "closed" : undefined} trainers={trainers} />
       <div className="mb-4 flex gap-2">

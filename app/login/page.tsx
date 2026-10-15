@@ -13,9 +13,9 @@ export default async function Login({ searchParams }: { searchParams: { error?: 
       <div aria-hidden className="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full bg-biscuit/40" />
       <div aria-hidden className="pointer-events-none absolute -bottom-32 -left-20 h-80 w-80 rounded-full bg-white/50" />
       <div className="relative mx-auto max-w-sm">
-        <Brand />
-        <h1 className="mt-14 text-[40px] font-extrabold leading-[1.02]">Every kennel,<br />every dog,<br />one calendar.</h1>
-        <p className="mt-4 text-[16px] text-ink-soft">Sign in to see your dogs, block time off and message the Dogwise team.</p>
+        <span className="inline-flex rounded-2xl bg-white/90 px-3 py-2 shadow-card"><Brand /></span>
+        <h1 className="mt-12 text-[40px] font-extrabold leading-[1.02]">Every kennel,<br />every dog,<br />one calendar.</h1>
+        <p className="mt-4 text-[16px] text-ink/75">Sign in to see your dogs, block time off and message the Dogwise team.</p>
         <HashSignIn />
         {searchParams.error && (
           <div role="alert" className="mt-6 rounded-xl bg-white/85 px-4 py-3 text-[14px] text-heart">

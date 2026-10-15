@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import { requireRole, unreadForTrainer } from "@/lib/data";
 import { chatReads, chatSpans, listChats, searchChatMessages } from "@/lib/chatData";
 import { chatUnread } from "@/lib/chatTypes";
@@ -21,8 +22,11 @@ export default async function TrainerChats({ searchParams }: { searchParams: { q
       <p className="mb-4 mt-1 text-ink-soft">Message each client about their dog. Share a photo or video update at least once a day.</p>
       <ul className="panel mb-4 divide-y divide-line">
         <li>
-          <Link href="/t/messages" className="flex items-center gap-3 p-3.5 hover:bg-mint-wash">
-            <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${team ? "bg-heart" : "bg-transparent"}`} />
+          <Link href="/t/messages" className="flex items-center gap-3 px-3.5 py-3 hover:bg-paper/60">
+            <span className="relative grid h-[42px] w-[42px] shrink-0 place-items-center rounded-full bg-ink" aria-hidden>
+              <Image src="/icons/mark.png" alt="" width={24} height={24} className="brightness-0 invert" />
+              {team > 0 && <span className="absolute -right-0.5 -top-0.5 h-3 w-3 rounded-full border-2 border-white bg-heart" />}
+            </span>
             <div className="min-w-0 flex-1"><p className="font-bold">Dogwise team</p><p className="text-[13px] text-ink-soft">Questions about a dog, pickups or your calendar</p></div>
           </Link>
         </li>

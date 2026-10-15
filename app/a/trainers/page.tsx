@@ -27,18 +27,18 @@ export default async function Trainers({ searchParams }: { searchParams: { view?
   const pay = await getRun(submit);
   const pendingCount = pay.slips.filter((s) => s.status === "draft").length;
   const header = (
-    <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
-      <h1 className="text-[30px] font-extrabold">Trainers</h1>
-      <div className="flex items-center gap-2">
-        <div className="inline-flex rounded-full border border-line bg-white p-1 text-[14px] font-semibold">
-          <Link href="/a/trainers" className={`rounded-full px-3.5 py-1.5 ${!payView && !kennels ? "bg-ink text-white" : "text-ink-soft"}`}>Trainers</Link>
-          <Link href="/a/trainers?view=kennels" className={`rounded-full px-3.5 py-1.5 ${kennels ? "bg-ink text-white" : "text-ink-soft"}`}>Kennels</Link>
-          <Link href={`/a/trainers?view=pay${searchParams.run ? `&run=${submit}` : ""}`} className={`rounded-full px-3.5 py-1.5 ${payView ? "bg-ink text-white" : "text-ink-soft"}`}>
-            Payslips{pendingCount > 0 && <span className={`ml-1.5 rounded-full px-1.5 text-[12px] ${payView ? "bg-biscuit text-ink" : "bg-biscuit text-ink"}`}>{pendingCount}</span>}
-          </Link>
-        </div>
-        {!payView && !kennels && <Link href="/a/trainers/new" className="btn-mint h-10 min-h-0 px-3.5"><UserPlus size={18} />Add</Link>}
+    <div className="mb-4 space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <h1 className="text-[32px] font-extrabold leading-tight">Trainers</h1>
+        {!payView && !kennels && <Link href="/a/trainers/new" className="btn-ink h-10 min-h-0 shrink-0 px-3.5 text-[14px]"><UserPlus size={17} />Add trainer</Link>}
       </div>
+      <nav className="grid grid-cols-3 rounded-2xl border border-line bg-white p-1 text-[14px] font-semibold shadow-card sm:inline-grid sm:w-auto" aria-label="Trainers views">
+        <Link href="/a/trainers" aria-current={!payView && !kennels ? "page" : undefined} className={`rounded-xl px-3.5 py-2 text-center ${!payView && !kennels ? "bg-ink text-white" : "text-ink-soft hover:text-ink"}`}>Trainers</Link>
+        <Link href="/a/trainers?view=kennels" aria-current={kennels ? "page" : undefined} className={`rounded-xl px-3.5 py-2 text-center ${kennels ? "bg-ink text-white" : "text-ink-soft hover:text-ink"}`}>Kennels</Link>
+        <Link href={`/a/trainers?view=pay${searchParams.run ? `&run=${submit}` : ""}`} aria-current={payView ? "page" : undefined} className={`rounded-xl px-3.5 py-2 text-center ${payView ? "bg-ink text-white" : "text-ink-soft hover:text-ink"}`}>
+          Payslips{pendingCount > 0 && <span className="ml-1.5 rounded-full bg-biscuit px-1.5 text-[12px] text-ink">{pendingCount}</span>}
+        </Link>
+      </nav>
     </div>
   );
   if (payView) {

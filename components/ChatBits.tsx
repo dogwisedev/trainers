@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Pill } from "@/components/ui";
+import { Avatar, Pill } from "@/components/ui";
 import { ChatRow } from "@/lib/chatTypes";
 import { timeAgo } from "@/lib/dates";
 
@@ -7,10 +7,13 @@ import { timeAgo } from "@/lib/dates";
 export function ChatListRow({ chat, href, unread, who, flag, dates, preview }: { chat: ChatRow; href: string; unread: boolean; who: string; flag?: string; dates?: string; preview?: string }) {
   return (
     <li>
-      <Link href={href} className="flex items-center gap-3 p-3.5 hover:bg-mint-wash">
-        <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${unread ? "bg-heart" : "bg-transparent"}`} aria-label={unread ? "Unread" : undefined} />
+      <Link href={href} className="flex items-center gap-3 px-3.5 py-3 hover:bg-paper/60">
+        <span className="relative">
+          <Avatar name={chat.title || "Dog"} size={42} />
+          {unread && <span className="absolute -right-0.5 -top-0.5 h-3 w-3 rounded-full border-2 border-white bg-heart" aria-label="Unread" />}
+        </span>
         <div className="min-w-0 flex-1">
-          <p className="truncate font-bold">{chat.title || "Dog"} <span className="font-normal text-ink-soft">{who}</span></p>
+          <p className="truncate"><span className="font-bold">{chat.title || "Dog"}</span> <span className="text-[14px] text-ink-soft">{who}</span></p>
           <p className={`truncate text-[13px] ${unread ? "font-semibold text-ink" : "text-ink-soft"}`}>{preview ?? (chat.last_preview || "No messages yet")}</p>
           {dates && <p className="truncate text-[12px] text-ink-faint">{dates}</p>}
         </div>
@@ -41,5 +44,5 @@ export function ArchivedNotice({ chat, children, audience }: { chat: ChatRow; ch
 
 /** A group heading in a chat list ("In care now 3"). */
 export function ChatGroupTitle({ label, count }: { label: string; count: number }) {
-  return <h2 className="mb-2 mt-5 px-1 text-[13px] font-bold uppercase tracking-wide text-ink-soft first:mt-0">{label} <span className="font-semibold opacity-70">{count}</span></h2>;
+  return <h2 className="group-title">{label} <span className="count">{count}</span></h2>;
 }
