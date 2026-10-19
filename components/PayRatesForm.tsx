@@ -54,6 +54,12 @@ export function PayRatesForm({ trainerId, rates }: { trainerId: string; rates: R
         </div>
         <p className="mt-2 text-[12px] text-ink-faint">Each pickup, drop-off and follow-up session: (miles − paid-over miles) × pay per mile. e.g. 40 miles, paid over 20, at $0.30 = $6.00. Added to the payslip for the pay period the trip falls in.</p>
       </fieldset>
+      <label className="block max-w-[220px]">
+        <span className="label">Follow-up session pay</span>
+        <span className="relative block"><span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-faint">$</span>
+          <input name="followup_rate" inputMode="decimal" defaultValue={rates.followup_rate ?? 60} className="field pl-7" /></span>
+        <span className="mt-1 block text-[12px] text-ink-faint">Per session, paid in the pay period of the session date.</span>
+      </label>
       <Save />
       {r && <p role="status" className={`rounded-xl px-3 py-2 text-[14px] ${r.ok ? "bg-mint-wash text-fern" : "bg-heart-wash text-heart"}`}>{r.message}</p>}
     </form>

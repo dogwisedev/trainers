@@ -9,7 +9,7 @@
 //  - Missed weekly report / late handover: up to $100 off each (the % is Sean's call).
 import { addDays, toDate } from "./dates";
 
-export type Rates = { w2: number | null; w3: number | null; w4: number | null; w4_rehab: number | null; w5_rehab: number | null; w6_rehab: number | null; report_deduction: number; mileage_rate?: number | null; mileage_free_miles?: number | null };
+export type Rates = { w2: number | null; w3: number | null; w4: number | null; w4_rehab: number | null; w5_rehab: number | null; w6_rehab: number | null; report_deduction: number; mileage_rate?: number | null; mileage_free_miles?: number | null; followup_rate?: number | null };
 export const RATE_FIELDS: [keyof Rates, string][] = [
   ["w2", "2 weeks"], ["w3", "3 weeks"], ["w4", "4 weeks"], ["w4_rehab", "4 weeks rehab"], ["w5_rehab", "5 weeks rehab"], ["w6_rehab", "6 weeks rehab"]
 ];
@@ -137,4 +137,16 @@ export function routeLines(trips: TripLike[], rates: Rates, periodStart: string,
     const program = p.amount == null ? `${what} (no mileage rate set)` : p.paidMiles ? `${what}, ${p.paidMiles} paid at $${rate!.toFixed(2)}` : `${what}, under ${free} mi`;
     return { kind: "route", booking_id: t.booking_id, client: t.client || "", dog: t.dog || "", program, amount: p.amount ?? 0, days: null, weeks_completed: null, week_from: null, missingRate: p.amount == null, trip_id: t.id };
   });
+}
+
+// ── Probation ───────────────────────────────────────────────────────────
+// A trainer on probation (or declined) gets 75% of program pay; the other 25% is held (it shows on the line).
+// When an admin approves, everything held so far is paid as one line in the next pay run.
+export const PROBATION_SHARE = 0.75;
+export const PROBATION_NOTE = "Probation: 75% paid, 25% held";
+/** Held amount behind a probation line paid at 75%. */
+export const heldFrom = (paid: number) => round2(paid / PROBATION_SHARE * (1 - PROBATION_SHARE));
+export function applyProbation<T extends { kind: string; amount: number; program: string }>(lines: T[], onProbation: boolean): (T & { description?: string | null })[] {
+  if (!onProbation) return lines;
+  return lines.map((l) => (l.kind === "training" && l.amount > 0 ? { ...l, amount: round2(l.amount * PROBATION_SHARE), program: `${l.program} (75%, probation)`, description: PROBATION_NOTE } : l));
 }

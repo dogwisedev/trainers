@@ -1,0 +1,52 @@
+"use server";
+import { revalidatePath } from "next/cache";
+import { getViewer } from "@/lib/data";
+import { serviceClient, isDemo } from "@/lib/supabase";
+import { salesTeam } from "@/lib/hubspot";
+import { owners, parseSheetSales } from "@/lib/sales";
+import { sendSignInLink } from "@/lib/authEmail";
+
+type R = { ok: boolean; message: string };
+async function admin() { const v = await getViewer(); return v?.role === "admin" ? v : null; }
+
+/** Admin: give a HubSpot sales-team member a login (they only see their own sales). */
+export async function inviteSalesAction(ownerId: string): Promise<R> {
+  if (isDemo() || !(await admin())) return { ok: false, message: "Admins only." };
+  const o = (await salesTeam()).find((x) => x.id === ownerId);
+  if (!o?.email) return { ok: false, message: "Not found in the HubSpot sales team." };
+  const sb = serviceClient();
+  const { data: list } = await sb.auth.admin.listUsers({ page: 1, perPage: 1000 });
+  let user = list?.users.find((u) => u.email?.toLowerCase() === o.email);
+  if (!user) {
+    const { data, error } = await sb.auth.admin.createUser({ email: o.email, email_confirm: true });
+    if (error || !data.user) return { ok: false, message: error?.message || "Couldn't create the login." };
+    user = data.user;
+  }
+  const { data: p } = await sb.from("profiles").select("role").eq("id", user.id).maybeSingle();
+  if (p && p.role !== "sales") return { ok: false, message: `${o.name} already has a ${p.role} login.` };
+  const { error } = await sb.from("profiles").upsert({ id: user.id, role: "sales", display_name: o.name, hubspot_owner_id: o.id });
+  if (error) return { ok: false, message: error.message };
+  try { await sendSignInLink(o.email); } catch (e) { return { ok: false, message: `Login made, but the email failed: ${(e as Error).message}` }; }
+  revalidatePath("/a/sales");
+  return { ok: true, message: `Sign-in link sent to ${o.email}.` };
+}
+
+/** Admin: paste a month's rows from the Monies sheet (replaces that month's pasted rows). */
+export async function importSalesAction(_: R | null, f: FormData): Promise<R> {
+  if (isDemo() || !(await admin())) return { ok: false, message: "Admins only." };
+  const month = String(f.get("month") || ""), through = String(f.get("through") || "");
+  if (!/^\d{4}-\d{2}$/.test(month)) return { ok: false, message: "Pick the month." };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(through)) return { ok: false, message: "Say which day these rows go up to." };
+  const rows = parseSheetSales(String(f.get("rows") || ""));
+  if (!rows.length) return { ok: false, message: "No sales found. Copy the rows from the sheet (name, client, program, amount…) and paste them." };
+  const all = await owners();
+  const match = (name: string) => { const first = name.toLowerCase().split(/\s+/)[0]; const m = all.filter((o) => o.name.toLowerCase().split(/\s+/)[0] === first); return m.length === 1 ? m[0].id : null; };
+  const sb = serviceClient();
+  await sb.from("sales_import").delete().eq("month", `${month}-01`);
+  const { error } = await sb.from("sales_import").insert(rows.map((r) => ({ month: `${month}-01`, seller: r.seller, owner_id: match(r.seller), client: r.client || null, program: r.program || null, amount: r.amount, paid_in_full: r.paidInFull })));
+  if (error) return { ok: false, message: error.message };
+  await sb.from("app_state").upsert({ key: "sales_import_through", value: through, updated_at: new Date().toISOString() });
+  revalidatePath("/a/sales");
+  const unmatched = [...new Set(rows.filter((r) => !match(r.seller)).map((r) => r.seller))];
+  return { ok: true, message: `Imported ${rows.length} sales. Deals won after ${through} come from the app.${unmatched.length ? ` Not matched to a HubSpot owner: ${unmatched.join(", ")}.` : ""}` };
+}

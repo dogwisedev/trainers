@@ -13,6 +13,8 @@ import { datesFromHubspot } from "@/lib/hubspot";
 import { loadProfile, readinessFor } from "@/lib/pretraining";
 import { dogPage, hubspotDeal } from "@/lib/todo";
 import { TRIP_LABEL } from "@/lib/payroll";
+import { remainingOf } from "@/lib/money";
+import { FollowupDates } from "@/components/FollowupDates";
 import { emailTrainerAboutBooking, setBookingStatus } from "@/app/actions";
 import { ActionButton, ExtraDays } from "@/components/forms";
 import { ReportsToggle } from "@/components/ReportsToggle";
@@ -43,14 +45,17 @@ export default async function DogPageView({ params, searchParams }: { params: { 
   const key = dealKey(b), deal = hubspotDeal(b.hubspot_deal_id), today = etParts(new Date()).date;
   const { data: chatRows } = await sb.from("chats").select("*").eq("deal_key", key).order("created_at", { ascending: false });
   const chat = (((chatRows || []) as ChatRow[]).find((c) => c.status === "open") || (chatRows || [])[0] || null) as ChatRow | null;
-  const [{ data: siblings }, { data: reps }, { data: incs }, ready, { data: ireports }, { data: trips }] = await Promise.all([
+  const [{ data: siblings }, { data: reps }, { data: incs }, ready, { data: ireports }, { data: trips }, { data: money }, { data: rate }] = await Promise.all([
     b.hubspot_deal_id ? sb.from("bookings").select("id, dog_name, status").eq("hubspot_deal_id", b.hubspot_deal_id).neq("id", b.id) : Promise.resolve({ data: [] }),
     sb.from("reports").select("id, kind, week_number, status").eq("booking_id", b.id),
     sb.from("chat_incidents").select("id, kind, detail, opened_at").neq("status", "resolved").or(`booking_id.eq.${b.id}${chat ? `,chat_id.eq.${chat.id}` : ""}`).order("opened_at"),
     readinessFor([b.id]),
     sb.from("incident_reports").select("*").eq("booking_id", b.id).order("occurred_at", { ascending: false }),
-    sb.from("trips").select("id, kind, trip_date, miles, notes, created_by").eq("booking_id", b.id).order("trip_date")
+    sb.from("trips").select("id, kind, trip_date, miles, notes, created_by").eq("booking_id", b.id).order("trip_date"),
+    b.hubspot_deal_id ? sb.from("deal_money").select("*").eq("deal_id", b.hubspot_deal_id).maybeSingle() : Promise.resolve({ data: null }),
+    sb.from("trainer_rates").select("followup_rate").eq("trainer_id", b.trainer_id).maybeSingle()
   ]);
+  const m = money as { amount: number | null; amount_paid: number | null; payment_status: string | null; remaining_balance_link: string | null; link_by_app: boolean; followups: string[]; closed_on: string | null; synced_at: string | null } | null;
   const r = ready.get(b.id);
   const missing = r?.ready.missing.length ?? null;
   const toReview = ((reps || []) as { status: Status }[]).filter((x) => x.status === "submitted").length;
@@ -113,6 +118,26 @@ export default async function DogPageView({ params, searchParams }: { params: { 
                 <Fact k="Dates" v={b.hubspot_deal_id && datesFromHubspot() ? "From HubSpot (change them on the deal)" : "Set in the app"} />
               </dl>
             </section>
+            {b.hubspot_deal_id && (
+              <section className="panel p-4">
+                <h2 className="mb-3 text-[17px] font-extrabold">Payment</h2>
+                {m ? (
+                  <dl className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-4">
+                    <Fact k="Program price" v={usd(m.amount)} />
+                    <Fact k="Paid" v={usd(m.amount_paid)} />
+                    <Fact k="Remaining" v={usd(remainingOf({ amount: Number(m.amount), amount_paid: Number(m.amount_paid), payment_status: m.payment_status }))} />
+                    <Fact k="Status" v={m.payment_status || "Not set"} />
+                    {m.remaining_balance_link && <div className="col-span-2 sm:col-span-4"><dt className="text-[13px] text-ink-soft">Balance link{m.link_by_app ? " (made by the app in Stripe)" : ""}</dt><dd><a href={m.remaining_balance_link} target="_blank" rel="noopener" className="break-all text-[14px] font-semibold underline">{m.remaining_balance_link}</a></dd></div>}
+                  </dl>
+                ) : <p className="text-[14px] text-ink-soft">Not read from HubSpot yet: it updates every 30 minutes.</p>}
+              </section>
+            )}
+            {b.hubspot_deal_id && b.status !== "cancelled" && (
+              <section className="panel p-4">
+                <h2 className="mb-3 text-[17px] font-extrabold">Follow-up sessions</h2>
+                <FollowupDates bookingId={b.id} dates={m?.followups || []} rate={Number((rate as { followup_rate?: number } | null)?.followup_rate ?? 60)} />
+              </section>
+            )}
             <section className="panel space-y-3 p-4">
               <h2 className="text-[17px] font-extrabold">Actions</h2>
               <div className="flex flex-wrap items-center gap-2">
@@ -180,6 +205,8 @@ export default async function DogPageView({ params, searchParams }: { params: { 
 
 type IReport = { id: string; kind: string; occurred_at: string; reported_by: string; what: string; action: string | null; vet: boolean; vet_details: string | null; client_told: boolean };
 type Trip = { id: string; kind: "pickup" | "dropoff" | "followup"; trip_date: string; miles: number; notes: string | null };
+
+const usd = (n: number | null | undefined) => (n == null ? "-" : Number(n).toLocaleString("en-US", { style: "currency", currency: "USD" }));
 
 function Fact({ k, v }: { k: string; v: string }) {
   return <div><dt className="text-[13px] text-ink-soft">{k}</dt><dd className="whitespace-pre-wrap text-[15px]">{v}</dd></div>;

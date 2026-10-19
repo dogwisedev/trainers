@@ -1,9 +1,9 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import seed from "./demo-seed.json";
-import { isDemo, serverClient } from "./supabase";
+import { isDemo, serverClient, serviceClient } from "./supabase";
 import { addDays, todayIso } from "./dates";
-import { BookingLike, EMPTY_RATES, Rates, TripLike, draftLines, payMondayOnOrAfter, payMondayOnOrBefore, routeLines, runDates, sumLines } from "./payroll";
+import { BookingLike, EMPTY_RATES, PROBATION_NOTE, Rates, TripLike, applyProbation, heldFrom, draftLines, payMondayOnOrAfter, payMondayOnOrBefore, routeLines, runDates, sumLines } from "./payroll";
 import { SlipData, SlipLine } from "./payslipDoc";
 import { Trainer } from "./types";
 
@@ -63,14 +63,18 @@ export async function buildDrafts(sb: SupabaseClient, submitDate: string) {
   if (runErr) throw new Error(runErr.message);
 
   const lastDay = addDays(r.weeks[1], 6);
-  const [{ data: trainers }, { data: bookings }, { data: rateRows }, { data: existing }, { data: tripRows }] = await Promise.all([
-    sb.from("trainers").select("id, name, address"),
+  const [{ data: trainers }, { data: bookings }, { data: rateRows }, { data: existing }, { data: tripRows }, { data: fupRows }] = await Promise.all([
+    sb.from("trainers").select("id, name, address, probation, probation_release_run, probation_release_amount"),
     sb.from("bookings").select("id, trainer_id, client_name, dog_name, start_date, end_date, weeks, extra_days, rehab, status").neq("status", "cancelled").lte("start_date", lastDay).gte("end_date", r.weeks[0]),
     sb.from("trainer_rates").select("*"),
     sb.from("payslips").select("id, trainer_id, status, adjustments, total, payslip_lines(booking_id, kind, auto, days, weeks_completed, amount, program, client, dog)").eq("pay_run_id", run.id),
     // Trips in these two weeks (pickups, drop-offs, follow-up sessions), for mileage pay. No table yet = no mileage lines.
-    sb.from("trips").select("id, trainer_id, booking_id, kind, trip_date, miles, bookings(client_name, dog_name)").gte("trip_date", r.weeks[0]).lte("trip_date", lastDay)
+    sb.from("trips").select("id, trainer_id, booking_id, kind, trip_date, miles, bookings(client_name, dog_name)").gte("trip_date", r.weeks[0]).lte("trip_date", lastDay),
+    // Follow-up sessions booked on the deal (follow_up_session__1..3) in these two weeks. No table yet = none.
+    sb.from("deal_money").select("deal_id, followups").overlaps("followups", Array.from({ length: 14 }, (_, i) => addDays(r.weeks[0], i)))
   ]);
+  const fupDeals = (fupRows || []) as { deal_id: string; followups: string[] }[];
+  const { data: fupBookings } = fupDeals.length ? await sb.from("bookings").select("id, trainer_id, client_name, dog_name, hubspot_deal_id, start_date").in("hubspot_deal_id", fupDeals.map((d) => d.deal_id)).neq("status", "cancelled").order("start_date") : { data: [] };
   const trips = ((tripRows || []) as unknown as (TripLike & { bookings: { client_name: string; dog_name: string | null } | null })[]).map((t) => ({ ...t, client: t.bookings?.client_name || "", dog: t.bookings?.dog_name || "" }));
   const rateOf = (id: string) => { const x = (rateRows || []).find((q) => q.trainer_id === id); return x ? { ...EMPTY_RATES, ...x, report_deduction: Number(x.report_deduction ?? 100) } as Rates : EMPTY_RATES; };
   let built = 0, skipped = 0, missingRates = 0, unchanged = 0;
@@ -81,8 +85,19 @@ export async function buildDrafts(sb: SupabaseClient, submitDate: string) {
     const prev = (existing || []).find((p) => p.trainer_id === t.id) as { id: string; status: string; payslip_lines?: L[] } | undefined;
     // A booking line edited by hand stays as it is: don't add an automatic one next to it.
     const handEdited = new Set((prev?.payslip_lines || []).filter((l) => l.kind === "training" && !l.auto && l.booking_id).map((l) => l.booking_id));
+    const tr = t as { id: string; probation?: string | null; probation_release_run?: string | null; probation_release_amount?: number | null };
+    // Follow-up sessions: the trainer on the deal is paid their follow-up rate for each session date in the period
+    const fups = fupDeals.flatMap((d) => {
+      const b = ((fupBookings || []) as { id: string; trainer_id: string; client_name: string; dog_name: string | null; hubspot_deal_id: string }[]).find((x) => x.hubspot_deal_id === d.deal_id);
+      if (!b || b.trainer_id !== t.id) return [];
+      return d.followups.filter((x) => x >= r.weeks[0] && x <= lastDay).map((x) => ({ kind: "other", booking_id: b.id, client: b.client_name, dog: b.dog_name || "", program: `Follow-up session ${x.slice(5).replace("-", "/")}`,
+        amount: Number(rateOf(t.id).followup_rate ?? 60), days: null, weeks_completed: null, week_from: null, missingRate: false }));
+    });
+    const release = tr.probation === "approved" && tr.probation_release_run === r.submit_date && Number(tr.probation_release_amount) > 0
+      ? [{ kind: "other", booking_id: null, client: "", dog: "", program: "Probation approved: held 25% paid", amount: Number(tr.probation_release_amount), days: null, weeks_completed: null, week_from: null, missingRate: false }] : [];
     const lines = [
-      ...draftLines(((bookings || []) as BookingLike[]).filter((b) => b.trainer_id === t.id && !handEdited.has(b.id)), rateOf(t.id), r.weeks),
+      ...applyProbation(draftLines(((bookings || []) as BookingLike[]).filter((b) => b.trainer_id === t.id && !handEdited.has(b.id)), rateOf(t.id), r.weeks), tr.probation === "on" || tr.probation === "declined"),
+      ...fups, ...release,
       ...routeLines(trips.filter((x) => x.trainer_id === t.id), rateOf(t.id), r.weeks[0], addDays(lastDay, 1))
     ];
     if (prev?.status === "approved") { skipped++; continue; }
@@ -112,7 +127,7 @@ export async function buildDrafts(sb: SupabaseClient, submitDate: string) {
       const { error } = await sb.from("payslip_lines").insert(lines.map((l, i) => ({
         payslip_id: slipId, kind: l.kind, booking_id: l.booking_id, weeks_completed: l.weeks_completed, days: l.days, week_from: l.week_from,
         client: l.client, dog: l.dog, program: l.program, amount: l.amount, auto: true, sort: i,
-        description: l.kind === "training" && l.missingRate ? `No pay rate set for ${l.program}` : null
+        description: l.kind === "training" && l.missingRate ? `No pay rate set for ${l.program}` : ("description" in l ? (l as { description?: string | null }).description || null : null)
       })));
       if (error) throw new Error(error.message);
     }
@@ -201,4 +216,17 @@ export async function listRuns(limit = 26) {
   return ((data || []) as (Run & { payslips: { total: number; status: string }[] })[]).map((r) => ({
     ...r, count: r.payslips.length, approved: r.payslips.filter((p) => p.status === "approved").length, total: r.payslips.reduce((n, p) => n + Number(p.total || 0), 0)
   }));
+}
+
+/** Probation: 25% held so far, from approved payslips (lines paid at 75%). */
+export async function probationHeld(trainerId: string): Promise<number> {
+  const sb = serviceClient();
+  const { data } = await sb.from("payslips").select("status, payslip_lines(amount, description)").eq("trainer_id", trainerId).in("status", ["approved", "sent"]);
+  const lines = ((data || []) as { payslip_lines: { amount: number; description: string | null }[] }[]).flatMap((p) => p.payslip_lines).filter((l) => l.description === PROBATION_NOTE);
+  return Math.round(lines.reduce((n, l) => n + heldFrom(Number(l.amount)), 0) * 100) / 100;
+}
+/** Trainings that count toward probation: bookings (one per dog) that have finished, not cancelled. */
+export async function probationTrainings(trainerId: string): Promise<number> {
+  const { count } = await serviceClient().from("bookings").select("id", { count: "exact", head: true }).eq("trainer_id", trainerId).neq("status", "cancelled").lte("end_date", todayIso());
+  return count || 0;
 }

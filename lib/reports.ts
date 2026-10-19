@@ -32,10 +32,22 @@ export const startOfDay = (iso: string, tz = REPORT_TZ) => new Date(endOfDay(iso
 
 export type Window = { kind: Kind; week: number; opens: string; deadline: string }; // dates (YYYY-MM-DD)
 export const intakeWindow = (start: string): Window => ({ kind: "intake", week: 0, opens: start, deadline: start });
-/** One health check per Wednesday the dog is in care, after pickup day and before the last day. Opens Wed, late after Friday. */
+/**
+ * One health check per Wednesday the dog is in care (after pickup day, before drop-off).
+ * The window is Thursday to Wednesday: it opens the Thursday before (or on pickup day if later) and is late after the Wednesday,
+ * so it's in before the pay weekend it counts for (e.g. week ending Oct 18: Oct 8 to Oct 14). Late or missing = $100.
+ * Weeks before NEW_WEEKLY_FROM keep the old Wednesday-to-Friday window, so nobody is made late after the fact.
+ */
+const NEW_WEEKLY_FROM = "2026-10-21";
 export function weeklyWindows(start: string, end: string): Window[] {
   const out: Window[] = [];
-  for (let d = addDays(start, 1); d < end; d = addDays(d, 1)) if (toDate(d).getUTCDay() === 3) out.push({ kind: "weekly", week: out.length + 1, opens: d, deadline: addDays(d, 2) });
+  for (let d = addDays(start, 1); d < end; d = addDays(d, 1)) {
+    if (toDate(d).getUTCDay() !== 3) continue;
+    const thursday = addDays(d, -6);
+    out.push(d >= NEW_WEEKLY_FROM
+      ? { kind: "weekly", week: out.length + 1, opens: thursday > start ? thursday : start, deadline: d }
+      : { kind: "weekly", week: out.length + 1, opens: d, deadline: addDays(d, 2) });
+  }
   return out;
 }
 export const handoverWindow = (end: string): Window => ({ kind: "handover", week: 0, opens: end, deadline: addDays(end, 2) });
@@ -219,6 +231,6 @@ export const reportTitle = (kind: Kind, week: number, dog: string) =>
   kind === "weekly" ? `Weekly health check, week ${week}: ${dog || "dog"}` : kind === "intake" ? `Intake form for ${dog || "the dog"}` : `Handover report for ${dog || "your dog"}`;
 /** One line telling the trainer when it's due. */
 export const deadlineHint = (kind: Kind) =>
-  kind === "weekly" ? "Submit between Wednesday and Friday. Late (after Friday) or missing checks carry a $100 penalty."
+  kind === "weekly" ? "Submit between Thursday and the Wednesday it's due. Late (after the Wednesday) or missing checks carry a $100 penalty."
   : kind === "intake" ? "Complete this on the day of pickup."
   : "Open from the last day of training. Submit within 2 days after drop-off. This is what the client receives as their graduation report card.";

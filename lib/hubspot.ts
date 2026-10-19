@@ -142,3 +142,25 @@ export async function updateContact(id: string, properties: Record<string, strin
 export async function updateDeal(id: string, properties: Record<string, string>) {
   await hs(`/crm/v3/objects/deals/${id}`, { method: "PATCH", body: JSON.stringify({ properties }) });
 }
+
+// ── Owners (deal owners = sales people). Needs the crm.objects.owners.read scope. ──
+export type Owner = { id: string; email: string; name: string; teams: string[] };
+let ownerCache: { at: number; list: Owner[] } | null = null;
+export async function listOwners(): Promise<Owner[]> {
+  if (ownerCache && Date.now() - ownerCache.at < 3600e3) return ownerCache.list;
+  const list: Owner[] = [];
+  let after = "";
+  for (let i = 0; i < 10; i++) {
+    const res = await hs<{ results: { id: string; email: string; firstName?: string; lastName?: string; teams?: { name: string }[] }[]; paging?: { next?: { after: string } } }>(`/crm/v3/owners?limit=500${after ? `&after=${after}` : ""}`);
+    list.push(...res.results.map((o) => ({ id: String(o.id), email: (o.email || "").toLowerCase(), name: `${o.firstName || ""} ${o.lastName || ""}`.trim() || o.email, teams: (o.teams || []).map((t) => t.name) })));
+    if (!res.paging?.next?.after) break;
+    after = res.paging.next.after;
+  }
+  ownerCache = { at: Date.now(), list };
+  return list;
+}
+/** The sales team: owners in a HubSpot team named like HUBSPOT_SALES_TEAM (default: any team with "sales" in its name). */
+export async function salesTeam(): Promise<Owner[]> {
+  const want = (process.env.HUBSPOT_SALES_TEAM || "sales").toLowerCase();
+  return (await listOwners()).filter((o) => o.teams.some((t) => t.toLowerCase().includes(want)));
+}

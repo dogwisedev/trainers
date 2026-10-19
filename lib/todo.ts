@@ -39,7 +39,7 @@ export async function buildTodo(): Promise<TodoData> {
     sb.from("chat_incidents").select("id, kind, status, detail, opened_at, chat_id, booking_id, report_id, chat:chats(id, title, client_name, trainer_name, deal_key), booking:bookings!booking_id(id, dog_name, client_name, start_date, hubspot_deal_id, trainer_id, trainers(name))").neq("status", "resolved").order("opened_at"),
     sb.from("reports").select("id, kind, week_number, booking_id, submitted_at, trainers(name), booking:bookings!booking_id(dog_name, client_name, hubspot_deal_id)").eq("status", "submitted").order("submitted_at"),
     sb.from("messages").select("trainer_id, created_at, body").eq("sender_role", "trainer").is("read_at", null).order("created_at"),
-    sb.from("trainers").select("id, name, data_flags, active"),
+    sb.from("trainers").select("id, name, data_flags, active, probation"),
     trainerSignins().catch(() => []),
     sb.from("bookings").select("id, trainer_id, client_name, dog_name, start_date, end_date, weeks, status, reports_enabled, hubspot_deal_id").neq("status", "cancelled").gte("end_date", addDays(today, -75))
   ]);
@@ -107,6 +107,12 @@ export async function buildTodo(): Promise<TodoData> {
   // ── Trainer profiles to check, trainers not signed in ──
   for (const t of (trainers || []) as { id: string; name: string; data_flags: string[] | null; active: boolean }[]) {
     if (t.active && t.data_flags?.length) items.push({ key: `flag:${t.id}`, group: "later", tone: "line", icon: "people", text: `Check ${t.name}'s profile`, detail: t.data_flags.join("; "), primary: { label: "Open trainer", href: `/a/trainers/${t.id}` } });
+  }
+  // Probation: after a new trainer's 4th finished training, an admin approves or declines
+  for (const t of (trainers || []) as { id: string; name: string; active: boolean; probation?: string }[]) {
+    if (!t.active || t.probation !== "on") continue;
+    const { count } = await sb.from("bookings").select("id", { count: "exact", head: true }).eq("trainer_id", t.id).neq("status", "cancelled").lte("end_date", today);
+    if ((count || 0) >= 4) items.push({ key: `prob:${t.id}`, group: "week", tone: "biscuit", icon: "people", text: `Approve or decline probation for ${t.name}`, detail: `${count} trainings finished. Their program pay is at 75% until approved.`, primary: { label: "Decide", href: `/a/trainers/${t.id}#probation` } });
   }
   const notIn = signins.filter((s) => !s.lastSignIn);
   if (notIn.length) items.push({

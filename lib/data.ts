@@ -38,10 +38,11 @@ async function loadViewer(): Promise<Viewer | null> {
   return { userId: user.id, role: p.role, trainerId: p.trainer_id, name, demo: false, passwordSet: p.password_set !== false, email: user.email || "" };
 }
 
-export async function requireRole(role: "admin" | "trainer" | "client"): Promise<Viewer> {
+export const homeOf = (role: string) => (role === "admin" ? "/a" : role === "client" ? "/c" : role === "sales" ? "/s" : "/t");
+export async function requireRole(role: "admin" | "trainer" | "client" | "sales"): Promise<Viewer> {
   const v = await getViewer();
   if (!v) redirect("/login");
-  if (v.role !== role) redirect(v.role === "admin" ? "/a" : v.role === "client" ? "/c" : "/t");
+  if (v.role !== role) redirect(homeOf(v.role));
   return v;
 }
 

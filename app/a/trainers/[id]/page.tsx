@@ -1,10 +1,12 @@
 import Link from "next/link";
+import { isDemo, serviceClient } from "@/lib/supabase";
 import { notFound } from "next/navigation";
 import { CalendarPlus, Mail, MapPin, MessageCircle, Phone } from "lucide-react";
 import { getTrainer, listBookings, listTimeOff, requireRole } from "@/lib/data";
 import { soonestOpening, utilisation, weekUsage } from "@/lib/capacity";
 import { addDays, range, short, todayIso, weekStart, weeksFrom } from "@/lib/dates";
-import { clearFlag, inviteTrainer, setTrainerActive } from "@/app/actions";
+import { clearFlag, decideProbationAction, inviteTrainer, setTrainerActive } from "@/app/actions";
+import { probationHeld, probationTrainings } from "@/lib/payrollData";
 import { KennelLegend, KennelStrip } from "@/components/KennelStrip";
 import { ActionButton, DeleteTimeOff, TimeOffForm, TrainerForm } from "@/components/forms";
 import { Avatar, Pill, Section } from "@/components/ui";
@@ -25,6 +27,8 @@ export default async function TrainerDetail({ params, searchParams }: { params: 
   const upcoming = bookings.filter((b) => b.end_date >= today && b.status !== "cancelled");
   const id = t.id;
   const finished = await bookingHistory({ tab: "finished", trainerId: id, limit: 8 });
+  const probRow = isDemo() ? null : (await serviceClient().from("trainers").select("probation, probation_decided_by, probation_release_run, probation_release_amount").eq("id", id).maybeSingle()).data as { probation: string; probation_decided_by: string | null; probation_release_run: string | null; probation_release_amount: number | null } | null;
+  const prob = probRow && probRow.probation !== "none" ? { probation: probRow.probation, by: probRow.probation_decided_by, releaseRun: probRow.probation_release_run, releaseAmount: probRow.probation_release_amount, done: await probationTrainings(id), held: await probationHeld(id) } : null;
 
   return (
     <>
@@ -68,6 +72,22 @@ export default async function TrainerDetail({ params, searchParams }: { params: 
             ))}
           </ul>
         </Section>
+      )}
+
+      {prob && prob.probation !== "none" && (
+        <section id="probation" className={`panel mt-6 scroll-mt-20 p-4 ${prob.probation === "on" && prob.done >= 4 ? "border-biscuit" : ""}`}>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-[17px] font-extrabold">Probation</h2>
+            <Pill tone={prob.probation === "approved" ? "mint" : prob.probation === "declined" ? "heart" : "biscuit"}>{prob.probation === "approved" ? "Approved" : prob.probation === "declined" ? "Declined" : "On probation"}</Pill>
+          </div>
+          <p className="mt-1 text-[14px] text-ink-soft">{prob.done} training{prob.done === 1 ? "" : "s"} finished. {prob.probation === "approved" ? `Approved by ${prob.by || "admin"}. Held pay ($${Number(prob.releaseAmount || 0).toFixed(2)}) is paid in the pay run of ${prob.releaseRun}.` : `Program pay is at 75%; $${prob.held.toFixed(2)} held so far (from approved payslips).`}</p>
+          {prob.probation !== "approved" && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              <ActionButton className="btn-ink" confirm={`Approve ${t.name}'s probation? The $${prob.held.toFixed(2)} held so far is paid in the next pay run, and their pay is 100% from now on.`} action={decideProbationAction.bind(null, t.id, true)}>Approve probation</ActionButton>
+              {prob.probation === "on" && <ActionButton className="btn-ghost" confirm={`Decline ${t.name}'s probation? Their 25% stays held, and you can approve later.`} action={decideProbationAction.bind(null, t.id, false)}>Decline</ActionButton>}
+            </div>
+          )}
+        </section>
       )}
 
       <Section title="Dogs" action={<Link href={`/a/bookings/new?trainer=${id}`} className="btn-mint h-10 min-h-0 px-3 text-[14px]"><CalendarPlus size={16} />Book a dog</Link>}>

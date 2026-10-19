@@ -47,8 +47,8 @@ export async function runReportReminders(now = new Date()) {
     if (!to || !list.length) continue;
     try {
       const due = list.filter((i) => i.stage === "due"), open = list.filter((i) => i.stage === "open");
-      const line = (i: Item) => `${kindName(i.kind)} for ${i.dog}: ${i.kind === "weekly" ? `by Friday (${dayName(i.deadline)})` : i.kind === "intake" ? "on pickup day, today" : `by ${dayName(i.deadline)}`}`;
-      const penalty = list.some((i) => i.kind === "weekly") ? "Weekly health checks sent late (after Friday) or missed carry a $100 penalty." : "";
+      const line = (i: Item) => `${kindName(i.kind)} for ${i.dog}: ${i.kind === "weekly" ? `by ${dayName(i.deadline)}` : i.kind === "intake" ? "on pickup day, today" : `by ${dayName(i.deadline)}`}`;
+      const penalty = list.some((i) => i.kind === "weekly") ? "Weekly health checks sent after their Wednesday deadline, or missed, carry a $100 penalty." : "";
       const first = t.name.replace(/".*?"\s*/, "").split(" ")[0];
       const subject = due.length ? `Due today: ${due.map((i) => `${kindName(i.kind).toLowerCase()} for ${i.dog}`).join(", ")}` : `${list.length === 1 ? "A form is" : `${list.length} forms are`} ready for you`;
       const link = `${site()}/t/reports`;

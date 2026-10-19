@@ -10,6 +10,9 @@ import { sendInvite, sendSignInLink } from "@/lib/authEmail";
 import { sendSigninHello } from "@/lib/trainerSignin";
 import { cleanDealId } from "@/lib/dealId";
 import { validMiles } from "@/lib/trips";
+import { currentRunDate, probationHeld } from "@/lib/payrollData";
+import { FOLLOWUP_PROPS, syncMoney } from "@/lib/money";
+import { updateDeal } from "@/lib/hubspot";
 import { ensureChatsForBookings } from "@/lib/chat";
 import { datesFromHubspot } from "@/lib/hubspot";
 import { syncHubspotDates } from "@/lib/hubspotSync";
@@ -82,7 +85,7 @@ export async function saveTrainer(_: Result | null, f: FormData): Promise<Result
   }
   const sb = serverClient();
   if (!id) {
-    const { data, error } = await sb.from("trainers").insert(row).select("id").single();
+    const { data, error } = await sb.from("trainers").insert({ ...row, probation: "on" }).select("id").single(); // new trainers start on probation
     if (error) return { ok: false, message: error.message };
     redirect(`/a/trainers/${data.id}`);
   }
@@ -286,4 +289,38 @@ export async function logFollowupAction(_: Result | null, f: FormData): Promise<
   const { error } = await sb.from("trips").insert({ trainer_id: v.trainerId, booking_id: bookingId, kind: "followup", trip_date: date, miles, notes: notes.slice(0, 2000), created_by: v.name });
   revalidatePath("/", "layout");
   return error ? { ok: false, message: error.message } : { ok: true, message: `Saved: ${miles} miles on ${date}. It's added to your next payslip.` };
+}
+
+/** Admin: approve or decline a trainer's probation. Approve: everything held so far (25% of program pay) is paid in the NEXT pay run. */
+export async function decideProbationAction(trainerId: string, approve: boolean): Promise<Result> {
+  if (isDemo()) return DEMO;
+  const v = await viewerOrThrow();
+  if (v.role !== "admin") return { ok: false, message: "Admins only." };
+  const sb = serviceClient();
+  if (!approve) {
+    const { error } = await sb.from("trainers").update({ probation: "declined", probation_decided_by: v.name, probation_decided_at: new Date().toISOString() }).eq("id", trainerId);
+    revalidatePath("/", "layout");
+    return error ? { ok: false, message: error.message } : { ok: true, message: "Declined. Their 25% stays held, and you can approve later." };
+  }
+  const held = await probationHeld(trainerId);
+  const run = addDays(await currentRunDate(), 14); // the next pay run, not the current one
+  const { error } = await sb.from("trainers").update({ probation: "approved", probation_decided_by: v.name, probation_decided_at: new Date().toISOString(), probation_release_run: run, probation_release_amount: held }).eq("id", trainerId);
+  revalidatePath("/", "layout");
+  return error ? { ok: false, message: error.message } : { ok: true, message: `Approved. $${held.toFixed(2)} held so far is paid in the pay run of ${run}. Pay is 100% from now on.` };
+}
+
+/** Admin, or the dog's trainer: follow-up session dates, saved on the HubSpot deal (follow_up_session__1..3). Each date is paid in that pay period. */
+export async function setFollowupsAction(bookingId: string, dates: string[]): Promise<Result> {
+  if (isDemo()) return DEMO;
+  const v = await viewerOrThrow();
+  const sb = serviceClient();
+  const { data: b } = await sb.from("bookings").select("trainer_id, hubspot_deal_id").eq("id", bookingId).maybeSingle();
+  if (!b || !(v.role === "admin" || (v.role === "trainer" && v.trainerId === b.trainer_id))) return { ok: false, message: "You can't change this." };
+  if (!b.hubspot_deal_id) return { ok: false, message: "This booking has no HubSpot deal to save the dates on." };
+  const clean = dates.slice(0, 3).map((d) => (/^\d{4}-\d{2}-\d{2}$/.test(d) ? d : ""));
+  const props = Object.fromEntries(FOLLOWUP_PROPS.map((k, i) => [k, clean[i] ? String(Date.UTC(+clean[i].slice(0, 4), +clean[i].slice(5, 7) - 1, +clean[i].slice(8, 10))) : ""]));
+  try { await updateDeal(b.hubspot_deal_id, props); } catch (e) { return { ok: false, message: (e as Error).message }; }
+  await syncMoney({ dealIds: [b.hubspot_deal_id], sb }).catch(() => null);
+  revalidatePath("/", "layout");
+  return { ok: true, message: "Saved on the deal. Each session is paid in the pay period of its date." };
 }

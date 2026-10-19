@@ -1,4 +1,4 @@
-export type Role = "admin" | "trainer" | "client";
+export type Role = "admin" | "trainer" | "client" | "sales";
 export type Trainer = {
   id: string; name: string; email: string | null; work_email: string | null; dogwise_email: string | null; phone: string | null;
   address: string | null; city: string | null; state: string | null; zip: string | null; lat: number | null; lon: number | null;

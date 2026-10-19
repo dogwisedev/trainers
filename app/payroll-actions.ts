@@ -170,6 +170,9 @@ export async function saveRatesAction(_: Result | null, f: FormData): Promise<Re
   if (mr !== "" && !(Number(mr) >= 0 && Number(mr) < 10)) return { ok: false, message: "Pay per mile looks wrong: enter it in dollars, e.g. 0.30." };
   row.mileage_rate = mr === "" ? null : Number(mr);
   row.mileage_free_miles = mf === "" ? 0 : Math.max(0, Number(mf) || 0);
+  const fr = String(f.get("followup_rate") ?? "").replace(/[$,\s]/g, "");
+  if (fr !== "" && !(Number(fr) >= 0)) return { ok: false, message: "Follow-up session pay looks wrong." };
+  row.followup_rate = fr === "" ? 60 : Number(fr);
   const { error } = await serverClient().from("trainer_rates").upsert(row, { onConflict: "trainer_id" });
   revalidatePath(`/a/trainers/${trainer_id}`);
   return error ? { ok: false, message: error.message } : { ok: true, message: "Pay rates saved. Rebuild drafts to apply them." };

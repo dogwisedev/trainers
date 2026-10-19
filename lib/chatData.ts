@@ -95,9 +95,11 @@ export async function chatReads(userId: string): Promise<Record<string, string>>
 }
 /** Number of chats with something new, for the nav badge. */
 export async function unreadChats(v: Viewer): Promise<number> {
+  if (v.role === "sales") return 0;
+  const role = v.role;
   if (v.role === "client" && !v.demo) { /* falls through: clients see only their own chats through row level security */ }
   const [chats, reads] = await Promise.all([listChats(), v.role === "admin" ? Promise.resolve({} as Record<string, string>) : chatReads(v.userId)]);
-  return chats.filter((c) => c.status === "open" && chatUnread(c, v.role, reads[c.id])).length;
+  return chats.filter((c) => c.status === "open" && chatUnread(c, role, reads[c.id])).length;
 }
 
 // ── Incidents (admin) ───────────────────────────────────────────────────
