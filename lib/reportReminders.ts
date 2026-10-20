@@ -1,4 +1,5 @@
 import "server-only";
+import { pushToTrainer } from "./push";
 import { serviceClient } from "./supabase";
 import { mailConfigured, sendMail } from "./mail";
 import { BRAND_LOGO_PNG_BASE64 } from "./brandLogo";
@@ -52,6 +53,7 @@ export async function runReportReminders(now = new Date()) {
       const first = t.name.replace(/".*?"\s*/, "").split(" ")[0];
       const subject = due.length ? `Due today: ${due.map((i) => `${kindName(i.kind).toLowerCase()} for ${i.dog}`).join(", ")}` : `${list.length === 1 ? "A form is" : `${list.length} forms are`} ready for you`;
       const link = `${site()}/t/reports`;
+      await pushToTrainer(t.id, { title: subject, body: [...due, ...open].map(line).join(" · ").slice(0, 170), url: "/t/reports", tag: "forms" });
       await sendMail({
         to, subject,
         text: `Hi ${first},\n${due.length ? `\nDue today:\n${due.map(line).join("\n")}\n` : ""}${open.length ? `\nNow open:\n${open.map(line).join("\n")}\n` : ""}\n${penalty}\nOpen your forms: ${link}`,

@@ -1,4 +1,5 @@
 import "server-only";
+import { pushToTrainer } from "./push";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { mailConfigured, sendMail } from "./mail";
 import { BRAND_LOGO_PNG_BASE64 } from "./brandLogo";
@@ -90,6 +91,7 @@ export async function notifyBookings(sb: SupabaseClient, bookingIds: string[], k
     const subject = { new: "New booking", changed: "Booking updated", cancelled: "Booking cancelled" }[kind] +
       `: ${r.dog_name || "dog"} (${r.client_name}), ${usDate(r.start_date)} to ${usDate(r.end_date)}`;
     const text = `${subject}\n\nDog: ${r.dog_name || "Not named yet"}\nClient: ${r.client_name}\nProgram: ${r.program || `${r.weeks}-week`}${r.extra_days ? ` + ${r.extra_days} days` : ""}\nDates: ${usDate(r.start_date)} to ${usDate(r.end_date)}${r.notes ? `\nNotes: ${r.notes}` : ""}\n\nOpen my bookings: ${site}/t`;
+    await pushToTrainer(r.trainer_id, { title: subject.split(":")[0], body: subject.slice(subject.indexOf(":") + 2), url: "/t", tag: `booking-${r.id}` });
     try {
       await sendMail({
         to, subject, text, html: bookingEmailHtml(r, t.name, kind, site),

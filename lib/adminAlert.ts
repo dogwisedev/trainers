@@ -1,4 +1,5 @@
 import "server-only";
+import { pushToAdmins } from "./push";
 import { mailConfigured, sendMail } from "./mail";
 import { BRAND_LOGO_PNG_BASE64 } from "./brandLogo";
 
@@ -9,6 +10,8 @@ export const officeEmail = () => (process.env.OFFICE_EMAIL || "info@dogwiseacade
 export async function alertAdmins(subject: string, intro: string, lines: { text: string; link: string }[], button?: { label: string; link: string }, opts: { alsoTo?: string[] } = {}) {
   const list = [...(process.env.ADMIN_NOTIFY_EMAIL || process.env.PAYROLL_NOTIFY_EMAIL || "").split(","), ...(opts.alsoTo || [])].map((s) => s.trim()).filter(Boolean);
   const to = [...new Map(list.map((a) => [a.toLowerCase(), a])).values()];
+  // Admins' phones too (anyone who turned notifications on)
+  await pushToAdmins({ title: subject, body: intro, url: (lines[0]?.link || button?.link || "/a").replace(/^https?:\/\/[^/]+/, ""), tag: subject.slice(0, 60) });
   if (!to.length || !mailConfigured()) return false;
   const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
   await sendMail({

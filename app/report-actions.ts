@@ -8,6 +8,7 @@ import { ensureReport, getReport, pickupMedia } from "@/lib/reportData";
 import type { Booking } from "@/lib/types";
 import { messageTrainer, raiseIncident, resolveIncidents } from "@/lib/incidents";
 import { saveFormTrip } from "@/lib/trips";
+import { pushToTrainer } from "@/lib/push";
 import { buildReport, reportHtml, reportText } from "@/lib/reportDoc";
 import { reportPdf } from "@/lib/reportPdf";
 import { mailConfigured, sendMail } from "@/lib/mail";
@@ -178,6 +179,7 @@ export async function sendBackAction(id: string, note: string): Promise<ReportRe
     if (error) return { ok: false, message: error.message };
     if (b.trainer.email && mailConfigured()) {
       const link = `${site()}/t/reports/${id}`;
+      await pushToTrainer(b.trainer.id, { title: `Changes needed: ${s(b.report.answers.dogName)}'s form`, body: s(note), url: `/t/reports/${id}`, tag: `report-${id}` });
       await sendMail({ to: b.trainer.email, subject: `Changes needed: ${s(b.report.answers.dogName)}'s report`, text: `${s(note)}\n\nFix it here: ${link}`,
         html: `<p style="font-family:Arial,sans-serif;font-size:15px">Hi ${b.trainer.name.split(" ")[0]}, the team sent ${s(b.report.answers.dogName)}'s report back:</p><blockquote style="font-family:Arial,sans-serif;font-size:15px;border-left:4px solid #6B4FE0;margin:10px 0;padding:4px 14px;color:#333">${s(note).replace(/</g, "&lt;").replace(/\n/g, "<br>")}</blockquote><p><a href="${link}" style="background:#2A1971;color:#fff;padding:10px 18px;border-radius:9px;text-decoration:none;font-weight:bold">Open the report</a></p>` }).catch(() => {});
     }

@@ -6,6 +6,7 @@ import { ensureChatsForBookings } from "@/lib/chat";
 import { closeChat, reopenChat, sendClosingEmail } from "@/lib/chatOps";
 import { ensureClientUser, sendChatInvite } from "@/lib/authEmail";
 import { mailConfigured, sendMail } from "@/lib/mail";
+import { pushToTrainer, pushToUsers } from "@/lib/push";
 import { BRAND_LOGO_PNG_BASE64 } from "@/lib/brandLogo";
 import type { Booking } from "@/lib/types";
 
@@ -66,7 +67,7 @@ export async function inviteClientAction(chatId: string, email?: string): Promis
  * an admin writes, so replies are quick. Clients are never emailed from here.
  */
 export async function notifyChatAction(chatId: string): Promise<void> {
-  if (isDemo() || !mailConfigured()) return;
+  if (isDemo()) return;
   try {
     const v = await getViewer();
     if (!v) return;
@@ -84,6 +85,12 @@ export async function notifyChatAction(chatId: string): Promise<void> {
         attachments: [logo] });
     };
     const about = chat.title || "your dog";
+    // Phone notifications: straight away, one per chat on the lock screen (each new message replaces the last)
+    const who = msg.sender_role === "client" ? chat.client_name || "The client" : msg.sender_role === "trainer" ? chat.trainer_name || "Your trainer" : "The Dogwise team";
+    const body = `${who}: ${msg.body ? msg.body.slice(0, 160) : "sent a photo or video"}`;
+    if (msg.sender_role !== "trainer") await pushToTrainer(chat.trainer_id, { title: `New message about ${about}`, body, url: `/t/chats/${chat.id}`, tag: `chat-${chat.id}` });
+    if (msg.sender_role !== "client" && chat.client_user_id) await pushToUsers([chat.client_user_id], { title: `New message about ${about}`, body, url: `/c/${chat.id}`, tag: `chat-${chat.id}` });
+    if (!mailConfigured()) return;
     // Clients are NOT emailed here. They get at most one "new updates" email a day, from the scheduled check (lib/chatOps.ts).
     if (msg.sender_role !== "trainer" && chat.trainer_id && fresh(chat.notified_trainer_at)) {
       const { data: t } = await svc.from("trainers").select("email, dogwise_email").eq("id", chat.trainer_id).maybeSingle();

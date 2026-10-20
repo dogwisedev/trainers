@@ -6,6 +6,7 @@ import { CalendarDays, ClipboardList, Home, KeyRound, LayoutGrid, LogOut, Messag
 import { PasswordForm } from "@/components/forms";
 import { signOut } from "@/app/actions";
 import { Avatar } from "@/components/ui";
+import { AppSetup } from "@/components/AppSetup";
 
 const ICONS = { home: Home, calendar: CalendarDays, messages: MessageCircle, profile: UserRound, grid: LayoutGrid, users: Users, pay: Wallet, reports: ClipboardList, chats: MessagesSquare, alert: TriangleAlert, paw: PawPrint, todo: ListChecks, sales: TrendingUp };
 export type NavItem = { href: string; label: string; icon: keyof typeof ICONS; badge?: number; also?: string[] };
@@ -47,6 +48,7 @@ export function Shell({ nav, who, children, demo, accountHref, needsPassword }: 
         </header>
         {demo && <DemoNote />}
         <main className="mx-auto w-full max-w-5xl px-4 pb-32 pt-5 md:px-8 md:pb-12 md:pt-8">
+          {!demo && !path.endsWith("/account") && !path.endsWith("/profile") && <AppSetup />}
           {needsPassword && !path.startsWith("/a/account") && (
             <div className="mb-5 rounded-[22px] border border-biscuit bg-biscuit-wash p-4 md:p-5">
               <p className="font-bold">Set a password</p>
