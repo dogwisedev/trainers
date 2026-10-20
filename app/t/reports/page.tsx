@@ -22,7 +22,7 @@ export default async function MyReports() {
         {mine.length ? (
           <ul className="panel divide-y divide-line">
             {mine.map((r) => (
-              <li key={r.id}><Link href={`/t/reports/${r.id}`} className="flex items-center gap-3 p-3.5 hover:bg-mint-wash">
+              <li key={r.id}><Link prefetch={false} href={`/t/reports/${r.id}`} className="flex items-center gap-3 p-3.5 hover:bg-mint-wash">
                 <div className="min-w-0 flex-1"><p className="truncate font-bold">{String(r.answers.dogName || "Dog")} <span className="font-normal text-ink-soft">{kindName(r.kind)}</span></p>
                   <p className="text-[13px] text-ink-soft">{r.submitted_at ? new Date(r.submitted_at).toLocaleDateString("en-US") : ""}</p></div>
                 <Pill tone={r.status === "approved" ? "mint" : r.status === "changes_requested" ? "biscuit" : "line"}>{r.status === "approved" ? (r.kind === "handover" ? "Sent to client" : "Reviewed") : r.status === "changes_requested" ? "Sent back" : "With the team"}</Pill>

@@ -156,7 +156,7 @@ export function ReportForm(p: Props) {
               <p><b>{s(answers.dogName) || "Dog"}</b> <span className="text-ink-soft">with {s(answers.clientName)}. Trainer {s(answers.trainerName)}.</span></p>
               <p className="text-ink-soft">{deadlineHint(p.kind)}{p.due ? ` Due ${new Date(p.due).toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric", timeZone: "America/New_York" })}.` : ""}</p>
               {p.kind !== "handover" && (
-                <p className={`rounded-xl p-3 text-[14px] ${p.kind === "intake" ? "bg-biscuit-wash font-semibold text-[#8A5A00]" : "bg-paper"}`}>{MEDIA_ADVICE[p.kind]} {chatHref ? <Link href={chatHref} className="underline">Open the chat</Link> : "This dog has no chat yet: ask the team to start one."}</p>
+                <p className={`rounded-xl p-3 text-[14px] ${p.kind === "intake" ? "bg-biscuit-wash font-semibold text-[#8A5A00]" : "bg-paper"}`}>{MEDIA_ADVICE[p.kind]} {chatHref ? <Link prefetch={false} href={chatHref} className="underline">Open the chat</Link> : "This dog has no chat yet: ask the team to start one."}</p>
               )}
               {p.kind === "handover" && (
                 <>

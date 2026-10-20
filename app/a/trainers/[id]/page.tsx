@@ -49,7 +49,7 @@ export default async function TrainerDetail({ params, searchParams }: { params: 
       <div className="mt-4 grid grid-cols-3 gap-2">
         {t.phone && <a href={`tel:${t.phone}`} className="btn-ghost"><Phone size={17} />Call</a>}
         {t.email && <a href={`mailto:${t.email}`} className="btn-ghost"><Mail size={17} />Email</a>}
-        <Link href={`/a/messages/${id}`} className="btn-ghost"><MessageCircle size={17} />Message</Link>
+        <Link prefetch={false} href={`/a/messages/${id}`} className="btn-ghost"><MessageCircle size={17} />Message</Link>
       </div>
 
       <div className="mt-5 rounded-[26px] bg-mint p-4 md:p-6">
@@ -90,12 +90,12 @@ export default async function TrainerDetail({ params, searchParams }: { params: 
         </section>
       )}
 
-      <Section title="Dogs" action={<Link href={`/a/bookings/new?trainer=${id}`} className="btn-mint h-10 min-h-0 px-3 text-[14px]"><CalendarPlus size={16} />Book a dog</Link>}>
+      <Section title="Dogs" action={<Link prefetch={false} href={`/a/bookings/new?trainer=${id}`} className="btn-mint h-10 min-h-0 px-3 text-[14px]"><CalendarPlus size={16} />Book a dog</Link>}>
         {upcoming.length ? (
           <ul className="panel divide-y divide-line">
             {upcoming.map((b) => (
               <li key={b.id}>
-                <Link href={`/a/dogs/${b.id}`} className="flex flex-wrap items-center justify-between gap-3 p-4 hover:bg-mint-wash">
+                <Link prefetch={false} href={`/a/dogs/${b.id}`} className="flex flex-wrap items-center justify-between gap-3 p-4 hover:bg-mint-wash">
                   <div><p className="font-semibold">{b.dog_name || "Dog"} <span className="font-normal text-ink-soft">with {b.client_name}</span></p><p className="text-[14px] text-ink-soft">{range(b.start_date, b.end_date)}, {b.program || `${b.weeks}-week`}{b.extra_days ? ` + ${b.extra_days} day${b.extra_days > 1 ? "s" : ""}` : ""}{b.rehab ? ", rehab" : ""}</p></div>
                   <div className="flex flex-wrap items-center gap-2">
                     {!b.notified_at && <Pill tone="heart">Trainer not emailed</Pill>}
@@ -109,7 +109,7 @@ export default async function TrainerDetail({ params, searchParams }: { params: 
         ) : <p className="text-[14px] text-ink-soft">No dogs booked.</p>}
       </Section>
 
-      <Section title="Finished" action={finished.rows.length ? <Link href={`/a/dogs?f=finished&t=${id}`} className="btn-ghost h-10 min-h-0 px-3 text-[14px]">See all</Link> : undefined}>
+      <Section title="Finished" action={finished.rows.length ? <Link prefetch={false} href={`/a/dogs?f=finished&t=${id}`} className="btn-ghost h-10 min-h-0 px-3 text-[14px]">See all</Link> : undefined}>
         {finished.rows.length ? <BookingHistory rows={finished.rows} role="admin" showTrainer={false} /> : <p className="text-[14px] text-ink-soft">No finished trainings yet.</p>}
       </Section>
 

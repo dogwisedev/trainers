@@ -23,7 +23,7 @@ export function Shell({ nav, who, children, demo, accountHref, needsPassword }: 
           {nav.map((n) => {
             const I = ICONS[n.icon];
             return (
-              <Link key={n.href} href={n.href} aria-current={isActive(n.href) ? "page" : undefined} className={`relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-[15px] ${isActive(n.href) ? "bg-paper font-bold text-ink before:absolute before:-left-5 before:top-2 before:h-[calc(100%-16px)] before:w-1 before:rounded-r-full before:bg-lav" : "font-medium text-ink-soft hover:bg-canvas hover:text-ink"}`}>
+              <Link key={n.href} prefetch={false} href={n.href} aria-current={isActive(n.href) ? "page" : undefined} className={`relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-[15px] ${isActive(n.href) ? "bg-paper font-bold text-ink before:absolute before:-left-5 before:top-2 before:h-[calc(100%-16px)] before:w-1 before:rounded-r-full before:bg-lav" : "font-medium text-ink-soft hover:bg-canvas hover:text-ink"}`}>
                 <I size={19} className={isActive(n.href) ? "text-lav-deep" : ""} /> {n.label}
                 {!!n.badge && <span className="ml-auto grid h-[22px] min-w-[22px] place-items-center rounded-full bg-heart px-1.5 text-[12px] font-bold text-white">{n.badge}</span>}
               </Link>
@@ -32,7 +32,7 @@ export function Shell({ nav, who, children, demo, accountHref, needsPassword }: 
         </nav>
         <div className="mt-auto border-t border-line pt-4 text-[13px] text-ink-soft">
           <p className="flex items-center gap-2.5 truncate font-semibold text-ink"><Avatar name={who} size={32} />{who}</p>
-          <Link href={accountHref} className="mt-2 flex items-center gap-2 hover:text-ink"><KeyRound size={15} />Password</Link>
+          <Link prefetch={false} href={accountHref} className="mt-2 flex items-center gap-2 hover:text-ink"><KeyRound size={15} />Password</Link>
           <form action={signOut}><button className="mt-2 inline-flex items-center gap-2 hover:text-ink"><LogOut size={15} />Sign out</button></form>
         </div>
       </aside>
@@ -42,7 +42,7 @@ export function Shell({ nav, who, children, demo, accountHref, needsPassword }: 
         <header className="sticky top-0 z-20 flex items-center justify-between border-b border-line/70 bg-white/85 px-4 pb-2 pt-[max(8px,env(safe-area-inset-top))] backdrop-blur-md md:hidden">
           <Brand small />
           <div className="flex items-center">
-            <Link href={accountHref} className="grid h-10 w-10 place-items-center rounded-full text-ink-soft" aria-label="Password"><KeyRound size={18} /></Link>
+            <Link prefetch={false} href={accountHref} className="grid h-10 w-10 place-items-center rounded-full text-ink-soft" aria-label="Password"><KeyRound size={18} /></Link>
             <form action={signOut}><button className="grid h-10 w-10 place-items-center rounded-full text-ink-soft" aria-label="Sign out"><LogOut size={18} /></button></form>
           </div>
         </header>
@@ -68,7 +68,7 @@ export function Shell({ nav, who, children, demo, accountHref, needsPassword }: 
             const on = isActive(n.href);
             return (
               <li key={n.href}>
-                <Link href={n.href} aria-current={on ? "page" : undefined} className="relative flex min-w-[64px] flex-col items-center gap-1 px-2 py-1 text-[11px] font-semibold">
+                <Link prefetch={false} href={n.href} aria-current={on ? "page" : undefined} className="relative flex min-w-[64px] flex-col items-center gap-1 px-2 py-1 text-[11px] font-semibold">
                   <span className={`grid h-8 w-14 place-items-center rounded-full transition-colors ${on ? "bg-paper text-lav-deep" : "text-ink-faint"}`}><I size={20} strokeWidth={on ? 2.4 : 2} /></span>
                   <span className={on ? "font-bold text-ink" : "text-ink-faint"}>{n.label}</span>
                   {!!n.badge && <span className="absolute right-2.5 top-0 grid h-[18px] min-w-[18px] place-items-center rounded-full bg-heart px-1 text-[10px] font-bold text-white ring-2 ring-white">{n.badge}</span>}
@@ -88,7 +88,7 @@ function DemoNote() {
 
 export function Brand({ small = false }: { small?: boolean }) {
   return (
-    <Link href="/" className="flex items-center gap-2.5">
+    <Link prefetch={false} href="/" className="flex items-center gap-2.5">
       <Image src="/brand-logo.png" alt="Dogwise Academy" width={small ? 112 : 140} height={small ? 36 : 45} priority />
     </Link>
   );

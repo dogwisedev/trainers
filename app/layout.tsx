@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
+  other: { "mobile-web-app-capable": "yes" },
   title: "Dogwise Academy",
   description: "Kennel calendar and trainer hub for Dogwise Academy",
   manifest: "/manifest.webmanifest",

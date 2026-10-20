@@ -2,10 +2,9 @@ import Link from "next/link";
 import { Plus } from "lucide-react";
 import { requireRole } from "@/lib/data";
 import { buildTodo } from "@/lib/todo";
-import { currentRunDate, getRun } from "@/lib/payrollData";
-import { isPayMonday, periodLabel, runDates } from "@/lib/payroll";
+import { isPayMonday, periodLabel } from "@/lib/payroll";
 import { todayIso } from "@/lib/dates";
-import { isDemo } from "@/lib/supabase";
+import { isDemo, serviceClient } from "@/lib/supabase";
 import { TodoList } from "@/components/TodoList";
 import { Empty } from "@/components/ui";
 
@@ -16,15 +15,14 @@ export const maxDuration = 60;
 export default async function ToDo() {
   await requireRole("admin");
   const { items, late } = await buildTodo();
-  // Payslips waiting for approval
+  // Payslips waiting for approval: one small count, not the whole pay run
   if (!isDemo()) {
-    try {
-      const run = await currentRunDate(), pay = await getRun(run), drafts = pay.slips.filter((s) => s.status === "draft").length;
-      if (drafts) {
-        const d = runDates(run);
-        items.push({ key: "pay", group: isPayMonday(todayIso()) ? "now" : "week", tone: "biscuit", icon: "pay", text: `${drafts} payslip${drafts > 1 ? "s" : ""} to approve`, detail: periodLabel(d.period_start, d.period_end), primary: { label: "Open payslips", href: "/a/trainers?view=pay" } });
-      }
-    } catch { /* payroll not set up: nothing to show */ }
+    const { data: drafts } = await serviceClient().from("payslips").select("id, pay_runs(submit_date, period_start, period_end)").eq("status", "draft").limit(200);
+    const list = (drafts || []) as unknown as { pay_runs: { submit_date: string; period_start: string; period_end: string } | null }[];
+    if (list.length) {
+      const r = list.map((x) => x.pay_runs).filter(Boolean).sort((a, b) => a!.submit_date.localeCompare(b!.submit_date))[0];
+      items.push({ key: "pay", group: isPayMonday(todayIso()) ? "now" : "week", tone: "biscuit", icon: "pay", text: `${list.length} payslip${list.length > 1 ? "s" : ""} to approve`, detail: r ? periodLabel(r.period_start, r.period_end) : undefined, primary: { label: "Open payslips", href: "/a/trainers?view=pay" } });
+    }
   }
   const total = items.length + (late.length ? 1 : 0);
   return (
@@ -34,7 +32,7 @@ export default async function ToDo() {
           <h1 className="text-[32px] font-extrabold leading-tight md:text-[38px]">To do</h1>
           <p className="mt-1 text-ink-soft">{total ? `${total} thing${total > 1 ? "s" : ""} need a person. Most urgent first.` : "Nothing needs you right now."}</p>
         </div>
-        <Link href="/a/bookings/new" className="btn-ink h-10 min-h-0 shrink-0 px-3.5 text-[14px]"><Plus size={17} />Book a dog</Link>
+        <Link prefetch={false} href="/a/bookings/new" className="btn-ink h-10 min-h-0 shrink-0 px-3.5 text-[14px]"><Plus size={17} />Book a dog</Link>
       </div>
       {!total && <div className="mt-6"><Empty title="All done.">New things show up here as they happen: clients waiting, forms to check, vaccines, payslips.</Empty></div>}
       <TodoList items={items} late={late} />

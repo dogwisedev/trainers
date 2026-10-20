@@ -25,7 +25,7 @@ export function TodoRow({ t, mode }: { t: Todo & { trainerName?: string }; mode:
       </div>
       <TodoPill t={t} />
       {mode === "admin" && t.state !== "waiting" && <WaiveButton bookingId={t.booking.id} kind={t.window.kind} week={t.window.week} reportId={t.report?.id} />}
-      {t.state !== "waiting" && <Link href={href} className="btn-ink h-9 min-h-0 px-3 text-[13px]">{verb}</Link>}
+      {t.state !== "waiting" && <Link prefetch={false} href={href} className="btn-ink h-9 min-h-0 px-3 text-[13px]">{verb}</Link>}
     </li>
   );
 }

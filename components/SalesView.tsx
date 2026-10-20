@@ -11,7 +11,7 @@ export function SalesView({ month, months, base, sellers, total, remaining, coun
   return (
     <>
       <nav className="-mx-1 mt-4 flex gap-2 overflow-x-auto px-1 pb-1" aria-label="Month">
-        {months.map((m) => <Link key={m} href={`${base}?m=${m}`} aria-current={m === month ? "page" : undefined} className={`chip shrink-0 ${m === month ? "chip-on" : ""}`}>{monthLabel(m)}</Link>)}
+        {months.map((m) => <Link key={m} prefetch={false} href={`${base}?m=${m}`} aria-current={m === month ? "page" : undefined} className={`chip shrink-0 ${m === month ? "chip-on" : ""}`}>{monthLabel(m)}</Link>)}
       </nav>
       <div className="mt-4 grid grid-cols-2 gap-3">
         <div className="panel p-4"><p className="text-[13px] font-semibold text-ink-soft">Sales</p><p className="mt-1 text-[26px] font-extrabold leading-none">{usd(total)}</p><p className="mt-1 text-[13px] text-ink-faint">{count} program{count === 1 ? "" : "s"}</p></div>

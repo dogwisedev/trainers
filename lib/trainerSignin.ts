@@ -24,8 +24,15 @@ async function allUsers() {
   return users;
 }
 
-/** Active trainers and whether they've ever signed in. */
+let signinCache: { at: number; rows: SigninRow[] } | null = null;
+/** Active trainers and whether they've ever signed in. Cached for 5 minutes (To do reads it on every load). */
 export async function trainerSignins(): Promise<SigninRow[]> {
+  if (signinCache && Date.now() - signinCache.at < 5 * 60e3) return signinCache.rows;
+  const rows = await loadSignins();
+  signinCache = { at: Date.now(), rows };
+  return rows;
+}
+async function loadSignins(): Promise<SigninRow[]> {
   const sb = serviceClient();
   const [{ data: trainers }, { data: profiles }, users] = await Promise.all([
     sb.from("trainers").select("id, name, email, dogwise_email, signin_nudged_at").eq("active", true).order("name"),

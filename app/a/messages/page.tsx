@@ -13,7 +13,7 @@ export default async function AdminMessages() {
       {threads.length ? (
         <ul className="panel divide-y divide-line">
           {threads.map((th) => (
-            <li key={th.trainer.id}><Link href={`/a/messages/${th.trainer.id}`} className="flex items-center gap-3 p-3.5 hover:bg-mint-wash">
+            <li key={th.trainer.id}><Link prefetch={false} href={`/a/messages/${th.trainer.id}`} className="flex items-center gap-3 p-3.5 hover:bg-mint-wash">
               <Avatar name={th.trainer.name} size={42} />
               <div className="min-w-0 flex-1">
                 <div className="flex justify-between gap-2"><p className={`truncate ${th.unread ? "font-extrabold" : "font-semibold"}`}>{th.trainer.name}</p><span className="shrink-0 text-[12px] text-ink-faint">{timeAgo(th.last.created_at)}</span></div>
@@ -26,7 +26,7 @@ export default async function AdminMessages() {
       ) : <Empty title="No conversations yet." >Start one from any trainer below.</Empty>}
       <details className="mt-6"><summary className="cursor-pointer font-semibold">Message another trainer</summary>
         <ul className="mt-3 grid gap-2 md:grid-cols-2">
-          {quiet.map((t) => <li key={t.id}><Link href={`/a/messages/${t.id}`} className="panel flex items-center gap-3 p-3 hover:bg-mint-wash"><Avatar name={t.name} size={34} /><span className="font-medium">{t.name}</span></Link></li>)}
+          {quiet.map((t) => <li key={t.id}><Link prefetch={false} href={`/a/messages/${t.id}`} className="panel flex items-center gap-3 p-3 hover:bg-mint-wash"><Avatar name={t.name} size={34} /><span className="font-medium">{t.name}</span></Link></li>)}
         </ul>
       </details>
     </>

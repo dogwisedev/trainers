@@ -44,7 +44,7 @@ export function DogProfile({ chatId, role, edit, open, profile, dogId, base, dog
       {many && (
         <nav className="flex flex-wrap gap-2" aria-label="Dogs">
           {profile.dogs.map((d) => (
-            <Link key={d.booking.id} href={dogLink ? dogLink.replace("{id}", d.booking.id) : `${base}?dog=${d.booking.id}`} className={`rounded-full px-3.5 py-1.5 text-[14px] font-semibold ${d.booking.id === dog.booking.id ? "bg-ink text-white" : "border border-line bg-white"}`}>
+            <Link key={d.booking.id} prefetch={false} href={dogLink ? dogLink.replace("{id}", d.booking.id) : `${base}?dog=${d.booking.id}`} className={`rounded-full px-3.5 py-1.5 text-[14px] font-semibold ${d.booking.id === dog.booking.id ? "bg-ink text-white" : "border border-line bg-white"}`}>
               {d.name} {!d.ready.ready && <span className="ml-1 rounded-full bg-heart px-1.5 text-[11px] text-white">{d.ready.missing.filter((i) => role !== "client" || i.who === "client").length}</span>}
             </Link>
           ))}

@@ -16,7 +16,7 @@ export async function DogProfilePage({ chatId, dog, back }: { chatId: string; do
   return (
     <>
       <div className="mb-4 flex items-center gap-3">
-        <Link href={back} className="grid h-10 w-10 place-items-center rounded-full hover:bg-mint-wash" aria-label="Back to the chat"><ChevronLeft /></Link>
+        <Link prefetch={false} href={back} className="grid h-10 w-10 place-items-center rounded-full hover:bg-mint-wash" aria-label="Back to the chat"><ChevronLeft /></Link>
         <div className="min-w-0">
           <h1 className="truncate text-[24px] font-extrabold leading-tight">{role === "client" ? "Before training" : "Dog profile"}</h1>
           <p className="truncate text-[14px] text-ink-soft">{a.chat.title || "Dog"}{role !== "client" && a.chat.client_name ? `, ${a.chat.client_name}` : ""}</p>

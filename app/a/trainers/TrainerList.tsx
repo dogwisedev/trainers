@@ -31,7 +31,7 @@ export function TrainerList({ rows }: { rows: Row[] }) {
       <ul className="grid gap-2.5 md:grid-cols-2">
         {list.map((r) => (
           <li key={r.id}>
-            <Link href={`/a/trainers/${r.id}`} className="panel flex items-center gap-3.5 p-3.5 hover:border-ink-faint">
+            <Link prefetch={false} href={`/a/trainers/${r.id}`} className="panel flex items-center gap-3.5 p-3.5 hover:border-ink-faint">
               <Avatar name={r.name} />
               <div className="min-w-0 flex-1">
                 <p className="truncate font-bold">{r.name}{r.flags > 0 && <span className="ml-1.5 inline-block h-2 w-2 rounded-full bg-biscuit align-middle" aria-label="Has details to check" />}</p>

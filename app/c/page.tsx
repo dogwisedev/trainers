@@ -28,7 +28,7 @@ export default async function ClientHome() {
           <ReopenChat chatId={closed[0].id} base="/c" />
         </div>
       )}
-      {chats.length === 0 && <p className="mt-4 rounded-2xl border border-dashed border-line bg-white p-6 text-center text-ink-soft">You don&apos;t have an open chat right now. When your dog&apos;s training starts, it will appear here. Questions? Email <Link className="underline" href="mailto:info@dogwiseacademy.com">info@dogwiseacademy.com</Link>.</p>}
+      {chats.length === 0 && <p className="mt-4 rounded-2xl border border-dashed border-line bg-white p-6 text-center text-ink-soft">You don&apos;t have an open chat right now. When your dog&apos;s training starts, it will appear here. Questions? Email <Link prefetch={false} className="underline" href="mailto:info@dogwiseacademy.com">info@dogwiseacademy.com</Link>.</p>}
     </>
   );
 }

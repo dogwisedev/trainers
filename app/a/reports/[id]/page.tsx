@@ -15,10 +15,10 @@ export default async function AdminReport({ params }: { params: { id: string } }
   return (
     <>
       <div className="mb-4 flex items-center gap-3">
-        <Link href={`/a/dogs/${booking.id}?tab=forms`} className="grid h-10 w-10 place-items-center rounded-full hover:bg-mint-wash" aria-label="Back to the dog"><ChevronLeft /></Link>
+        <Link prefetch={false} href={`/a/dogs/${booking.id}?tab=forms`} className="grid h-10 w-10 place-items-center rounded-full hover:bg-mint-wash" aria-label="Back to the dog"><ChevronLeft /></Link>
         <div className="min-w-0">
           <h1 className="truncate text-[24px] font-extrabold leading-tight">{kindName(r.kind)}: {booking.dog_name || "Dog"}</h1>
-          <p className="truncate text-[14px] text-ink-soft"><Link className="underline" href={`/a/trainers/${trainer.id}`}>{trainer.name}</Link>, client {booking.client_name}</p>
+          <p className="truncate text-[14px] text-ink-soft"><Link prefetch={false} className="underline" href={`/a/trainers/${trainer.id}`}>{trainer.name}</Link>, client {booking.client_name}</p>
         </div>
       </div>
       <ReportForm id={r.id} kind={r.kind} mode="admin" status={r.status} bookingId={booking.id} week={r.week_number} initialAnswers={r.answers} initialMedia={r.media}

@@ -21,7 +21,7 @@ export default async function MyPay() {
         <ul className="space-y-2.5">
           {slips.map((s) => (
             <li key={s.id}>
-              <Link href={`/t/pay/${s.id}`} className="panel flex items-center justify-between gap-3 p-4 hover:border-ink-faint">
+              <Link prefetch={false} href={`/t/pay/${s.id}`} className="panel flex items-center justify-between gap-3 p-4 hover:border-ink-faint">
                 <div><p className="font-bold">{periodLabel(s.pay_runs.period_start, s.pay_runs.period_end)}</p><p className="text-[13px] text-ink-soft">Paid {usDate(s.pay_runs.paid_date)}</p></div>
                 <p className="text-[20px] font-extrabold text-[#6B4FE0]">{money(s.total)}</p>
               </Link>
@@ -33,7 +33,7 @@ export default async function MyPay() {
       <section className="mt-8">
         <div className="mb-2 flex flex-wrap items-end justify-between gap-2">
           <div><h2 className="text-[20px] font-extrabold">Your miles in {year}</h2><p className="text-[13px] text-ink-soft">{trips.length} trip{trips.length === 1 ? "" : "s"}, {total} miles. Keep this for tax time.</p></div>
-          <Link href="/t/followup" className="btn-ghost h-9 min-h-0 px-3 text-[13px]">Log a follow-up session</Link>
+          <Link prefetch={false} href="/t/followup" className="btn-ghost h-9 min-h-0 px-3 text-[13px]">Log a follow-up session</Link>
         </div>
         {trips.length ? (
           <ul className="panel divide-y divide-line text-[14px]">

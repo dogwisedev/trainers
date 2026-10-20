@@ -30,12 +30,12 @@ export default async function Trainers({ searchParams }: { searchParams: { view?
     <div className="mb-4 space-y-3">
       <div className="flex items-center justify-between gap-3">
         <h1 className="text-[32px] font-extrabold leading-tight">Trainers</h1>
-        {!payView && !kennels && <Link href="/a/trainers/new" className="btn-ink h-10 min-h-0 shrink-0 px-3.5 text-[14px]"><UserPlus size={17} />Add trainer</Link>}
+        {!payView && !kennels && <Link prefetch={false} href="/a/trainers/new" className="btn-ink h-10 min-h-0 shrink-0 px-3.5 text-[14px]"><UserPlus size={17} />Add trainer</Link>}
       </div>
       <nav className="grid grid-cols-3 rounded-2xl border border-line bg-white p-1 text-[14px] font-semibold shadow-card sm:inline-grid sm:w-auto" aria-label="Trainers views">
-        <Link href="/a/trainers" aria-current={!payView && !kennels ? "page" : undefined} className={`rounded-xl px-3.5 py-2 text-center ${!payView && !kennels ? "bg-ink text-white" : "text-ink-soft hover:text-ink"}`}>Trainers</Link>
-        <Link href="/a/trainers?view=kennels" aria-current={kennels ? "page" : undefined} className={`rounded-xl px-3.5 py-2 text-center ${kennels ? "bg-ink text-white" : "text-ink-soft hover:text-ink"}`}>Kennels</Link>
-        <Link href={`/a/trainers?view=pay${searchParams.run ? `&run=${submit}` : ""}`} aria-current={payView ? "page" : undefined} className={`rounded-xl px-3.5 py-2 text-center ${payView ? "bg-ink text-white" : "text-ink-soft hover:text-ink"}`}>
+        <Link prefetch={false} href="/a/trainers" aria-current={!payView && !kennels ? "page" : undefined} className={`rounded-xl px-3.5 py-2 text-center ${!payView && !kennels ? "bg-ink text-white" : "text-ink-soft hover:text-ink"}`}>Trainers</Link>
+        <Link prefetch={false} href="/a/trainers?view=kennels" aria-current={kennels ? "page" : undefined} className={`rounded-xl px-3.5 py-2 text-center ${kennels ? "bg-ink text-white" : "text-ink-soft hover:text-ink"}`}>Kennels</Link>
+        <Link prefetch={false} href={`/a/trainers?view=pay${searchParams.run ? `&run=${submit}` : ""}`} aria-current={payView ? "page" : undefined} className={`rounded-xl px-3.5 py-2 text-center ${payView ? "bg-ink text-white" : "text-ink-soft hover:text-ink"}`}>
           Payslips{pendingCount > 0 && <span className="ml-1.5 rounded-full bg-biscuit px-1.5 text-[12px] text-ink">{pendingCount}</span>}
         </Link>
       </nav>

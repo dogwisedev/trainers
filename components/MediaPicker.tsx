@@ -64,7 +64,7 @@ export function MediaPicker({ bookingId, slot, kind, label, items, onChange, des
               ))}
             </ul>
           ) : (
-            <p className="p-2 text-[14px] text-ink-soft">{note || `No ${kind === "video" ? "videos" : "photos"} in the chat yet.`} {chatHref && !note.startsWith("This dog has no chat") && <>Post them in <Link href={chatHref} className="font-semibold underline">the dog&apos;s chat</Link>, then come back.</>}</p>
+            <p className="p-2 text-[14px] text-ink-soft">{note || `No ${kind === "video" ? "videos" : "photos"} in the chat yet.`} {chatHref && !note.startsWith("This dog has no chat") && <>Post them in <Link prefetch={false} href={chatHref} className="font-semibold underline">the dog&apos;s chat</Link>, then come back.</>}</p>
           )}
         </div>
       )}

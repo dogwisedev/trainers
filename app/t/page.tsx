@@ -34,7 +34,7 @@ export default async function TrainerHome() {
     const r = ready.get(b.id), chat = b.hubspot_deal_id ? chatOf.get(b.hubspot_deal_id) : null;
     if (!r || !chat) return null;
     const n = r.ready.missing.length;
-    return <Link href={`/t/chats/${chat}/profile?dog=${b.id}`} className={`rounded-full px-2.5 py-0.5 text-[12px] font-bold ${n ? "bg-heart-wash text-heart" : "bg-mint-wash text-fern"}`}>{n ? `${n} to do before training` : "Ready"}</Link>;
+    return <Link prefetch={false} href={`/t/chats/${chat}/profile?dog=${b.id}`} className={`rounded-full px-2.5 py-0.5 text-[12px] font-bold ${n ? "bg-heart-wash text-heart" : "bg-mint-wash text-fern"}`}>{n ? `${n} to do before training` : "Ready"}</Link>;
   };
 
   return (
@@ -58,9 +58,9 @@ export default async function TrainerHome() {
       </div>
 
       {todo.length > 0 && (
-        <Section title="To do" action={<Link href="/t/reports" className="text-[14px] font-semibold underline">All reports</Link>}>
+        <Section title="To do" action={<Link prefetch={false} href="/t/reports" className="text-[14px] font-semibold underline">All reports</Link>}>
           <ul className="panel divide-y divide-line border-biscuit">{todo.slice(0, 5).map((x) => <TodoRow key={`${x.booking.id}${x.window.kind}${x.window.week}`} t={x} mode="trainer" />)}</ul>
-          {todo.length > 5 && <p className="mt-2 text-[13px] text-ink-soft">And {todo.length - 5} more in <Link href="/t/reports" className="underline">Reports</Link>.</p>}
+          {todo.length > 5 && <p className="mt-2 text-[13px] text-ink-soft">And {todo.length - 5} more in <Link prefetch={false} href="/t/reports" className="underline">Reports</Link>.</p>}
         </Section>
       )}
 
@@ -96,10 +96,10 @@ export default async function TrainerHome() {
             ))}
           </ul>
         ) : <Empty title="Nothing booked yet." >New dogs show up here as soon as they're booked.</Empty>}
-        <span className="mt-3 flex gap-4 text-[14px] font-semibold"><Link href="/t/past" className="underline">Past dogs</Link><Link href="/t/followup" className="underline">Log a follow-up session</Link></span>
+        <span className="mt-3 flex gap-4 text-[14px] font-semibold"><Link prefetch={false} href="/t/past" className="underline">Past dogs</Link><Link prefetch={false} href="/t/followup" className="underline">Log a follow-up session</Link></span>
       </Section>
 
-      <Section title="Time off" action={<Link href="/t/calendar#time-off" className="btn-mint h-10 min-h-0 px-3 text-[14px]"><CalendarPlus size={16} />Block dates</Link>}>
+      <Section title="Time off" action={<Link prefetch={false} href="/t/calendar#time-off" className="btn-mint h-10 min-h-0 px-3 text-[14px]"><CalendarPlus size={16} />Block dates</Link>}>
         {off.length ? (
           <ul className="panel divide-y divide-line">
             {off.slice(0, 4).map((o) => (

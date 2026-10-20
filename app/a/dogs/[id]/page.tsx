@@ -65,15 +65,15 @@ export default async function DogPageView({ params, searchParams }: { params: { 
 
   return (
     <>
-      <Link href="/a/dogs" className="mb-2 inline-flex items-center gap-1 text-[14px] font-semibold text-ink-soft hover:text-ink"><ChevronLeft size={17} />Dogs</Link>
+      <Link prefetch={false} href="/a/dogs" className="mb-2 inline-flex items-center gap-1 text-[14px] font-semibold text-ink-soft hover:text-ink"><ChevronLeft size={17} />Dogs</Link>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex min-w-0 items-start gap-3">
           <Avatar name={b.dog_name || "Dog"} size={52} />
           <div className="min-w-0">
           <h1 className="flex flex-wrap items-center gap-2 text-[30px] font-extrabold leading-tight">{b.dog_name || "Dog"} <Pill tone={status.tone}>{status.label}</Pill>
-            {b.status !== "cancelled" && b.end_date >= today && missing !== null && <Link href={dogPage(b.id, "before")}><Pill tone={missing ? "heart" : "mint"}>{missing ? `${missing} missing before training` : r?.dog.cleared ? "OK to start" : "Ready"}</Pill></Link>}
+            {b.status !== "cancelled" && b.end_date >= today && missing !== null && <Link prefetch={false} href={dogPage(b.id, "before")}><Pill tone={missing ? "heart" : "mint"}>{missing ? `${missing} missing before training` : r?.dog.cleared ? "OK to start" : "Ready"}</Pill></Link>}
           </h1>
-          <p className="mt-1 text-[15px] text-ink-soft">{b.client_name}, with {b.trainers ? <Link href={`/a/trainers/${b.trainers.id}`} className="underline">{b.trainers.name}</Link> : "no trainer"}<span className="block text-[14px]">{short(b.start_date)} to {short(b.end_date)}</span></p>
+          <p className="mt-1 text-[15px] text-ink-soft">{b.client_name}, with {b.trainers ? <Link prefetch={false} href={`/a/trainers/${b.trainers.id}`} className="underline">{b.trainers.name}</Link> : "no trainer"}<span className="block text-[14px]">{short(b.start_date)} to {short(b.end_date)}</span></p>
           </div>
         </div>
         {deal ? <a href={deal} target="_blank" rel="noopener" className="btn-ink h-10 min-h-0 px-4">HubSpot deal<ExternalLink size={15} /></a>
@@ -82,7 +82,7 @@ export default async function DogPageView({ params, searchParams }: { params: { 
 
       <nav className="mt-4 flex gap-1 overflow-x-auto border-b border-line" aria-label="Dog page">
         {TABS.map((t) => (
-          <Link key={t.key} href={dogPage(b.id, t.key === "overview" ? undefined : t.key)} aria-current={tab === t.key ? "page" : undefined}
+          <Link key={t.key} prefetch={false} href={dogPage(b.id, t.key === "overview" ? undefined : t.key)} aria-current={tab === t.key ? "page" : undefined}
             className={`-mb-px whitespace-nowrap border-b-2 px-3.5 py-2.5 text-[15px] font-semibold ${tab === t.key ? "border-ink text-ink" : "border-transparent text-ink-soft hover:text-ink"}`}>
             {t.label}{badge(t.key) ? <span className="ml-1.5 rounded-full bg-heart px-1.5 text-[11px] text-white">{badge(t.key)}</span> : null}
           </Link>
@@ -182,7 +182,7 @@ export default async function DogPageView({ params, searchParams }: { params: { 
             {((siblings || []) as { id: string; dog_name: string | null; status: string }[]).length > 0 && (
               <section className="panel p-4">
                 <h2 className="mb-2 text-[15px] font-bold">Other dogs on this deal</h2>
-                <div className="flex flex-wrap gap-2">{((siblings || []) as { id: string; dog_name: string | null; status: string }[]).map((s) => <Link key={s.id} href={dogPage(s.id)} className="btn-ghost h-9 min-h-0 px-3 text-[13px]">{s.dog_name || "Dog"}{s.status === "cancelled" ? " (cancelled)" : ""}</Link>)}</div>
+                <div className="flex flex-wrap gap-2">{((siblings || []) as { id: string; dog_name: string | null; status: string }[]).map((s) => <Link key={s.id} prefetch={false} href={dogPage(s.id)} className="btn-ghost h-9 min-h-0 px-3 text-[13px]">{s.dog_name || "Dog"}{s.status === "cancelled" ? " (cancelled)" : ""}</Link>)}</div>
               </section>
             )}
           </div>
@@ -240,7 +240,7 @@ function FormsTab({ b, reps, today }: { b: Booking; reps: { id: string; kind: Ki
               <div className="min-w-0 flex-1"><p className="font-semibold">{name}</p><p className="text-[13px] text-ink-soft">{short(w.opens)} to {short(w.deadline)}</p></div>
               <Pill tone={st.tone}>{st.t}</Pill>
               {(!r || r.status === "draft" || r.status === "changes_requested") && today >= w.opens && <WaiveButton bookingId={b.id} kind={w.kind} week={w.week} reportId={r?.id} />}
-              {(r || today >= w.opens) && <Link href={href} className={`${r?.status === "submitted" ? "btn-ink" : "btn-ghost"} h-9 min-h-0 px-3 text-[13px]`}>{verb}</Link>}
+              {(r || today >= w.opens) && <Link prefetch={false} href={href} className={`${r?.status === "submitted" ? "btn-ink" : "btn-ghost"} h-9 min-h-0 px-3 text-[13px]`}>{verb}</Link>}
             </li>
           );
         })}

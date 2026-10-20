@@ -8,6 +8,7 @@ import { Bell, BellOff, Download, MoreVertical, Share, SquarePlus, X } from "luc
 // "Not now" hides it for 3 days. On the account/profile page (`always`) it stays, as the place to turn things on later.
 type BIP = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: string }> };
 const KEY = "dogwise-setup-hidden-until";
+const within = <T,>(ms: number, p: Promise<T>, why: string) => Promise.race([p, new Promise<T>((_, no) => setTimeout(() => no(new Error(why)), ms))]);
 const b64 = (s: string) => { const p = "=".repeat((4 - (s.length % 4)) % 4), r = atob((s + p).replace(/-/g, "+").replace(/_/g, "/")); return Uint8Array.from([...r].map((c) => c.charCodeAt(0))); };
 
 export function AppSetup({ always = false }: { always?: boolean }) {
@@ -26,8 +27,11 @@ export function AppSetup({ always = false }: { always?: boolean }) {
     setEnv({ ios, android, mobile: ios || android, standalone, push });
     setPerm(push ? Notification.permission : "unsupported");
     try { setHidden(!always && Number(localStorage.getItem(KEY) || 0) > Date.now()); } catch { /* private mode */ }
-    if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").then(async (reg) => setSubscribed(!!(await reg.pushManager?.getSubscription?.()))).catch(() => {});
-    const onBip = (e: Event) => { e.preventDefault(); setBip(e as BIP); };
+    // Register after the page has loaded, so it never competes with the page itself
+    const reg = () => navigator.serviceWorker.register("/sw.js").then(async (r) => setSubscribed(!!(await r.pushManager?.getSubscription?.()))).catch(() => {});
+    if ("serviceWorker" in navigator) { if (document.readyState === "complete") setTimeout(reg, 1500); else window.addEventListener("load", () => setTimeout(reg, 1500), { once: true }); }
+    // Phones: hold Chrome's banner and show our own Install button. Computers: leave Chrome's own install option alone.
+    const onBip = (e: Event) => { if (!(ios || android)) return; e.preventDefault(); setBip(e as BIP); };
     const onInstalled = () => setEnv((x) => (x ? { ...x, standalone: true } : x));
     window.addEventListener("beforeinstallprompt", onBip);
     window.addEventListener("appinstalled", onInstalled);
@@ -47,13 +51,18 @@ export function AppSetup({ always = false }: { always?: boolean }) {
     try {
       const p = await Notification.requestPermission(); setPerm(p);
       if (p !== "granted") { setMsg("Notifications weren't allowed. See below to turn them on."); return; }
-      const reg = await navigator.serviceWorker.ready;
-      const sub = (await reg.pushManager.getSubscription()) || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!) });
-      const r = await fetch("/api/push", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ subscription: sub.toJSON() }) });
+      // Never wait forever: each step gives up after a while with a clear message
+      const reg = await within(15000, (async () => {
+        const r = (await navigator.serviceWorker.getRegistration("/")) || (await navigator.serviceWorker.register("/sw.js"));
+        if (!r.active) await new Promise<void>((ok) => { const w = r.installing || r.waiting; if (!w) return ok(); w.addEventListener("statechange", () => { if (w.state === "activated") ok(); }); });
+        return r;
+      })(), "The app is still starting. Close it, open it again, and tap the button once more.");
+      const sub = (await reg.pushManager.getSubscription()) || await within(20000, reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!) }), "Your phone didn't answer. Check your connection and try again.");
+      const r = await within(15000, fetch("/api/push", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ subscription: sub.toJSON() }) }), "Couldn't reach Dogwise. Check your connection and try again.");
       if (!r.ok) throw new Error("Couldn't save it. Try again.");
       setSubscribed(true);
-      await fetch("/api/push", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ test: true }) });
-      setMsg("Done! You should see a test notification now.");
+      setMsg("Done! A test notification is on its way.");
+      fetch("/api/push", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ test: true }) }).catch(() => {}); // don't wait for it
     } catch (e) { setMsg((e as Error).message || "Something went wrong. Try again."); } finally { setBusy(false); }
   };
   const Step = ({ n, children }: { n: number; children: React.ReactNode }) => (

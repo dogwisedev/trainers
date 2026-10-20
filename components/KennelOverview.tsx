@@ -40,7 +40,7 @@ export async function KennelOverview() {
           {unread.length ? (
             <ul className="panel divide-y divide-line">
               {unread.map((th) => (
-                <li key={th.trainer.id}><Link href={`/a/messages/${th.trainer.id}`} className="flex items-center gap-3 p-3.5 hover:bg-mint-wash">
+                <li key={th.trainer.id}><Link prefetch={false} href={`/a/messages/${th.trainer.id}`} className="flex items-center gap-3 p-3.5 hover:bg-mint-wash">
                   <Avatar name={th.trainer.name} size={38} />
                   <div className="min-w-0 flex-1"><p className="font-semibold">{th.trainer.name}</p><p className="truncate text-[14px] text-ink-soft">{th.last.body}</p></div>
                   <Pill tone="heart">{th.unread}</Pill>
@@ -51,8 +51,8 @@ export async function KennelOverview() {
         </Section>
         <Section title="Needs a look">
           <ul className="panel divide-y divide-line text-[14px]">
-            {fullUp.map((r) => <li key={r.t.id}><Link className="flex justify-between gap-3 p-3.5 hover:bg-mint-wash" href={`/a/trainers/${r.t.id}`}><span className="shrink-0 font-semibold">{r.t.name}</span><span className="min-w-0 truncate text-ink-soft">No free kennels for 8 weeks</span></Link></li>)}
-            {flagged.map((t) => <li key={t.id}><Link className="flex justify-between gap-3 p-3.5 hover:bg-mint-wash" href={`/a/trainers/${t.id}`}><span className="shrink-0 font-semibold">{t.name}</span><span className="min-w-0 truncate text-ink-soft">{t.data_flags[0]}</span></Link></li>)}
+            {fullUp.map((r) => <li key={r.t.id}><Link prefetch={false} className="flex justify-between gap-3 p-3.5 hover:bg-mint-wash" href={`/a/trainers/${r.t.id}`}><span className="shrink-0 font-semibold">{r.t.name}</span><span className="min-w-0 truncate text-ink-soft">No free kennels for 8 weeks</span></Link></li>)}
+            {flagged.map((t) => <li key={t.id}><Link prefetch={false} className="flex justify-between gap-3 p-3.5 hover:bg-mint-wash" href={`/a/trainers/${t.id}`}><span className="shrink-0 font-semibold">{t.name}</span><span className="min-w-0 truncate text-ink-soft">{t.data_flags[0]}</span></Link></li>)}
             {!fullUp.length && !flagged.length && <li className="p-3.5 text-ink-soft">Nothing to check.</li>}
           </ul>
         </Section>

@@ -25,7 +25,7 @@ export function Heatmap({ rows, weeks }: { rows: { t: Trainer; use: WeekUse[] }[
             {rows.map(({ t, use }) => (
               <tr key={t.id}>
                 <th scope="row" className="sticky left-0 z-[1] max-w-[150px] border-t border-line bg-white px-3 py-1.5 text-left font-medium">
-                  <Link href={`/a/trainers/${t.id}`} className="block truncate hover:underline">{t.name}</Link>
+                  <Link prefetch={false} href={`/a/trainers/${t.id}`} className="block truncate hover:underline">{t.name}</Link>
                   <span className="block text-[11px] font-normal text-ink-faint">{t.state}, {t.capacity} dogs</span>
                 </th>
                 {use.map((w) => (

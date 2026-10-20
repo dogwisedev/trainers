@@ -15,7 +15,7 @@ export default async function TrainerReport({ params }: { params: { id: string }
   return (
     <>
       <div className="mb-4 flex items-center gap-3">
-        <Link href="/t/reports" className="grid h-10 w-10 place-items-center rounded-full hover:bg-mint-wash" aria-label="All reports"><ChevronLeft /></Link>
+        <Link prefetch={false} href="/t/reports" className="grid h-10 w-10 place-items-center rounded-full hover:bg-mint-wash" aria-label="All reports"><ChevronLeft /></Link>
         <div className="min-w-0">
           <h1 className="truncate text-[24px] font-extrabold leading-tight">{kindName(r.kind)}</h1>
           <p className="truncate text-[14px] text-ink-soft">{booking.dog_name || "Dog"}, {booking.client_name}</p>

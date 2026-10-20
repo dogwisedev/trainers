@@ -24,7 +24,7 @@ export default async function AdminChats({ searchParams }: { searchParams: { f?:
     <>
       <h1 className="text-[30px] font-extrabold">Chats</h1>
       <p className="mb-4 mt-1 text-ink-soft">One chat per booking: the client, the trainer and the whole Dogwise team. Any admin can open any chat.</p>
-      <Link href="/a/messages" className="panel mb-4 flex items-center gap-3 px-3.5 py-3 hover:bg-paper/60">
+      <Link prefetch={false} href="/a/messages" className="panel mb-4 flex items-center gap-3 px-3.5 py-3 hover:bg-paper/60">
         <IconTile tone="ink"><Users size={19} /></IconTile>
         <span className="min-w-0 flex-1"><span className="block font-bold">Trainer messages</span><span className="block text-[13px] text-ink-soft">Direct messages with trainers</span></span>
         {teamUnread > 0 && <span className="grid h-[22px] min-w-[22px] place-items-center rounded-full bg-heart px-1.5 text-[12px] font-bold text-white">{teamUnread}</span>}
@@ -32,7 +32,7 @@ export default async function AdminChats({ searchParams }: { searchParams: { f?:
       <ChatFilters base="/a/chats" q={q} t={t} f={closed ? "closed" : undefined} trainers={trainers} />
       <div className="mb-4 flex gap-2">
         {[["", "Open", scoped.filter((c) => c.status === "open").length], ["closed", "Closed", scoped.filter((c) => c.status === "closed").length]].map(([k, l, n]) => (
-          <Link key={String(k)} href={tab(String(k))} className={`rounded-full px-3.5 py-1.5 text-[13px] font-semibold ${(k === "closed") === closed ? "bg-ink text-white" : "border border-line bg-white"}`}>{l} <span className="opacity-70">{n}</span></Link>
+          <Link key={String(k)} prefetch={false} href={tab(String(k))} className={`rounded-full px-3.5 py-1.5 text-[13px] font-semibold ${(k === "closed") === closed ? "bg-ink text-white" : "border border-line bg-white"}`}>{l} <span className="opacity-70">{n}</span></Link>
         ))}
       </div>
       {placed.length ? groupChats(placed).map((g) => (

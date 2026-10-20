@@ -17,7 +17,7 @@ export function BeforeTrainingPopup({ href, left, balanceLink, dog }: { href: st
         <h2 id="btp-title" className="mt-2 text-[22px] font-extrabold leading-tight">Before {dog}&apos;s training</h2>
         <p className="mt-1 text-[15px] text-ink-soft">{left > 0 ? `${left} thing${left > 1 ? "s" : ""} still needed: a few questions, and the vaccine records. It takes a few minutes.` : "Just the remaining balance left."}</p>
         <div className="mt-4 space-y-2">
-          {left > 0 && <Link ref={first} href={href} className="btn-ink w-full">Do it now</Link>}
+          {left > 0 && <Link prefetch={false} ref={first} href={href} className="btn-ink w-full">Do it now</Link>}
           {balanceLink && <a href={balanceLink} target="_blank" rel="noopener" className={`${left > 0 ? "btn-ghost" : "btn-ink"} w-full`}><CreditCard size={17} />Pay the remaining balance</a>}
           <button type="button" className="w-full py-2 text-[14px] font-semibold text-ink-soft" onClick={() => setOpen(false)}>Later</button>
         </div>

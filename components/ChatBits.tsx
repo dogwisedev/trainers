@@ -7,7 +7,7 @@ import { timeAgo } from "@/lib/dates";
 export function ChatListRow({ chat, href, unread, who, flag, dates, preview }: { chat: ChatRow; href: string; unread: boolean; who: string; flag?: string; dates?: string; preview?: string }) {
   return (
     <li>
-      <Link href={href} className="flex items-center gap-3 px-3.5 py-3 hover:bg-paper/60">
+      <Link prefetch={false} href={href} className="flex items-center gap-3 px-3.5 py-3 hover:bg-paper/60">
         <span className="relative">
           <Avatar name={chat.title || "Dog"} size={42} />
           {unread && <span className="absolute -right-0.5 -top-0.5 h-3 w-3 rounded-full border-2 border-white bg-heart" aria-label="Unread" />}

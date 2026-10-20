@@ -76,8 +76,8 @@ function Item({ i }: { i: TodoItem }) {
         <div className="mt-3 flex flex-wrap items-center gap-2">
           {i.primary && (i.primary.external
             ? <a href={i.primary.href} target="_blank" rel="noopener" className="btn-ink h-9 min-h-0 px-3.5 text-[13px]">{i.primary.label}<ExternalLink size={13} /></a>
-            : <Link href={i.primary.href} className="btn-ink h-9 min-h-0 px-3.5 text-[13px]">{i.primary.label}</Link>)}
-          {i.dogHref && i.primary?.href !== i.dogHref && <Link href={i.dogHref} className="btn-ghost h-9 min-h-0 px-3 text-[13px]"><PawPrint size={14} />Dog</Link>}
+            : <Link prefetch={false} href={i.primary.href} className="btn-ink h-9 min-h-0 px-3.5 text-[13px]">{i.primary.label}</Link>)}
+          {i.dogHref && i.primary?.href !== i.dogHref && <Link prefetch={false} href={i.dogHref} className="btn-ghost h-9 min-h-0 px-3 text-[13px]"><PawPrint size={14} />Dog</Link>}
           {i.hubspot && !i.primary?.external && <a href={i.hubspot} target="_blank" rel="noopener" className="btn-ghost h-9 min-h-0 px-3 text-[13px]">HubSpot<ExternalLink size={13} /></a>}
           {i.incidentId && <span className="ml-auto"><TodoDone id={i.incidentId} /></span>}
         </div>

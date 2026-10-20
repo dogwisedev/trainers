@@ -14,7 +14,7 @@ export default async function PastDogs({ searchParams }: { searchParams: { q?: s
   return (
     <>
       <div className="mb-1 flex items-center gap-2">
-        <Link href="/t" className="grid h-10 w-10 place-items-center rounded-full hover:bg-mint-wash" aria-label="Back"><ChevronLeft /></Link>
+        <Link prefetch={false} href="/t" className="grid h-10 w-10 place-items-center rounded-full hover:bg-mint-wash" aria-label="Back"><ChevronLeft /></Link>
         <h1 className="text-[30px] font-extrabold">Past dogs</h1>
       </div>
       <p className="mb-4 text-ink-soft">Dogs you&apos;ve finished training, with their forms.</p>

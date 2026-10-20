@@ -19,7 +19,7 @@ const YesNo = ({ name, label, onChange }: { name: string; label: string; onChang
 export function IncidentReportForm({ chatId, dogs, now, back }: { chatId: string; dogs: { id: string; name: string }[]; now: string; back: string }) {
   const [r, act] = useFormState(reportIncidentAction, null);
   const [vet, setVet] = useState("");
-  if (r?.ok) return <div className="panel space-y-3 p-5"><p className="font-bold text-fern">{r.message}</p><Link href={back} className="btn-ink">Back to the chat</Link></div>;
+  if (r?.ok) return <div className="panel space-y-3 p-5"><p className="font-bold text-fern">{r.message}</p><Link prefetch={false} href={back} className="btn-ink">Back to the chat</Link></div>;
   return (
     <form action={act} className="panel space-y-4 p-5">
       <input type="hidden" name="chat_id" value={chatId} />

@@ -39,4 +39,5 @@ export async function middleware(req: NextRequest) {
   return res;
 }
 
-export const config = { matcher: ["/((?!_next/static|_next/image|icons|logo.png|brand-logo.png|manifest.webmanifest|api/availability|api/bookings|api/payroll).*)"] }; 
+// Static files, the service worker and server-to-server routes skip the session check (it costs a round trip to Supabase)
+export const config = { matcher: ["/((?!_next/static|_next/image|icons|logo.png|brand-logo.png|manifest.webmanifest|sw.js|offline.html|favicon.ico|api/availability|api/bookings|api/payroll|api/stripe|api/hubspot|api/chat/cron|api/reports/cron).*)"] }; 

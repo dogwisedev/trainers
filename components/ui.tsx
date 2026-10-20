@@ -36,7 +36,7 @@ export function Empty({ title, children, href, cta }: { title: string; children?
       <span className="mx-auto mb-3 grid h-11 w-11 place-items-center rounded-2xl bg-paper text-lav" aria-hidden><PawPrint size={22} /></span>
       <p className="font-bold">{title}</p>
       {children && <p className="mt-1 text-[14px] text-ink-soft">{children}</p>}
-      {href && cta && <Link href={href} className="btn-mint mt-4">{cta}</Link>}
+      {href && cta && <Link prefetch={false} href={href} className="btn-mint mt-4">{cta}</Link>}
     </div>
   );
 }

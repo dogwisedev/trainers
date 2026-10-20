@@ -22,12 +22,12 @@ export default async function ClientChat({ params }: { params: { id: string } })
         {chat.trainer_name && <Avatar name={chat.trainer_name} size={44} />}
         <h1 className="text-[26px] font-extrabold leading-tight">{chat.title || "Your dog"}</h1>
       </div>
-      <p className="mb-4 text-[14px] text-ink-soft">{chat.trainer_name ? `Training with ${chat.trainer_name}. ` : ""}<Link href="/c" className="underline">All chats</Link>{ready && <> · <Link href={`/c/${chat.id}/profile`} className="underline">Your dog&apos;s details</Link></>}</p>
+      <p className="mb-4 text-[14px] text-ink-soft">{chat.trainer_name ? `Training with ${chat.trainer_name}. ` : ""}<Link prefetch={false} href="/c" className="underline">All chats</Link>{ready && <> · <Link prefetch={false} href={`/c/${chat.id}/profile`} className="underline">Your dog&apos;s details</Link></>}</p>
       {ready && (ready.left > 0 || ready.balanceLink) && <BeforeTrainingPopup href={`/c/${chat.id}/profile`} left={ready.left} balanceLink={ready.balanceLink} dog={chat.title || "your dog"} />}
       {ready && (ready.left > 0 || ready.balanceLink) && (
         <div className="panel mb-4 space-y-3 border-biscuit p-4">
           {ready.left > 0 && (
-            <Link href={`/c/${chat.id}/profile`} className="flex items-center gap-3">
+            <Link prefetch={false} href={`/c/${chat.id}/profile`} className="flex items-center gap-3">
               <ClipboardList size={22} className="shrink-0" />
               <span className="min-w-0 flex-1"><span className="block font-bold">Before training: {ready.left} thing{ready.left > 1 ? "s" : ""} left</span><span className="text-[13px] text-ink-soft">Answer the missing questions and send the vaccine records.</span></span>
               <span className="btn-ink h-9 min-h-0 px-3 text-[13px]">Open</span>
