@@ -1,6 +1,7 @@
 import "server-only";
 import crypto from "node:crypto";
 import { serviceClient } from "./supabase";
+import { lastSignIns, userIdByEmail } from "./userLookup";
 import { sendMail } from "./mail";
 import { BRAND_LOGO_PNG_BASE64 } from "./brandLogo";
 
@@ -14,15 +15,6 @@ const VALID_DAYS = 7;
 
 export type SigninRow = { id: string; name: string; email: string | null; lastSignIn: string | null; hasLogin: boolean; nudgedAt: string | null };
 
-async function allUsers() {
-  const users: { id: string; email?: string; last_sign_in_at?: string | null }[] = [];
-  for (let page = 1; page <= 10; page++) {
-    const { data } = await serviceClient().auth.admin.listUsers({ page, perPage: 1000 });
-    users.push(...(data?.users || []));
-    if (!data || data.users.length < 1000) break;
-  }
-  return users;
-}
 
 let signinCache: { at: number; rows: SigninRow[] } | null = null;
 /** Active trainers and whether they've ever signed in. Cached for 5 minutes (To do reads it on every load). */
@@ -34,15 +26,17 @@ export async function trainerSignins(): Promise<SigninRow[]> {
 }
 async function loadSignins(): Promise<SigninRow[]> {
   const sb = serviceClient();
-  const [{ data: trainers }, { data: profiles }, users] = await Promise.all([
+  const [{ data: trainers }, { data: profiles }] = await Promise.all([
     sb.from("trainers").select("id, name, email, dogwise_email, signin_nudged_at").eq("active", true).order("name"),
-    sb.from("profiles").select("id, trainer_id").not("trainer_id", "is", null),
-    allUsers()
+    sb.from("profiles").select("id, trainer_id").not("trainer_id", "is", null)
   ]);
+  const profs = (profiles || []) as { id: string; trainer_id: string }[];
+  const seen = await lastSignIns(profs.map((p) => p.id));
+  if (!seen) return []; // couldn't check: show nothing rather than everyone
   return ((trainers || []) as { id: string; name: string; email: string | null; dogwise_email: string | null; signin_nudged_at: string | null }[]).map((t) => {
-    const logins = ((profiles || []) as { id: string; trainer_id: string }[]).filter((p) => p.trainer_id === t.id).map((p) => users.find((u) => u.id === p.id)).filter(Boolean);
-    const last = logins.map((u) => u!.last_sign_in_at).filter((x): x is string => !!x).sort().pop() || null;
-    return { id: t.id, name: t.name, email: t.email || t.dogwise_email, lastSignIn: last, hasLogin: logins.length > 0, nudgedAt: t.signin_nudged_at };
+    const mine = profs.filter((p) => p.trainer_id === t.id);
+    const last = mine.map((p) => seen.get(p.id)).filter((x): x is string => !!x).sort().pop() || null;
+    return { id: t.id, name: t.name, email: t.email || t.dogwise_email, lastSignIn: last, hasLogin: mine.length > 0, nudgedAt: t.signin_nudged_at };
   });
 }
 
@@ -65,14 +59,14 @@ export function verifyWelcome(token: string): string | null {
 /** Makes sure the trainer has a login linked to their profile (creates one if needed). */
 async function ensureLogin(trainerId: string, email: string, name: string) {
   const sb = serviceClient();
-  let user = (await allUsers()).find((u) => u.email?.toLowerCase() === email.toLowerCase());
-  if (!user) {
+  let userId = await userIdByEmail(email);
+  if (!userId) {
     const { data, error } = await sb.auth.admin.createUser({ email, email_confirm: true });
     if (error || !data.user) throw new Error(error?.message || "Couldn't create the login.");
-    user = data.user;
+    userId = data.user.id;
   }
-  const { data: existing } = await sb.from("profiles").select("role").eq("id", user.id).maybeSingle();
-  if (existing?.role !== "admin") await sb.from("profiles").upsert({ id: user.id, role: "trainer", trainer_id: trainerId, display_name: name });
+  const { data: existing } = await sb.from("profiles").select("role").eq("id", userId).maybeSingle();
+  if (existing?.role !== "admin") await sb.from("profiles").upsert({ id: userId, role: "trainer", trainer_id: trainerId, display_name: name });
 }
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));

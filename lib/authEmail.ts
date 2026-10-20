@@ -1,3 +1,4 @@
+import { userIdByEmail } from "./userLookup";
 import "server-only";
 import { serviceClient } from "./supabase";
 import { sendMail } from "./mail";
@@ -8,10 +9,7 @@ import { BRAND_LOGO_PNG_BASE64 } from "./brandLogo";
 
 const site = () => (process.env.NEXT_PUBLIC_SITE_URL || "").replace(/\/$/, "");
 
-async function findUserId(email: string) {
-  const { data } = await serviceClient().auth.admin.listUsers({ perPage: 1000 });
-  return data?.users.find((u) => u.email?.toLowerCase() === email.toLowerCase())?.id || null;
-}
+const findUserId = (email: string) => userIdByEmail(email);
 
 function emailHtml(title: string, intro: string, button: string, link: string, footnote: string) {
   return `<div style="background:#f4f5f8;padding:24px 12px;font-family:Inter,Segoe UI,Roboto,Helvetica,Arial,sans-serif">

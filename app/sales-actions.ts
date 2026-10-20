@@ -5,6 +5,7 @@ import { serviceClient, isDemo } from "@/lib/supabase";
 import { salesTeam } from "@/lib/hubspot";
 import { owners, parseSheetSales } from "@/lib/sales";
 import { sendSignInLink } from "@/lib/authEmail";
+import { userIdByEmail } from "@/lib/userLookup";
 
 type R = { ok: boolean; message: string };
 async function admin() { const v = await getViewer(); return v?.role === "admin" ? v : null; }
@@ -15,13 +16,13 @@ export async function inviteSalesAction(ownerId: string): Promise<R> {
   const o = (await salesTeam()).find((x) => x.id === ownerId);
   if (!o?.email) return { ok: false, message: "Not found in the HubSpot sales team." };
   const sb = serviceClient();
-  const { data: list } = await sb.auth.admin.listUsers({ page: 1, perPage: 1000 });
-  let user = list?.users.find((u) => u.email?.toLowerCase() === o.email);
-  if (!user) {
+  let id = await userIdByEmail(o.email);
+  if (!id) {
     const { data, error } = await sb.auth.admin.createUser({ email: o.email, email_confirm: true });
     if (error || !data.user) return { ok: false, message: error?.message || "Couldn't create the login." };
-    user = data.user;
+    id = data.user.id;
   }
+  const user = { id };
   const { data: p } = await sb.from("profiles").select("role").eq("id", user.id).maybeSingle();
   if (p && p.role !== "sales") return { ok: false, message: `${o.name} already has a ${p.role} login.` };
   const { error } = await sb.from("profiles").upsert({ id: user.id, role: "sales", display_name: o.name, hubspot_owner_id: o.id });
