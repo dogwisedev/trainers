@@ -21,6 +21,10 @@ export type NewIncident = {
 /** Opens an incident and emails admins straight away. If the same one is already open, nothing happens. Never throws. */
 export async function raiseIncident(i: NewIncident, sb: SupabaseClient = serviceClient()): Promise<boolean> {
   try {
+    // Already open? Then nothing to do (checking first keeps the database log free of "duplicate key" errors)
+    let open = sb.from("chat_incidents").select("id").eq("kind", i.kind).neq("status", "resolved").limit(1);
+    open = i.ref ? open.eq("ref", i.ref) : open.is("ref", null).eq("chat_id", i.chatId || "");
+    if ((await open).data?.length) return false;
     const now = new Date().toISOString();
     const email = !!(i.office || (i.urgent ?? URGENT.includes(i.kind)));
     const { error } = await sb.from("chat_incidents").insert({

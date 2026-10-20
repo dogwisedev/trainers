@@ -28,8 +28,6 @@ export async function middleware(req: NextRequest) {
   if (!hasSession) return protectedPath ? NextResponse.redirect(new URL("/login", req.url)) : NextResponse.next();
   let res = NextResponse.next({ request: req });
   const sb = createServerClient(url, key, {
-    // Never let a slow Supabase hold up the page: give up after 4 seconds (the page checks the login itself anyway)
-    global: { fetch: (input: RequestInfo | URL, init?: RequestInit) => fetch(input, { ...init, signal: AbortSignal.timeout(4000) }) },
     cookies: {
       getAll: () => req.cookies.getAll(),
       setAll: (list: { name: string; value: string; options?: Record<string, unknown> }[]) => {
@@ -39,11 +37,9 @@ export async function middleware(req: NextRequest) {
       }
     }
   });
-  try {
-    const { data: { user }, error } = await sb.auth.getUser();
-    // Only send to login when Supabase clearly says "not signed in", never because it was slow
-    if (protectedPath && !user && !(error && /abort|timeout|fetch/i.test(`${error.name} ${error.message}`))) return NextResponse.redirect(new URL("/login", req.url));
-  } catch { /* slow or unreachable: let the page decide */ }
+  // Refreshes the login session once per request and saves it (pages must not refresh it themselves, or they race)
+  const { data: { user } } = await sb.auth.getUser();
+  if (protectedPath && !user) return NextResponse.redirect(new URL("/login", req.url));
   return res;
 }
 
