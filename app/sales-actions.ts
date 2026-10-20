@@ -3,7 +3,7 @@ import { revalidatePath } from "next/cache";
 import { getViewer } from "@/lib/data";
 import { serviceClient, isDemo } from "@/lib/supabase";
 import { salesTeam } from "@/lib/hubspot";
-import { owners, parseSheetSales } from "@/lib/sales";
+import { matchOwner, parseSheetSales, salesPeople } from "@/lib/sales";
 import { sendSignInLink } from "@/lib/authEmail";
 import { userIdByEmail } from "@/lib/userLookup";
 
@@ -40,8 +40,8 @@ export async function importSalesAction(_: R | null, f: FormData): Promise<R> {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(through)) return { ok: false, message: "Say which day these rows go up to." };
   const rows = parseSheetSales(String(f.get("rows") || ""));
   if (!rows.length) return { ok: false, message: "No sales found. Copy the rows from the sheet (name, client, program, amount…) and paste them." };
-  const all = await owners();
-  const match = (name: string) => { const first = name.toLowerCase().split(/\s+/)[0]; const m = all.filter((o) => o.name.toLowerCase().split(/\s+/)[0] === first); return m.length === 1 ? m[0].id : null; };
+  const all = await salesPeople();
+  const match = (name: string) => matchOwner(name, all);
   const sb = serviceClient();
   await sb.from("sales_import").delete().eq("month", `${month}-01`);
   const { error } = await sb.from("sales_import").insert(rows.map((r) => ({ month: `${month}-01`, seller: r.seller, owner_id: match(r.seller), client: r.client || null, program: r.program || null, amount: r.amount, paid_in_full: r.paidInFull })));

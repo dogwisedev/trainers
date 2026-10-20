@@ -1,6 +1,6 @@
 import "server-only";
 import { serviceClient, isDemo } from "./supabase";
-import { listOwners, Owner } from "./hubspot";
+import { listOwners, Owner, salesTeam } from "./hubspot";
 import { remainingOf } from "./money";
 
 // Sales: Closed Won deals booked in the app, in the month they were won, per deal owner.
@@ -14,6 +14,25 @@ export const monthStart = (m: string) => `${m}-01`;
 export const nextMonth = (m: string) => { const [y, mo] = m.split("-").map(Number); return mo === 12 ? `${y + 1}-01` : `${y}-${String(mo + 1).padStart(2, "0")}`; };
 
 export async function owners(): Promise<Owner[]> { try { return await listOwners(); } catch { return []; } }
+/** The HubSpot sales team (falls back to every owner if no team is found). Sheet names are matched against these. */
+export async function salesPeople(): Promise<Owner[]> { try { const t = await salesTeam(); return t.length ? t : await owners(); } catch { return owners(); } }
+/** The HubSpot owner whose email this is (a sales person's login email = their HubSpot email). */
+export async function ownerByEmail(email: string | null | undefined): Promise<Owner | null> { if (!email) return null; const e = email.toLowerCase(); return (await owners()).find((o) => o.email === e) || null; }
+
+/** A name from the Monies sheet ("Ariane", "James S", "Paul Faronbi") → the HubSpot owner, if exactly one fits.
+ *  Checked against full name, first name, and the email's first part (ariane@… ↔ "Ariane"). */
+export function matchOwner(name: string, all: Owner[]): string | null {
+  const n = name.toLowerCase().replace(/[^a-z\s]/g, " ").replace(/\s+/g, " ").trim();
+  if (!n) return null;
+  const first = n.split(" ")[0], squashed = n.replace(/ /g, "");
+  const tests: ((o: Owner) => boolean)[] = [
+    (o) => o.name.toLowerCase() === n,
+    (o) => { const local = o.email.split("@")[0].replace(/[^a-z]/g, ""); return local === squashed || local === first; },
+    (o) => o.name.toLowerCase().split(/\s+/)[0] === first
+  ];
+  for (const t of tests) { const m = all.filter(t); if (m.length === 1) return m[0].id; }
+  return null;
+}
 
 export async function salesMonth(month: string, ownerId?: string): Promise<{ sellers: Seller[]; total: number; remaining: number; count: number; importedThrough: string | null }> {
   const empty = { sellers: [], total: 0, remaining: 0, count: 0, importedThrough: null };
@@ -24,7 +43,10 @@ export async function salesMonth(month: string, ownerId?: string): Promise<{ sel
     sb.from("sales_import").select("*").eq("month", from),
     owners()
   ]);
+  const team = await salesPeople();
   const through = (st?.value as string | undefined) || null;
+  const fixed = ((imp || []) as { id: string; seller: string; owner_id: string | null }[]).filter((r) => !r.owner_id).map((r) => ({ id: r.id, owner: matchOwner(r.seller, team) })).filter((r) => r.owner);
+  for (const r of fixed) await sb.from("sales_import").update({ owner_id: r.owner }).eq("id", r.id);
   let q = sb.from("deal_money").select("*").gte("closed_on", from).lt("closed_on", to);
   if (through) q = q.gt("closed_on", through);
   if (ownerId) q = q.eq("owner_id", ownerId);
@@ -40,6 +62,7 @@ export async function salesMonth(month: string, ownerId?: string): Promise<{ sel
         link: d.remaining_balance_link, dealId: d.deal_id, closedOn: d.closed_on, source: "app" };
     }),
     ...((imp || []) as { id: string; seller: string; owner_id: string | null; client: string | null; program: string | null; amount: number; paid_in_full: boolean | null }[])
+      .map((r) => ({ ...r, owner_id: r.owner_id || matchOwner(r.seller, team) }))   // rows imported before a match was found
       .filter((r) => !ownerId || r.owner_id === ownerId)
       .map((r): Sale => ({ key: `s:${r.id}`, seller: r.owner_id ? nameOf(r.owner_id) : r.seller, ownerId: r.owner_id, client: r.client || "", program: r.program || "", amount: Number(r.amount) || 0,
         remaining: r.paid_in_full ? 0 : null, link: null, dealId: null, closedOn: null, source: "sheet" }))

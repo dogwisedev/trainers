@@ -1,6 +1,6 @@
 import { requireRole } from "@/lib/data";
 import { isDemo, serviceClient } from "@/lib/supabase";
-import { recentMonths, salesMonth } from "@/lib/sales";
+import { ownerByEmail, recentMonths, salesMonth } from "@/lib/sales";
 import { etParts } from "@/lib/chatRules";
 import { SalesView } from "@/components/SalesView";
 
@@ -10,8 +10,11 @@ export default async function MySales({ searchParams }: { searchParams: { m?: st
   const v = await requireRole("sales");
   const today = etParts(new Date()).date, months = recentMonths(today.slice(0, 7));
   const month = searchParams.m && /^\d{4}-\d{2}$/.test(searchParams.m) ? searchParams.m : months[0];
-  const { data: p } = isDemo() ? { data: null } : await serviceClient().from("profiles").select("hubspot_owner_id").eq("id", v.userId).maybeSingle();
-  const data = p?.hubspot_owner_id ? await salesMonth(month, p.hubspot_owner_id) : { sellers: [], total: 0, remaining: 0, count: 0 };
+  // Who you are in HubSpot: the owner with your login email (falls back to the owner saved when your login was made)
+  const owner = isDemo() ? null : await ownerByEmail(v.email);
+  const { data: p } = owner || isDemo() ? { data: null } : await serviceClient().from("profiles").select("hubspot_owner_id").eq("id", v.userId).maybeSingle();
+  const ownerId = owner?.id || p?.hubspot_owner_id || null;
+  const data = ownerId ? await salesMonth(month, ownerId) : { sellers: [], total: 0, remaining: 0, count: 0 };
   return (
     <>
       <h1 className="text-[32px] font-extrabold leading-tight">Hi {v.name.split(" ")[0]}</h1>
