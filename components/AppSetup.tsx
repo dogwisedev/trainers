@@ -66,7 +66,14 @@ export function AppSetup({ always = false }: { always?: boolean }) {
       setSubscribed(true);
       setMsg("Done! A test notification is on its way.");
       fetch("/api/push", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ test: true }) }).catch(() => {}); // don't wait for it
-    } catch (e) { setMsg((e as Error).message || "Something went wrong. Try again."); } finally { setBusy(false); }
+    } catch (e) {
+      const m = (e as Error).message || "";
+      // The browser couldn't reach its own push service (Brave's default, or a VPN / work network blocking it)
+      const brave = /brave/i.test(navigator.userAgent) || "brave" in navigator;
+      setMsg(/push service|registration failed/i.test(m)
+        ? `Your browser couldn't reach its notification service. ${brave ? "In Brave: Settings, Privacy and security, turn on \"Use Google services for push messaging\", restart Brave, then try again." : "If you're on a VPN or work network, try another connection, then try again."} On your phone this usually just works.`
+        : m || "Something went wrong. Try again.");
+    } finally { setBusy(false); }
   };
   const Step = ({ n, children }: { n: number; children: React.ReactNode }) => (
     <li className="flex gap-3"><span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-ink text-[13px] font-bold text-white">{n}</span><span className="pt-0.5 text-[15px] leading-snug">{children}</span></li>
@@ -104,18 +111,18 @@ export function AppSetup({ always = false }: { always?: boolean }) {
       ) : needPush || always ? (
         <>
           <h2 id="setup-title" className="pr-8 text-[19px] font-extrabold">{perm === "granted" && subscribed ? "Notifications are on" : "Turn on notifications"}</h2>
-          <p className="mt-1 text-[14px] text-ink-soft">{perm === "granted" && subscribed ? "You'll get new messages, bookings and forms on this phone straight away." : "So you see new messages, bookings and forms straight away, not just by email."}</p>
+          <p className="mt-1 text-[14px] text-ink-soft">{perm === "granted" && subscribed ? `You'll get new messages, bookings and forms on this ${env.mobile ? "phone" : "computer"} straight away.` : "So you see new messages, bookings and forms straight away, not just by email."}</p>
           {!canPush ? (
             <p className="mt-3 text-[14px] font-semibold">{env.ios ? "Add the app to your Home Screen first (Share, then Add to Home Screen), and open it from there." : "This browser can't show notifications. Try Chrome."}</p>
           ) : perm === "denied" ? (
-            <div className="mt-3 rounded-xl bg-biscuit-wash p-3 text-[14px]"><p className="flex items-center gap-2 font-bold"><BellOff size={16} />Notifications are blocked on this phone</p>
-              <p className="mt-1">{env.ios ? "Open Settings, tap Notifications, find Dogwise and turn on Allow Notifications." : "In Chrome, tap the icon to the left of the web address, then Permissions, and allow Notifications. In the installed app: long-press its icon, App info, Notifications."}</p></div>
+            <div className="mt-3 rounded-xl bg-biscuit-wash p-3 text-[14px]"><p className="flex items-center gap-2 font-bold"><BellOff size={16} />Notifications are blocked {env.mobile ? "on this phone" : "in this browser"}</p>
+              <p className="mt-1">{env.ios ? "Open Settings, tap Notifications, find Dogwise and turn on Allow Notifications." : env.mobile ? "In Chrome, tap the icon to the left of the web address, then Permissions, and allow Notifications. In the installed app: long-press its icon, App info, Notifications." : "Click the icon to the left of the web address, then Site settings, and set Notifications to Allow. Private or Incognito windows can't show notifications: use a normal window or the installed app."}</p></div>
           ) : !(perm === "granted" && subscribed) ? (
             <button type="button" onClick={turnOn} disabled={busy} className="btn-ink mt-4 w-full sm:w-auto"><Bell size={18} />{busy ? "Turning on…" : "Turn on notifications"}</button>
           ) : (
             <button type="button" onClick={() => fetch("/api/push", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ test: true }) }).then(() => setMsg("Test sent."))} className="btn-ghost mt-3">Send a test notification</button>
           )}
-          {needPush && !always && <p className="mt-2 text-[12px] text-ink-faint">Your phone will ask: tap Allow.</p>}
+          {needPush && !always && <p className="mt-2 text-[12px] text-ink-faint">{env.mobile ? "Your phone will ask: tap Allow." : "Your browser will ask: click Allow."}</p>}
         </>
       ) : null}
       {msg && <p role="status" className="mt-3 text-[14px] font-semibold">{msg}</p>}
