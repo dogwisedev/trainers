@@ -9,7 +9,7 @@ export const metadata: Metadata = {
   icons: { icon: [{ url: "/icons/icon-32.png", sizes: "32x32" }, { url: "/icons/icon-64.png", sizes: "64x64" }], apple: "/icons/apple-touch-icon.png" },
   appleWebApp: { capable: true, title: "Dogwise", statusBarStyle: "default" }
 };
-export const viewport: Viewport = { width: "device-width", initialScale: 1, viewportFit: "cover", themeColor: "#BFF6C3" };
+export const viewport: Viewport = { width: "device-width", initialScale: 1, viewportFit: "cover", themeColor: "#9878F8" };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
