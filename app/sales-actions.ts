@@ -49,7 +49,9 @@ export async function importSalesAction(_: R | null, f: FormData): Promise<R> {
   await sb.from("sales_import").delete().eq("month", `${month}-01`);
   const { error } = await sb.from("sales_import").insert(rows.map((r) => ({ month: `${month}-01`, seller: r.seller, owner_id: match(r.seller), client: r.client || null, program: r.program || null, amount: r.amount, paid_in_full: r.paidInFull })));
   if (error) return { ok: false, message: error.message };
-  await sb.from("app_state").upsert({ key: "sales_import_through", value: through, updated_at: new Date().toISOString() });
+  // The cut-over date only ever moves forward (importing an older month never hides newer app sales)
+  const { data: cur } = await sb.from("app_state").select("value").eq("key", "sales_import_through").maybeSingle();
+  if (!cur?.value || through > String(cur.value)) await sb.from("app_state").upsert({ key: "sales_import_through", value: through, updated_at: new Date().toISOString() });
   revalidatePath("/a/sales");
   const unmatched = [...new Set(rows.filter((r) => !match(r.seller)).map((r) => r.seller))];
   return { ok: true, message: `Imported ${rows.length} sales. Deals won after ${through} come from the app.${unmatched.length ? ` Not matched to a HubSpot owner: ${unmatched.join(", ")}.` : ""}` };
