@@ -10,6 +10,7 @@ import { sendInvite, sendSignInLink } from "@/lib/authEmail";
 import { sendSigninHello } from "@/lib/trainerSignin";
 import { cleanDealId } from "@/lib/dealId";
 import { validMiles } from "@/lib/trips";
+import { pushToAdmins, pushToTrainer } from "@/lib/push";
 import { currentRunDate, probationHeld } from "@/lib/payrollData";
 import { FOLLOWUP_PROPS, syncMoney } from "@/lib/money";
 import { updateDeal } from "@/lib/hubspot";
@@ -236,7 +237,11 @@ export async function sendMessage(trainerId: string, body: string): Promise<Resu
   const { error } = await serverClient().from("messages").insert({
     trainer_id: trainerId, sender_id: v.userId, sender_role: v.role, sender_name: v.role === "admin" ? "Dogwise team" : v.name, body: text.slice(0, 4000)
   });
-  return error ? { ok: false, message: error.message } : { ok: true, message: "Sent" };
+  if (error) return { ok: false, message: error.message };
+  // Phone notification to the other side (one per conversation on the lock screen)
+  if (v.role === "admin") await pushToTrainer(trainerId, { title: "Message from the Dogwise team", body: text, url: "/t/messages", tag: "team" });
+  else await pushToAdmins({ title: `${v.name} sent you a message`, body: text, url: `/a/messages/${trainerId}`, tag: `team-${trainerId}` });
+  return { ok: true, message: "Sent" };
 }
 
 export async function markRead(trainerId: string): Promise<void> {

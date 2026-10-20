@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { serviceClient } from "./supabase";
 import { alertAdmins, officeEmail } from "./adminAlert";
 import { INCIDENT_LABEL, IncidentKind } from "./chatRules";
+import { pushToTrainer } from "./push";
 
 // Incidents that aren't opened by the chat check: forms, bookings and HubSpot.
 // They show on the admin To do list (/a) next to the chat ones.
@@ -54,7 +55,10 @@ export async function resolveIncidents(match: { kinds: IncidentKind[]; ref?: str
 
 /** A message from the Dogwise team in the trainer's team thread (Chats → Dogwise team). Never throws. */
 export async function messageTrainer(trainerId: string, body: string, sb: SupabaseClient = serviceClient()) {
-  try { await sb.from("messages").insert({ trainer_id: trainerId, sender_id: null, sender_role: "admin", sender_name: "Dogwise team", body: body.slice(0, 4000) }); }
+  try {
+    await sb.from("messages").insert({ trainer_id: trainerId, sender_id: null, sender_role: "admin", sender_name: "Dogwise team", body: body.slice(0, 4000) });
+    await pushToTrainer(trainerId, { title: "Message from the Dogwise team", body, url: "/t/messages", tag: "team" });
+  }
   catch { /* the incident is the important part */ }
 }
 
