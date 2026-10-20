@@ -17,19 +17,19 @@ async function stripe<T>(path: string, form: Record<string, string>): Promise<T>
 }
 
 /** A one-time payment link for exactly the remaining balance, tagged with the HubSpot deal id. */
-export async function createRemainingLink(o: { dealId: string; amount: number; label: string }): Promise<string> {
+export async function createRemainingLink(o: { dealId: string; amount: number; label: string }): Promise<{ url: string; id: string }> {
   const cents = Math.round(o.amount * 100);
   if (cents < 50) throw new Error("Amount too small for Stripe.");
   const price = await stripe<{ id: string }>("/prices", {
     currency: "usd", unit_amount: String(cents), "product_data[name]": `Remaining balance: ${o.label}`.slice(0, 250), "product_data[metadata][deal_id]": o.dealId
   });
-  const link = await stripe<{ url: string }>("/payment_links", {
+  const link = await stripe<{ url: string; id: string }>("/payment_links", {
     "line_items[0][price]": price.id, "line_items[0][quantity]": "1",
     "metadata[deal_id]": o.dealId, "metadata[kind]": "remaining_balance",
     "payment_intent_data[metadata][deal_id]": o.dealId,
     "restrictions[completed_sessions][limit]": "1"
   });
-  return link.url;
+  return { url: link.url, id: link.id };
 }
 
 /** Checks the Stripe-Signature header (v1, HMAC-SHA256 of "timestamp.payload"), within 5 minutes. */
@@ -44,4 +44,9 @@ export function verifyStripe(payload: string, header: string | null): boolean {
     const got = p.slice(3);
     return got.length === want.length && crypto.timingSafeEqual(Buffer.from(got), Buffer.from(want));
   });
+}
+
+/** Switches off a payment link the app made (when a new one replaces it), so the old amount can't be paid. */
+export async function deactivateLink(id: string) {
+  await stripe(`/payment_links/${id}`, { active: "false" });
 }

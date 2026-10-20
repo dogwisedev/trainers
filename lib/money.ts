@@ -2,7 +2,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { serviceClient, isDemo } from "./supabase";
 import { DealProps, hsDate, hubspotConfigured, optionValue, propDefs, readDeals, updateDeal } from "./hubspot";
-import { createRemainingLink, stripeConfigured } from "./stripe";
+import { createRemainingLink, deactivateLink, stripeConfigured } from "./stripe";
 import { addDays } from "./dates";
 import { etParts } from "./chatRules";
 
@@ -31,8 +31,10 @@ export async function syncMoney(opts: { dealIds?: string[]; sb?: SupabaseClient 
   if (!ids.length) return out;
   let deals: Map<string, DealProps>;
   try { deals = await readDeals(ids, PROPS); } catch (e) { out.errors.push((e as Error).message); return out; }
-  const { data: old } = await sb.from("deal_money").select("deal_id, link_by_app").in("deal_id", ids);
-  const byApp = new Map(((old || []) as { deal_id: string; link_by_app: boolean }[]).map((r) => [r.deal_id, r.link_by_app]));
+  const { data: old } = await sb.from("deal_money").select("deal_id, link_by_app, amount, link_amount, link_id").in("deal_id", ids);
+  type Prev = { deal_id: string; link_by_app: boolean; amount: number | null; link_amount: number | null; link_id: string | null };
+  const prevOf = new Map(((old || []) as Prev[]).map((r) => [r.deal_id, r]));
+  const byApp = new Map([...prevOf.values()].map((r) => [r.deal_id, r.link_by_app]));
   const linksFrom = process.env.STRIPE_LINKS_FROM || "";
   for (const id of ids) {
     const p = deals.get(id);
@@ -41,17 +43,30 @@ export async function syncMoney(opts: { dealIds?: string[]; sb?: SupabaseClient 
     const row = {
       deal_id: id, dealname: p.dealname || null, owner_id: p.hubspot_owner_id || null, amount: num(p.amount), amount_paid: num(p.amount_paid),
       closed_on: won ? hsDate(p.closedate) : null, payment_status: p.payment_status || null, remaining_balance_link: (p.remaining_balance_link || "").trim() || null,
-      link_by_app: byApp.get(id) || false, followups: FOLLOWUP_PROPS.map((k) => hsDate(p[k])).filter((x): x is string => !!x), synced_at: new Date().toISOString()
+      link_by_app: byApp.get(id) || false, link_amount: prevOf.get(id)?.link_amount ?? null, link_id: prevOf.get(id)?.link_id ?? null, followups: FOLLOWUP_PROPS.map((k) => hsDate(p[k])).filter((x): x is string => !!x), synced_at: new Date().toISOString()
     };
     // Stripe link for the remaining balance
-    const owed = remainingOf(row);
-    if (stripeConfigured() && linksFrom && won && row.closed_on && row.closed_on >= linksFrom && owed >= 1 && !row.remaining_balance_link) {
+    //  New: a won deal (closed on/after STRIPE_LINKS_FROM) with something owed and no link yet.
+    //  Extension: the deal's amount went UP since the app last saw it, and something is owed again. The app replaces its own
+    //  old link (switching it off in Stripe) and sets payment_status back to "Remaining Balance Due". A link someone put in by hand is never replaced.
+    const prev = prevOf.get(id);
+    const owedNow = Math.max(0, Math.round((row.amount - row.amount_paid) * 100) / 100);
+    const extended = !!prev && prev.amount != null && row.amount > Number(prev.amount) + 0.5 && owedNow >= 1 && (!row.remaining_balance_link || row.link_by_app);
+    const fresh = linksFrom && won && row.closed_on && row.closed_on >= linksFrom && remainingOf(row) >= 1 && !row.remaining_balance_link;
+    if (stripeConfigured() && won && (fresh || extended)) {
       try {
         const b = ((bks || []) as { hubspot_deal_id: string; dog_name: string | null; client_name: string }[]).find((x) => x.hubspot_deal_id === id);
-        const url = await createRemainingLink({ dealId: id, amount: owed, label: `${p.k9___dog_name || b?.dog_name || "training"} (${b?.client_name || p.dealname || id})` });
-        await updateDeal(id, { remaining_balance_link: url });
-        row.remaining_balance_link = url; row.link_by_app = true;
-        out.links.push(`${p.dealname || id}: $${owed}`);
+        const amount = extended ? owedNow : remainingOf(row);
+        if (extended && row.link_id) await deactivateLink(row.link_id).catch(() => {});
+        const link = await createRemainingLink({ dealId: id, amount, label: `${p.k9___dog_name || b?.dog_name || "training"} (${b?.client_name || p.dealname || id})` });
+        const props: Record<string, string> = { remaining_balance_link: link.url };
+        if (extended && paidUp(row.payment_status)) {
+          const due = optionValue((await propDefs("deals")).get("payment_status"), "Remaining Balance Due");
+          if (due) { props.payment_status = due; row.payment_status = due; }
+        }
+        await updateDeal(id, props);
+        row.remaining_balance_link = link.url; row.link_by_app = true; row.link_amount = amount; row.link_id = link.id;
+        out.links.push(`${p.dealname || id}: $${amount}${extended ? " (extension)" : ""}`);
       } catch (e) { out.errors.push(`link ${id}: ${(e as Error).message}`); }
     }
     await sb.from("deal_money").upsert(row);
