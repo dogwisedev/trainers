@@ -1,4 +1,5 @@
 "use server";
+import { auditCall } from "@/lib/audit";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
@@ -39,13 +40,16 @@ export async function signIn(_: Result | null, f: FormData): Promise<Result> {
   const sb = serverClient();
   const email = String(f.get("email") || "").trim(), password = String(f.get("password") || "");
   if (!email) return { ok: false, message: "Enter your email." };
+  const as = { name: email, role: "sign-in" };
   if (!password) {
+    await auditCall("signInLinkSent", { email }, as);
     try { await sendSignInLink(email); }
     catch (e) { return { ok: false, message: `Couldn't send the link: ${(e as Error).message}` }; }
     return { ok: true, message: "If that email has an account, a sign-in link is on its way from info@dogwiseacademy.com. It works in any browser." };
   }
   const { error } = await sb.auth.signInWithPassword({ email, password });
-  if (error) return { ok: false, message: "That email and password don't match. Leave the password empty to get a sign-in link instead." };
+  if (error) { await auditCall("signInFailed", { email }, as); return { ok: false, message: "That email and password don't match. Leave the password empty to get a sign-in link instead." }; }
+  await auditCall("signInPassword", { email }, as);
   redirect("/");
 }
 
@@ -55,6 +59,7 @@ export async function signOut() {
 }
 
 export async function setPassword(_: Result | null, f: FormData): Promise<Result> {
+  await auditCall("setPassword", { f });
   if (isDemo()) return DEMO;
   const p = String(f.get("password") || "");
   if (p.length < 8) return { ok: false, message: "Use at least 8 characters." };
@@ -72,6 +77,7 @@ const ADMIN_FIELDS = ["name", "email", "dogwise_email", "city", "state", "zip", 
 const SHARED_FIELDS = ["phone", "work_email", "address", "shirt_size", "second_location", "local_vet", "emergency_vet", "emergency_contact", "bio", "birthday"];
 
 export async function saveTrainer(_: Result | null, f: FormData): Promise<Result> {
+  await auditCall("saveTrainer", { f });
   if (isDemo()) return DEMO;
   const v = await viewerOrThrow();
   const id = str(f, "id");
@@ -97,6 +103,7 @@ export async function saveTrainer(_: Result | null, f: FormData): Promise<Result
 }
 
 export async function setTrainerActive(id: string, active: boolean): Promise<Result> {
+  await auditCall("setTrainerActive", { id, active });
   if (isDemo()) return DEMO;
   const v = await viewerOrThrow();
   if (v.role !== "admin") return { ok: false, message: "Admins only." };
@@ -106,6 +113,7 @@ export async function setTrainerActive(id: string, active: boolean): Promise<Res
 }
 
 export async function clearFlag(id: string, flag: string): Promise<Result> {
+  await auditCall("clearFlag", { id, flag });
   if (isDemo()) return DEMO;
   const v = await viewerOrThrow();
   if (v.role !== "admin") return { ok: false, message: "Admins only." };
@@ -118,6 +126,7 @@ export async function clearFlag(id: string, flag: string): Promise<Result> {
 
 /** Sends the trainer an email invite and links their login to their profile. */
 export async function inviteTrainer(id: string): Promise<Result> {
+  await auditCall("inviteTrainer", { id });
   if (isDemo()) return DEMO;
   const v = await viewerOrThrow();
   if (v.role !== "admin") return { ok: false, message: "Admins only." };
@@ -136,6 +145,7 @@ export async function inviteTrainer(id: string): Promise<Result> {
 
 // ── Time off ──────────────────────────────────────────────────────────────
 export async function addTimeOff(_: Result | null, f: FormData): Promise<Result> {
+  await auditCall("addTimeOff", { f });
   if (isDemo()) return DEMO;
   const v = await viewerOrThrow();
   const trainer_id = v.role === "admin" ? str(f, "trainer_id") : v.trainerId;
@@ -153,6 +163,7 @@ export async function addTimeOff(_: Result | null, f: FormData): Promise<Result>
 }
 
 export async function deleteTimeOff(id: string): Promise<Result> {
+  await auditCall("deleteTimeOff", { id });
   if (isDemo()) return DEMO;
   await viewerOrThrow();
   const { error } = await serverClient().from("time_off").delete().eq("id", id);
@@ -162,6 +173,7 @@ export async function deleteTimeOff(id: string): Promise<Result> {
 
 // ── Bookings (admin) ──────────────────────────────────────────────────────
 export async function saveBooking(_: Result | null, f: FormData): Promise<Result> {
+  await auditCall("saveBooking", { f });
   if (isDemo()) return DEMO;
   const v = await viewerOrThrow();
   if (v.role !== "admin") return { ok: false, message: "Admins only." };
@@ -188,6 +200,7 @@ export async function saveBooking(_: Result | null, f: FormData): Promise<Result
 }
 
 export async function setExtraDays(id: string, extra: number): Promise<Result> {
+  await auditCall("setExtraDays", { id, extra });
   if (isDemo()) return DEMO;
   const v = await viewerOrThrow();
   if (v.role !== "admin") return { ok: false, message: "Admins only." };
@@ -204,6 +217,7 @@ export async function setExtraDays(id: string, extra: number): Promise<Result> {
 }
 
 export async function setBookingStatus(id: string, status: string): Promise<Result> {
+  await auditCall("setBookingStatus", { id, status });
   if (isDemo()) return DEMO;
   const v = await viewerOrThrow();
   if (v.role !== "admin") return { ok: false, message: "Admins only." };
@@ -228,6 +242,7 @@ export async function setBookingStatus(id: string, status: string): Promise<Resu
 
 // ── Messages ──────────────────────────────────────────────────────────────
 export async function sendMessage(trainerId: string, body: string): Promise<Result> {
+  await auditCall("sendMessage", { trainerId, body });
   if (isDemo()) return DEMO;
   const v = await viewerOrThrow();
   const text = body.trim();
@@ -254,6 +269,7 @@ export async function markRead(trainerId: string): Promise<void> {
 
 /** Admin: email the trainer about this booking now (the "New booking" email, with the calendar invite). Shows the exact error if it fails. */
 export async function emailTrainerAboutBooking(id: string): Promise<Result> {
+  await auditCall("emailTrainerAboutBooking", { id });
   if (isDemo()) return DEMO;
   const v = await viewerOrThrow();
   if (v.role !== "admin") return { ok: false, message: "Admins only." };
@@ -266,6 +282,7 @@ export async function emailTrainerAboutBooking(id: string): Promise<Result> {
 
 /** Admin: the friendly "your app is ready, here's how to get in" email, to one trainer or to everyone who hasn't signed in. */
 export async function sendSigninHellos(ids: string[]): Promise<Result> {
+  await auditCall("sendSigninHellos", { ids });
   if (isDemo()) return DEMO;
   const v = await viewerOrThrow();
   if (v.role !== "admin") return { ok: false, message: "Admins only." };
@@ -279,6 +296,7 @@ export async function sendSigninHellos(ids: string[]): Promise<Result> {
 
 /** Trainer: a follow-up session (date, miles driven, what was done). Becomes a trip for mileage pay, and shows on the dog's page for admins. */
 export async function logFollowupAction(_: Result | null, f: FormData): Promise<Result> {
+  await auditCall("logFollowupAction", { f });
   if (isDemo()) return DEMO;
   const v = await viewerOrThrow();
   if (v.role !== "trainer" || !v.trainerId) return { ok: false, message: "Only trainers can log follow-up sessions." };
@@ -298,6 +316,7 @@ export async function logFollowupAction(_: Result | null, f: FormData): Promise<
 
 /** Admin: approve or decline a trainer's probation. Approve: everything held so far (25% of program pay) is paid in the NEXT pay run. */
 export async function decideProbationAction(trainerId: string, approve: boolean): Promise<Result> {
+  await auditCall("decideProbationAction", { trainerId, approve });
   if (isDemo()) return DEMO;
   const v = await viewerOrThrow();
   if (v.role !== "admin") return { ok: false, message: "Admins only." };
@@ -316,6 +335,7 @@ export async function decideProbationAction(trainerId: string, approve: boolean)
 
 /** Admin, or the dog's trainer: follow-up session dates, saved on the HubSpot deal (follow_up_session__1..3). Each date is paid in that pay period. */
 export async function setFollowupsAction(bookingId: string, dates: string[]): Promise<Result> {
+  await auditCall("setFollowupsAction", { bookingId, dates });
   if (isDemo()) return DEMO;
   const v = await viewerOrThrow();
   const sb = serviceClient();

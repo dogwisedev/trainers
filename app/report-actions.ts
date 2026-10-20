@@ -1,4 +1,5 @@
 "use server";
+import { auditCall } from "@/lib/audit";
 import { revalidatePath } from "next/cache";
 import { getViewer } from "@/lib/data";
 import { isDemo, serverClient } from "@/lib/supabase";
@@ -63,6 +64,7 @@ export async function saveReportAction(id: string, answers: Answers, media: Medi
 }
 
 export async function submitReportAction(id: string, answers: Answers, media: MediaItem[]): Promise<ReportResult> {
+  await auditCall("submitReportAction", { id, answers, media });
   if (isDemo()) return DEMO;
   try {
     const v = await who();
@@ -133,6 +135,7 @@ async function deliver(id: string, corrected: boolean): Promise<ReportResult> {
 }
 
 export async function approveReportAction(id: string, answers: Answers, media: MediaItem[]): Promise<ReportResult> {
+  await auditCall("approveReportAction", { id, answers, media });
   if (isDemo()) return DEMO;
   try {
     const v = await who();
@@ -167,6 +170,7 @@ export async function approveReportAction(id: string, answers: Answers, media: M
 }
 
 export async function sendBackAction(id: string, note: string): Promise<ReportResult> {
+  await auditCall("sendBackAction", { id, note });
   if (isDemo()) return DEMO;
   try {
     const v = await who();
@@ -190,6 +194,7 @@ export async function sendBackAction(id: string, note: string): Promise<ReportRe
 }
 
 export async function resendReportAction(id: string): Promise<ReportResult> {
+  await auditCall("resendReportAction", { id });
   if (isDemo()) return DEMO;
   try { if ((await who()).role !== "admin") return { ok: false, message: "Admins only." }; } catch (e) { return { ok: false, message: (e as Error).message }; }
   const r = await deliver(id, false);
@@ -198,6 +203,7 @@ export async function resendReportAction(id: string): Promise<ReportResult> {
 }
 
 export async function setReportsEnabledAction(bookingId: string, on: boolean): Promise<ReportResult> {
+  await auditCall("setReportsEnabledAction", { bookingId, on });
   if (isDemo()) return DEMO;
   try {
     if ((await who()).role !== "admin") return { ok: false, message: "Admins only." };
@@ -211,6 +217,7 @@ export type { Status, Kind };
 // ── Not needed (admin): a form made by mistake, or for days the dog wasn't in care ──
 /** Marks a form "not needed": it leaves every to-do list (admin and trainer), reminders and late counts. Works whether or not it was started. */
 export async function waiveReportAction(bookingId: string, kind: Kind, week: number, reportId?: string | null): Promise<ReportResult> {
+  await auditCall("waiveReportAction", { bookingId, kind, week, reportId });
   if (isDemo()) return DEMO;
   try {
     const v = await who();
@@ -236,6 +243,7 @@ export async function waiveReportAction(bookingId: string, kind: Kind, week: num
 
 /** Undo "not needed": back to a draft the trainer can fill in. */
 export async function unwaiveReportAction(id: string): Promise<ReportResult> {
+  await auditCall("unwaiveReportAction", { id });
   if (isDemo()) return DEMO;
   try {
     const v = await who();

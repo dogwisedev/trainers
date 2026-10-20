@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import type { EmailOtpType } from "@supabase/supabase-js";
 import { serverClient } from "@/lib/supabase";
+import { auditCall } from "@/lib/audit";
 
 // Landing point for invite, sign-in and password-reset emails.
 // The email templates link here with ?token_hash=…&type=…&next=… and we sign the person in on the server.
@@ -19,7 +20,11 @@ export async function GET(req: NextRequest) {
     let { error } = await sb.auth.verifyOtp({ type, token_hash });
     // "magiclink" and "email" are the same kind of link; older and newer Supabase versions name it differently
     if (error && (type === "magiclink" || type === "email")) ({ error } = await sb.auth.verifyOtp({ type: type === "magiclink" ? "email" : "magiclink", token_hash }));
-    if (!error) return NextResponse.redirect(new URL(type === "recovery" ? "/" : next, req.url));
+    if (!error) {
+      const { data: { user } } = await sb.auth.getUser();
+      await auditCall("signInLinkUsed", { type }, { name: user?.email || "someone", role: "sign-in", userId: user?.id || null });
+      return NextResponse.redirect(new URL(type === "recovery" ? "/" : next, req.url));
+    }
   }
   return NextResponse.redirect(new URL("/login?error=link", req.url));
 }

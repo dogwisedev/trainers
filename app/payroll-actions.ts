@@ -1,4 +1,5 @@
 "use server";
+import { auditCall } from "@/lib/audit";
 import { revalidatePath } from "next/cache";
 import { getViewer } from "@/lib/data";
 import { isDemo, serverClient } from "@/lib/supabase";
@@ -47,6 +48,7 @@ async function saveDraft(id: string, edit: { lines: EditLine[]; adjustments: num
 }
 
 export async function savePayslipAction(id: string, edit: { lines: EditLine[]; adjustments: number; notes: string }): Promise<Result> {
+  await auditCall("savePayslipAction", { id, edit });
   if (isDemo()) return DEMO;
   await admin();
   try { await saveDraft(id, edit); revalidatePath(`/a/payroll/${id}`); return { ok: true, message: "Draft saved." }; }
@@ -85,6 +87,7 @@ async function email(id: string, opts: { correctedFrom?: string | null } = {}): 
 }
 
 export async function approveAndSendAction(id: string, edit: { lines: EditLine[]; adjustments: number; notes: string }): Promise<Result> {
+  await auditCall("approveAndSendAction", { id, edit });
   if (isDemo()) return DEMO;
   const v = await admin();
   try {
@@ -101,6 +104,7 @@ export async function approveAndSendAction(id: string, edit: { lines: EditLine[]
 
 /** Approve the saved draft as it is (from the list) and email it. */
 export async function approveAction(id: string): Promise<Result> {
+  await auditCall("approveAction", { id });
   if (isDemo()) return DEMO;
   const v = await admin();
   const sb = serverClient();
@@ -127,6 +131,7 @@ export async function approveManyAction(ids: string[]): Promise<{ ok: boolean; m
 
 /** Fix an approved payslip and email the corrected version. It stays approved, so the trainer always sees a payslip. */
 export async function correctAndResendAction(id: string, edit: { lines: EditLine[]; adjustments: number; notes: string }): Promise<Result> {
+  await auditCall("correctAndResendAction", { id, edit });
   if (isDemo()) return DEMO;
   const v = await admin();
   const sb = serverClient();
@@ -142,6 +147,7 @@ export async function correctAndResendAction(id: string, edit: { lines: EditLine
 }
 
 export async function resendAction(id: string): Promise<Result> {
+  await auditCall("resendAction", { id });
   if (isDemo()) return DEMO;
   await admin();
   const r = await email(id);
@@ -150,6 +156,7 @@ export async function resendAction(id: string): Promise<Result> {
 }
 
 export async function reopenAction(id: string): Promise<Result> {
+  await auditCall("reopenAction", { id });
   if (isDemo()) return DEMO;
   await admin();
   const { error } = await serverClient().from("payslips").update({ status: "draft" }).eq("id", id);
@@ -158,6 +165,7 @@ export async function reopenAction(id: string): Promise<Result> {
 }
 
 export async function saveRatesAction(_: Result | null, f: FormData): Promise<Result> {
+  await auditCall("saveRatesAction", { f });
   if (isDemo()) return DEMO;
   await admin();
   const trainer_id = String(f.get("trainer_id") || "");

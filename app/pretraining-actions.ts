@@ -1,4 +1,5 @@
 "use server";
+import { auditCall } from "@/lib/audit";
 import { revalidatePath } from "next/cache";
 import { serviceClient } from "@/lib/supabase";
 import { profileAccess } from "@/lib/pretrainingAccess";
@@ -18,6 +19,7 @@ async function guard(chatId: string, bookingId: string, adminOnly = false) {
 }
 
 export async function saveProfileAction(chatId: string, bookingId: string, values: Record<string, string>): Promise<ProfileResult> {
+  await auditCall("saveProfileAction", { chatId, bookingId, values });
   try {
     const g = await guard(chatId, bookingId);
     if (!g) return NO;
@@ -28,6 +30,7 @@ export async function saveProfileAction(chatId: string, bookingId: string, value
 }
 
 export async function reviewVaccinesAction(chatId: string, bookingId: string, ok: boolean, missing: string[]): Promise<ProfileResult> {
+  await auditCall("reviewVaccinesAction", { chatId, bookingId, ok, missing });
   try {
     const g = await guard(chatId, bookingId, true);
     if (!g) return NO;
@@ -38,6 +41,7 @@ export async function reviewVaccinesAction(chatId: string, bookingId: string, ok
 }
 
 export async function setClearedAction(chatId: string, bookingId: string, cleared: boolean): Promise<ProfileResult> {
+  await auditCall("setClearedAction", { chatId, bookingId, cleared });
   try {
     const g = await guard(chatId, bookingId, true);
     if (!g) return NO;
@@ -48,6 +52,7 @@ export async function setClearedAction(chatId: string, bookingId: string, cleare
 }
 
 export async function setSlotAction(chatId: string, bookingId: string, slot: number): Promise<ProfileResult> {
+  await auditCall("setSlotAction", { chatId, bookingId, slot });
   try {
     const g = await guard(chatId, bookingId, true);
     if (!g || !(slot >= 1 && slot <= 4)) return NO;
@@ -59,6 +64,7 @@ export async function setSlotAction(chatId: string, bookingId: string, slot: num
 
 /** After a vaccine file reached Drive (see /api/pretraining/upload): find it and add it to the dog. */
 export async function addVaccineFileAction(chatId: string, bookingId: string, storedName: string, name: string): Promise<ProfileResult> {
+  await auditCall("addVaccineFileAction", { chatId, bookingId, storedName, name });
   try {
     const g = await guard(chatId, bookingId);
     if (!g) return NO;

@@ -1,4 +1,5 @@
 "use server";
+import { auditCall } from "@/lib/audit";
 import { revalidatePath } from "next/cache";
 import { getViewer } from "@/lib/data";
 import { isDemo, serverClient, serviceClient } from "@/lib/supabase";
@@ -24,6 +25,7 @@ async function adminOnly() {
 
 /** Starts the chat for a booking (and its other dogs on the same deal). Doesn't email the client: use Invite client. */
 export async function startChatAction(bookingId: string): Promise<ChatResult> {
+  await auditCall("startChatAction", { bookingId });
   if (isDemo()) return DEMO;
   try {
     await adminOnly();
@@ -40,6 +42,7 @@ export async function startChatAction(bookingId: string): Promise<ChatResult> {
 
 /** Emails the client their chat link (again, if they lost it). Optionally sets or corrects their email first. */
 export async function inviteClientAction(chatId: string, email?: string): Promise<ChatResult> {
+  await auditCall("inviteClientAction", { chatId, email });
   if (isDemo()) return DEMO;
   try {
     await adminOnly();
@@ -106,6 +109,7 @@ export async function notifyChatAction(chatId: string): Promise<void> {
 
 // ── Incidents, closing, reopening ──────────────────────────────────────
 export async function takeIncidentAction(id: string): Promise<ChatResult> {
+  await auditCall("takeIncidentAction", { id });
   if (isDemo()) return DEMO;
   try {
     const v = await adminOnly();
@@ -115,6 +119,7 @@ export async function takeIncidentAction(id: string): Promise<ChatResult> {
   } catch (e) { return { ok: false, message: (e as Error).message }; }
 }
 export async function resolveIncidentAction(id: string, note: string): Promise<ChatResult> {
+  await auditCall("resolveIncidentAction", { id, note });
   if (isDemo()) return DEMO;
   try {
     const v = await adminOnly();
@@ -124,12 +129,14 @@ export async function resolveIncidentAction(id: string, note: string): Promise<C
   } catch (e) { return { ok: false, message: (e as Error).message }; }
 }
 export async function closeChatAction(chatId: string): Promise<ChatResult> {
+  await auditCall("closeChatAction", { chatId });
   if (isDemo()) return DEMO;
   try { await adminOnly(); const r = await closeChat(chatId); revalidatePath("/", "layout"); return { ...r, chatId }; }
   catch (e) { return { ok: false, message: (e as Error).message }; }
 }
 /** The client (or an admin) starts a fresh chat after the old one was closed. */
 export async function reopenChatAction(chatId: string): Promise<ChatResult> {
+  await auditCall("reopenChatAction", { chatId });
   if (isDemo()) return DEMO;
   try {
     const v = await getViewer();
@@ -142,6 +149,7 @@ export async function reopenChatAction(chatId: string): Promise<ChatResult> {
   } catch (e) { return { ok: false, message: (e as Error).message }; }
 }
 export async function sendSummaryAgainAction(chatId: string): Promise<ChatResult> {
+  await auditCall("sendSummaryAgainAction", { chatId });
   if (isDemo()) return DEMO;
   try {
     await adminOnly();
@@ -152,6 +160,7 @@ export async function sendSummaryAgainAction(chatId: string): Promise<ChatResult
   } catch (e) { return { ok: false, message: (e as Error).message }; }
 }
 export async function setClientEmailsAction(chatId: string, on: boolean): Promise<ChatResult> {
+  await auditCall("setClientEmailsAction", { chatId, on });
   if (isDemo()) return DEMO;
   try {
     await adminOnly();

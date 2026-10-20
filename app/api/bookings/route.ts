@@ -8,6 +8,7 @@ import { ensureChatsForBookings } from "@/lib/chat";
 import { datesFromHubspot } from "@/lib/hubspot";
 import { syncHubspotDates } from "@/lib/hubspotSync";
 import { cleanDealId } from "@/lib/dealId";
+import { auditCall } from "@/lib/audit";
 
 // Book a Closed Won HubSpot deal into a trainer's calendar (used by the Sales extension).
 // POST /api/bookings   header x-api-key: BOOKING_KEY
@@ -106,6 +107,7 @@ export async function POST(req: Request) {
     await syncHubspotDates({ mode: "quiet", dealIds: [dealId], sb }).catch(() => null);
     created = (await sb.from("bookings").select("*").in("id", (inserted || []).map((c: { id: string }) => c.id))).data || inserted;
   }
+  await auditCall("bookingApi", { deal: dealId || "", dogs: ((created || []) as { dog_name: string | null }[]).map((c) => c.dog_name).join(", "), trainer: trainer?.name || "" }, { name: String(b.booked_by || b.agent || "HubSpot extension"), role: "extension" });
   const emailed = await notifyBookings(sb, (created || []).map((c: { id: string }) => c.id), "new");
   if (emailed.skipped || emailed.errors.length) console.error("booking email", JSON.stringify(emailed)); // shows in Vercel logs
   // One chat per deal. Never blocks the booking; clients are only emailed their link when CHAT_INVITE_CLIENTS=1.
