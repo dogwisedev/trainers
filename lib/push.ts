@@ -44,3 +44,22 @@ export async function pushToAdmins(p: Push) {
   const { data } = await serviceClient().from("profiles").select("id").eq("role", "admin");
   return pushToUsers(((data || []) as { id: string }[]).map((x) => x.id), p);
 }
+
+/** Troubleshooting: send a test to each of this user's devices and report exactly what the push service answered. */
+export async function pushTestDetailed(userId: string, onlyEndpoint?: string): Promise<{ device: string; endpoint: string; status: number | null; error: string | null; thisDevice: boolean }[]> {
+  if (isDemo() || !pushConfigured()) return [];
+  setup();
+  const sb = serviceClient();
+  const { data } = await sb.from("push_subscriptions").select("endpoint, p256dh, auth, device").eq("user_id", userId);
+  return Promise.all(((data || []) as { endpoint: string; p256dh: string; auth: string; device: string | null }[]).map(async (s) => {
+    try {
+      const r = await webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
+        JSON.stringify({ title: "Test from the Dogwise server", body: `Sent ${new Date().toLocaleTimeString("en-US")}. If you can read this, notifications work.`, url: "/", tag: "test" }), { TTL: 600, urgency: "high" });
+      await sb.from("push_subscriptions").update({ last_ok_at: new Date().toISOString() }).eq("endpoint", s.endpoint);
+      return { device: s.device || "", endpoint: s.endpoint, status: r.statusCode, error: null, thisDevice: s.endpoint === onlyEndpoint };
+    } catch (e) {
+      const x = e as { statusCode?: number; body?: string; message?: string };
+      return { device: s.device || "", endpoint: s.endpoint, status: x.statusCode ?? null, error: (x.body || x.message || "failed").slice(0, 300), thisDevice: s.endpoint === onlyEndpoint };
+    }
+  }));
+}

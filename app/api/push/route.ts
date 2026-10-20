@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
 import { getViewer } from "@/lib/data";
 import { serviceClient } from "@/lib/supabase";
-import { pushToUsers } from "@/lib/push";
+import { pushTestDetailed, pushToUsers } from "@/lib/push";
 
 // This phone turned notifications on (POST) or off (DELETE). POST with {test:true} sends a test notification.
 export async function POST(req: Request) {
   const v = await getViewer();
   if (!v || v.demo) return NextResponse.json({ ok: false, message: "Sign in first." }, { status: 401 });
   const b = await req.json().catch(() => ({}));
+  if (b.diagnose) return NextResponse.json({ ok: true, serverKey: (process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || "").slice(0, 12), privateKeySet: !!process.env.VAPID_PRIVATE_KEY, results: await pushTestDetailed(v.userId, b.endpoint) });
   if (b.test) { const n = await pushToUsers([v.userId], { title: "Notifications are on", body: "You'll get new messages, bookings and forms here.", url: "/", tag: "test" }); return NextResponse.json({ ok: n > 0 }); }
   const s = b.subscription as { endpoint?: string; keys?: { p256dh?: string; auth?: string } } | undefined;
   if (!s?.endpoint || !s.keys?.p256dh || !s.keys?.auth) return NextResponse.json({ ok: false, message: "Bad subscription." }, { status: 400 });

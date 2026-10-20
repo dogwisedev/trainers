@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { PushTroubleshoot } from "@/components/PushTroubleshoot";
 import { Bell, BellOff, Download, MoreVertical, Share, SquarePlus, X } from "lucide-react";
 
 // Gets people onto the app and its notifications, with plain steps for their phone.
@@ -126,6 +127,7 @@ export function AppSetup({ always = false }: { always?: boolean }) {
         </>
       ) : null}
       {msg && <p role="status" className="mt-3 text-[14px] font-semibold">{msg}</p>}
+      {always && <PushTroubleshoot />}
     </section>
   );
 }
