@@ -45,7 +45,9 @@ export async function salesMonth(month: string, ownerId?: string): Promise<{ sel
   ]);
   const team = await salesPeople();
   const through = (st?.value as string | undefined) || null;
-  const fixed = ((imp || []) as { id: string; seller: string; owner_id: string | null }[]).filter((r) => !r.owner_id).map((r) => ({ id: r.id, owner: matchOwner(r.seller, team) })).filter((r) => r.owner);
+  // A month entirely after the cut-over comes only from the app: its pasted rows are ignored (no double counting)
+  const useSheet = !through || from <= through;
+  const fixed = ((useSheet ? imp || [] : []) as { id: string; seller: string; owner_id: string | null }[]).filter((r) => !r.owner_id).map((r) => ({ id: r.id, owner: matchOwner(r.seller, team) })).filter((r) => r.owner);
   for (const r of fixed) await sb.from("sales_import").update({ owner_id: r.owner }).eq("id", r.id);
   let q = sb.from("deal_money").select("*").gte("closed_on", from).lt("closed_on", to);
   if (through) q = q.gt("closed_on", through);
@@ -61,7 +63,7 @@ export async function salesMonth(month: string, ownerId?: string): Promise<{ sel
         program: b[0]?.program || "", amount: Number(d.amount) || 0, remaining: remainingOf({ amount: Number(d.amount), amount_paid: Number(d.amount_paid), payment_status: d.payment_status }),
         link: d.remaining_balance_link, dealId: d.deal_id, closedOn: d.closed_on, source: "app" };
     }),
-    ...((imp || []) as { id: string; seller: string; owner_id: string | null; client: string | null; program: string | null; amount: number; paid_in_full: boolean | null }[])
+    ...((useSheet ? imp || [] : []) as { id: string; seller: string; owner_id: string | null; client: string | null; program: string | null; amount: number; paid_in_full: boolean | null }[])
       .map((r) => ({ ...r, owner_id: r.owner_id || matchOwner(r.seller, team) }))   // rows imported before a match was found
       .filter((r) => !ownerId || r.owner_id === ownerId)
       .map((r): Sale => ({ key: `s:${r.id}`, seller: r.owner_id ? nameOf(r.owner_id) : r.seller, ownerId: r.owner_id, client: r.client || "", program: r.program || "", amount: Number(r.amount) || 0,
