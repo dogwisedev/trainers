@@ -23,8 +23,13 @@ export async function middleware(req: NextRequest) {
     if (protectedPath && !req.cookies.get("demo_as")) return NextResponse.redirect(new URL("/login", req.url));
     return NextResponse.next();
   }
+  // Fast path: no Supabase login cookie at all = signed out. No network call needed.
+  const hasSession = req.cookies.getAll().some((c) => c.name.startsWith("sb-") && c.name.includes("auth-token"));
+  if (!hasSession) return protectedPath ? NextResponse.redirect(new URL("/login", req.url)) : NextResponse.next();
   let res = NextResponse.next({ request: req });
   const sb = createServerClient(url, key, {
+    // Never let a slow Supabase hold up the page: give up after 4 seconds (the page checks the login itself anyway)
+    global: { fetch: (input: RequestInfo | URL, init?: RequestInit) => fetch(input, { ...init, signal: AbortSignal.timeout(4000) }) },
     cookies: {
       getAll: () => req.cookies.getAll(),
       setAll: (list: { name: string; value: string; options?: Record<string, unknown> }[]) => {
@@ -34,8 +39,11 @@ export async function middleware(req: NextRequest) {
       }
     }
   });
-  const { data: { user } } = await sb.auth.getUser();
-  if (protectedPath && !user) return NextResponse.redirect(new URL("/login", req.url));
+  try {
+    const { data: { user }, error } = await sb.auth.getUser();
+    // Only send to login when Supabase clearly says "not signed in", never because it was slow
+    if (protectedPath && !user && !(error && /abort|timeout|fetch/i.test(`${error.name} ${error.message}`))) return NextResponse.redirect(new URL("/login", req.url));
+  } catch { /* slow or unreachable: let the page decide */ }
   return res;
 }
 

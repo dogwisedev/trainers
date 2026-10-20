@@ -12,7 +12,7 @@ const within = <T,>(ms: number, p: Promise<T>, why: string) => Promise.race([p, 
 const b64 = (s: string) => { const p = "=".repeat((4 - (s.length % 4)) % 4), r = atob((s + p).replace(/-/g, "+").replace(/_/g, "/")); return Uint8Array.from([...r].map((c) => c.charCodeAt(0))); };
 
 export function AppSetup({ always = false }: { always?: boolean }) {
-  const [env, setEnv] = useState<{ ios: boolean; android: boolean; mobile: boolean; standalone: boolean; push: boolean } | null>(null);
+  const [env, setEnv] = useState<{ ios: boolean; android: boolean; mobile: boolean; standalone: boolean; push: boolean; macSafari: boolean } | null>(null);
   const [bip, setBip] = useState<BIP | null>(null);
   const [perm, setPerm] = useState<NotificationPermission | "unsupported">("default");
   const [subscribed, setSubscribed] = useState(false);
@@ -24,14 +24,15 @@ export function AppSetup({ always = false }: { always?: boolean }) {
     const ua = navigator.userAgent, ios = /iphone|ipad|ipod/i.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
     const android = /android/i.test(ua), standalone = window.matchMedia("(display-mode: standalone)").matches || (navigator as { standalone?: boolean }).standalone === true;
     const push = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
-    setEnv({ ios, android, mobile: ios || android, standalone, push });
+    const macSafari = !ios && /Macintosh/.test(ua) && /Safari/.test(ua) && !/Chrome|Chromium|Edg|Firefox/.test(ua);
+    setEnv({ ios, android, mobile: ios || android, standalone, push, macSafari });
     setPerm(push ? Notification.permission : "unsupported");
     try { setHidden(!always && Number(localStorage.getItem(KEY) || 0) > Date.now()); } catch { /* private mode */ }
     // Register after the page has loaded, so it never competes with the page itself
     const reg = () => navigator.serviceWorker.register("/sw.js").then(async (r) => setSubscribed(!!(await r.pushManager?.getSubscription?.()))).catch(() => {});
     if ("serviceWorker" in navigator) { if (document.readyState === "complete") setTimeout(reg, 1500); else window.addEventListener("load", () => setTimeout(reg, 1500), { once: true }); }
-    // Phones: hold Chrome's banner and show our own Install button. Computers: leave Chrome's own install option alone.
-    const onBip = (e: Event) => { if (!(ios || android)) return; e.preventDefault(); setBip(e as BIP); };
+    // Hold Chrome/Edge's own banner and show our Install button instead (phones and computers)
+    const onBip = (e: Event) => { e.preventDefault(); setBip(e as BIP); };
     const onInstalled = () => setEnv((x) => (x ? { ...x, standalone: true } : x));
     window.addEventListener("beforeinstallprompt", onBip);
     window.addEventListener("appinstalled", onInstalled);
@@ -39,7 +40,9 @@ export function AppSetup({ always = false }: { always?: boolean }) {
   }, [always]);
 
   if (!env) return null;
-  const needInstall = env.mobile && !env.standalone;
+  // Phones always; computers when the browser can install it (Chrome/Edge offer it, Safari on Mac has File → Add to Dock)
+  const needInstall = !env.standalone && (env.mobile || !!bip || env.macSafari);
+  const computer = !env.mobile;
   const canPush = env.push && process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY && !(env.ios && !env.standalone);
   const needPush = canPush && !(perm === "granted" && subscribed);
   if (!always && (hidden || (!needInstall && !needPush))) return null;
@@ -75,9 +78,14 @@ export function AppSetup({ always = false }: { always?: boolean }) {
       {!always && <button type="button" onClick={hide} className="absolute right-2 top-2 grid h-9 w-9 place-items-center rounded-full text-ink-faint hover:bg-paper" aria-label="Not now"><X size={18} /></button>}
       {needInstall ? (
         <>
-          <h2 id="setup-title" className="pr-8 text-[19px] font-extrabold">Get the Dogwise app on your phone</h2>
-          <p className="mt-1 text-[14px] text-ink-soft">It takes 30 seconds, once. Then open Dogwise from its icon, like any app{env.ios ? ", and you can turn on notifications" : ""}.</p>
-          {env.ios ? (
+          <h2 id="setup-title" className="pr-8 text-[19px] font-extrabold">{computer ? "Install the Dogwise app on this computer" : "Get the Dogwise app on your phone"}</h2>
+          <p className="mt-1 text-[14px] text-ink-soft">{computer ? "It opens in its own window, with its own icon in your dock or taskbar. No browser tabs to lose." : `It takes 30 seconds, once. Then open Dogwise from its icon, like any app${env.ios ? ", and you can turn on notifications" : ""}.`}</p>
+          {env.macSafari && !bip ? (
+            <ol className="mt-4 space-y-3">
+              <Step n={1}>In the menu bar at the top, click <Key>File</Key>, then <Key>Add to Dock</Key>.</Step>
+              <Step n={2}>Click <Key>Add</Key>, then open <b>Dogwise</b> from your Dock.</Step>
+            </ol>
+          ) : env.ios ? (
             <ol className="mt-4 space-y-3">
               <Step n={1}>Tap the <Key><Share size={14} />Share</Key> button: at the bottom of the screen in Safari, or the top right in Chrome.</Step>
               <Step n={2}>Scroll down and tap <Key><SquarePlus size={14} />Add to Home Screen</Key>.</Step>
