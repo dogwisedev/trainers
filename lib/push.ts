@@ -21,7 +21,7 @@ export async function pushToUsers(userIds: (string | null | undefined)[], p: Pus
     let sent = 0;
     await Promise.all(((data || []) as { endpoint: string; p256dh: string; auth: string }[]).map(async (s) => {
       try {
-        await webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, JSON.stringify({ ...p, url: p.url.startsWith("http") ? p.url : `${site()}${p.url}`, body: p.body.slice(0, 180) }), { TTL: 86400 });
+        await webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, JSON.stringify({ ...p, url: p.url.startsWith("http") ? p.url : `${site()}${p.url}`, body: p.body.slice(0, 180) }), { TTL: 86400, urgency: "high" });
         sent++;
         await sb.from("push_subscriptions").update({ last_ok_at: new Date().toISOString() }).eq("endpoint", s.endpoint);
       } catch (e) {
