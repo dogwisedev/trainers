@@ -85,8 +85,7 @@ export function welcomeText(dog: string, trainer: string | null) {
   return `👋 Welcome to ${dog}'s chat! This is where you, ${trainer || "your trainer"} and the Dogwise team talk about ${dog}.\n\n`
     + `• Updates, photos and videos of ${dog} are posted here every day.\n`
     + `• Type in the box at the bottom to send a message. Tap the paperclip to send a photo or video.\n`
-    + `• You'll get an email (and a phone notification, if you turn them on) when there's something new.\n\n`
-    + `Trainers: please post at least one photo or video of ${dog} every day.`;
+    + `• You'll get an email (and a phone notification, if you turn them on) when there's something new.`;
 }
 export async function postWelcome(chatId: string, dog: string, trainer: string | null) {
   const sb = serviceClient();
