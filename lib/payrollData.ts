@@ -67,7 +67,7 @@ export async function buildDrafts(sb: SupabaseClient, submitDate: string) {
     sb.from("trainers").select("id, name, address, probation, probation_release_run, probation_release_amount"),
     sb.from("bookings").select("id, trainer_id, client_name, dog_name, start_date, end_date, weeks, extra_days, rehab, status").neq("status", "cancelled").lte("start_date", lastDay).gte("end_date", r.weeks[0]),
     sb.from("trainer_rates").select("*"),
-    sb.from("payslips").select("id, trainer_id, status, adjustments, total, payslip_lines(booking_id, kind, auto, days, weeks_completed, amount, program, client, dog)").eq("pay_run_id", run.id),
+    sb.from("payslips").select("id, trainer_id, status, adjustments, total, hand_edited, payslip_lines(booking_id, kind, auto, days, weeks_completed, amount, program, client, dog)").eq("pay_run_id", run.id),
     // Trips in these two weeks (pickups, drop-offs, follow-up sessions), for mileage pay. No table yet = no mileage lines.
     sb.from("trips").select("id, trainer_id, booking_id, kind, trip_date, miles, bookings(client_name, dog_name)").gte("trip_date", r.weeks[0]).lte("trip_date", lastDay),
     // Follow-up sessions booked on the deal (follow_up_session__1..3) in these two weeks. No table yet = none.
@@ -83,6 +83,7 @@ export async function buildDrafts(sb: SupabaseClient, submitDate: string) {
 
   for (const t of trainers || []) {
     const prev = (existing || []).find((p) => p.trainer_id === t.id) as { id: string; status: string; payslip_lines?: L[] } | undefined;
+    if (prev && (prev as { hand_edited?: boolean }).hand_edited) continue; // edited and saved by an admin: leave it exactly as they made it
     // A booking line edited by hand stays as it is: don't add an automatic one next to it.
     const handEdited = new Set((prev?.payslip_lines || []).filter((l) => l.kind === "training" && !l.auto && l.booking_id).map((l) => l.booking_id));
     const tr = t as { id: string; probation?: string | null; probation_release_run?: string | null; probation_release_amount?: number | null };

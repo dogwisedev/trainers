@@ -43,7 +43,8 @@ async function saveDraft(id: string, edit: { lines: EditLine[]; adjustments: num
     amount: Math.round(Number(l.amount || 0) * 100) / 100, auto: !!l.auto, sort: i
   }));
   if (rows.length) { const { error } = await sb.from("payslip_lines").insert(rows); if (error) throw new Error(error.message); }
-  await sb.from("payslips").update({ adjustments: Math.round(Number(edit.adjustments || 0) * 100) / 100, notes: edit.notes?.trim() || null }).eq("id", id);
+  // Saved by hand: the app never rebuilds this payslip from the bookings again
+  await sb.from("payslips").update({ adjustments: Math.round(Number(edit.adjustments || 0) * 100) / 100, notes: edit.notes?.trim() || null, hand_edited: true }).eq("id", id);
   await recalc(sb, id);
 }
 
@@ -184,4 +185,25 @@ export async function saveRatesAction(_: Result | null, f: FormData): Promise<Re
   const { error } = await serverClient().from("trainer_rates").upsert(row, { onConflict: "trainer_id" });
   revalidatePath(`/a/trainers/${trainer_id}`);
   return error ? { ok: false, message: error.message } : { ok: true, message: "Pay rates saved. Rebuild drafts to apply them." };
+}
+
+/** Approve WITHOUT emailing the trainer (e.g. a past pay run that was already sent another way). Saves the editor's changes first if given. */
+export async function approveQuietAction(id: string, edit?: { lines: EditLine[]; adjustments: number; notes: string }): Promise<Result> {
+  await auditCall("approveQuietAction", { id });
+  if (isDemo()) return DEMO;
+  const v = await admin();
+  const sb = serverClient();
+  if (edit) { try { await saveDraft(id, edit); } catch (e) { return { ok: false, message: (e as Error).message }; } }
+  const { data: slip } = await sb.from("payslips").select("trainer_id, status").eq("id", id).single();
+  if (!slip) return { ok: false, message: "Payslip not found." };
+  if (slip.status === "approved") return { ok: true, message: "Already approved." };
+  const { data: t } = await sb.from("trainers").select("name, address").eq("id", slip.trainer_id).single();
+  const { error } = await sb.from("payslips").update({ status: "approved", approved_by: v.userId, approved_by_name: v.name, approved_at: new Date().toISOString(), trainer_name: t?.name, trainer_address: t?.address, hand_edited: true, send_error: null }).eq("id", id);
+  revalidatePath("/a/trainers");
+  return error ? { ok: false, message: error.message } : { ok: true, message: "Approved and archived. Not emailed to the trainer." };
+}
+export async function approveManyQuietAction(ids: string[]): Promise<Result> {
+  let n = 0; const bad: string[] = [];
+  for (const id of ids.slice(0, 100)) { const r = await approveQuietAction(id); if (r.ok) n++; else bad.push(r.message); }
+  return bad.length ? { ok: n > 0, message: `Approved ${n}. Not approved: ${bad.join("; ")}` } : { ok: true, message: `Approved ${n} without emailing.` };
 }

@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { Plus, Trash2 } from "lucide-react";
-import { approveAndSendAction, correctAndResendAction, EditLine, resendAction, savePayslipAction } from "@/app/payroll-actions";
+import { approveAndSendAction, approveQuietAction, correctAndResendAction, EditLine, resendAction, savePayslipAction } from "@/app/payroll-actions";
 import { Result } from "@/app/actions";
 import { deductionAmount, money, Rates, sumLines } from "@/lib/payroll";
 import { payslipHtml, SlipData } from "@/lib/payslipDoc";
@@ -144,6 +144,10 @@ export function PayslipEditor(props: {
             <button type="button" disabled={pending} className="btn-ink flex-[1.6] whitespace-nowrap px-3"
               onClick={() => { if (window.confirm(`Approve ${money(total)} and email this payslip to the trainer?`)) run(() => approveAndSendAction(props.id, edit())); }}>
               {pending ? "Working…" : "Approve and send"}
+            </button>
+            <button type="button" disabled={pending} className="btn-ghost flex-1 whitespace-nowrap px-3 text-[13px]" title="Approve and archive, without emailing the trainer"
+              onClick={() => { if (window.confirm(`Approve ${money(total)} WITHOUT emailing the trainer? Use this for payslips already sent another way. It's kept in the app.`)) run(() => approveQuietAction(props.id, edit())); }}>
+              Approve, no email
             </button>
           </>
         ) : (

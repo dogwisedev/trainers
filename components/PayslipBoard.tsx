@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { useMemo, useState, useTransition } from "react";
 import { Check, ChevronRight } from "lucide-react";
-import { approveAction, approveManyAction, buildDraftsAction } from "@/app/payroll-actions";
+import { approveAction, approveManyAction, approveManyQuietAction, buildDraftsAction } from "@/app/payroll-actions";
 import { money } from "@/lib/payroll";
 import { lineClient, lineLead, lineProgram } from "@/lib/payslipDoc";
 import type { Line } from "@/lib/payrollData";
@@ -31,6 +31,14 @@ export function PayslipBoard({ slips: initial, submit, label, paid, demo }: { sl
       mark(s.id, r.ok, r.message);
       setMsg(r.ok ? null : r);
       setBusy((b) => ({ ...b, [s.id]: false }));
+    });
+  };
+  const approveAllQuiet = () => {
+    if (!ready.length || !window.confirm(`Approve ${ready.length} payslips WITHOUT emailing the trainers? Use this for a pay run that was already sent another way. They're kept in the app.`)) return;
+    start(async () => {
+      const r = await approveManyQuietAction(ready.map((s) => s.id));
+      setMsg(r);
+      if (r.ok) setSlips((cur) => cur.map((s) => (ready.some((x) => x.id === s.id) ? { ...s, status: "approved", sent_at: null, send_error: null } : s)));
     });
   };
   const approveAll = () => {
@@ -86,6 +94,9 @@ export function PayslipBoard({ slips: initial, submit, label, paid, demo }: { sl
         {ready.length > 1 && filter !== "approved" && (
           <button onClick={approveAll} disabled={pending || demo} className="btn-ink h-9 min-h-0 px-3 text-[13px]"><Check size={15} />Approve all pending ({ready.length})</button>
         )}
+        {ready.length > 0 && filter !== "approved" && (
+          <button onClick={approveAllQuiet} disabled={pending || demo} className="btn-ghost h-9 min-h-0 px-3 text-[13px]" title="For a pay run already sent another way">Approve all, no email ({ready.length})</button>
+        )}
       </div>
       {msg && <p role="status" className={`mt-3 rounded-xl px-3 py-2 text-[14px] ${msg.ok ? "bg-mint-wash text-fern" : "bg-heart-wash text-heart"}`}>{msg.message}</p>}
       {demo && <p className="mt-3 rounded-xl bg-biscuit-wash px-3 py-2 text-[13px] text-[#8A5A00]">Demo: example rates, approving is switched off.</p>}
@@ -124,7 +135,7 @@ export function PayslipBoard({ slips: initial, submit, label, paid, demo }: { sl
               {s.missing > 0 && <p className="mt-2 text-[12px] font-semibold text-heart">{s.missing} line{s.missing > 1 ? "s" : ""} without a pay rate</p>}
               <div className="mt-3 flex items-center gap-2">
                 {s.status === "approved" ? (
-                  <span className={`text-[13px] font-semibold ${s.send_error ? "text-heart" : "text-fern"}`}>{s.send_error ? "Approved, email failed" : `Approved and sent${s.sent_at ? ` ${new Date(s.sent_at).toLocaleDateString("en-US")}` : ""}`}</span>
+                  <span className={`text-[13px] font-semibold ${s.send_error ? "text-heart" : "text-fern"}`}>{s.send_error ? "Approved, email failed" : (s.sent_at ? `Approved and sent ${new Date(s.sent_at).toLocaleDateString("en-US")}` : "Approved, not emailed")}</span>
                 ) : (
                   <button onClick={() => approveOne(s)} disabled={busy[s.id] || !!s.missing || demo}
                     className={`btn h-9 min-h-0 px-3 text-[13px] ${armed === s.id ? "bg-fern text-white" : "bg-ink text-white"}`}>

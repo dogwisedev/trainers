@@ -170,7 +170,9 @@ export function ChatThread(p: { chatId: string; me: Me; initial: ChatMsg[]; hasM
           return (
             <div key={m.id}>
               {sep && <p className="my-3 text-center text-[12px] font-semibold text-ink-faint">{d}</p>}
-              {m.sender_role === "system" && m.kind === "system" ? (
+              {m.sender_role === "system" && m.kind === "system" && m.body?.startsWith("👋 Welcome to") ? (
+                <div className="mx-auto my-2 max-w-[92%] whitespace-pre-wrap rounded-[18px] border border-lav/30 bg-white p-4 text-[15px] leading-relaxed text-ink shadow-card">{m.body}</div>
+              ) : m.sender_role === "system" && m.kind === "system" ? (
                 <p className="py-1 text-center text-[13px] text-ink-faint">{m.body}</p>
               ) : m.kind === "report" ? (
                 <div className="mx-auto max-w-[88%] rounded-[18px] border border-line bg-white p-3.5">

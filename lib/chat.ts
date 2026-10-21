@@ -31,7 +31,7 @@ export async function ensureChatsForBookings(bookings: B[], opts: { invite?: boo
         const again = await sb.from("chats").select("*").eq("deal_key", key).eq("status", "open").maybeSingle();
         if (!again.data) throw new Error(ins.error.message);
         chat = again.data;
-      } else { chat = ins.data; created = true; }
+      } else { chat = ins.data; created = true; await postWelcome(ins.data.id, ins.data.title || "your dog", ins.data.trainer_name); }
     }
     if (!chat) continue;
     // Attach the client's login once we know their email
@@ -78,4 +78,19 @@ export async function postReportToChat(booking: B, report: { id: string; title: 
     }
     await postSystemMessage(chat.id, { kind: "report", body: report.title, media, reportId: report.id });
   } catch { /* the report email already went out; the chat card is a bonus */ }
+}
+
+/** The welcome note at the top of a chat (client and trainer both see it). Posted once per chat. */
+export function welcomeText(dog: string, trainer: string | null) {
+  return `👋 Welcome to ${dog}'s chat! This is where you, ${trainer || "your trainer"} and the Dogwise team talk about ${dog}.\n\n`
+    + `• Updates, photos and videos of ${dog} are posted here every day.\n`
+    + `• Type in the box at the bottom to send a message. Tap the paperclip to send a photo or video.\n`
+    + `• You'll get an email (and a phone notification, if you turn them on) when there's something new.\n\n`
+    + `Trainers: please post at least one photo or video of ${dog} every day.`;
+}
+export async function postWelcome(chatId: string, dog: string, trainer: string | null) {
+  const sb = serviceClient();
+  const { data } = await sb.from("chat_messages").select("id").eq("chat_id", chatId).eq("kind", "system").like("body", "👋 Welcome to%").limit(1);
+  if (data?.length) return;
+  await postSystemMessage(chatId, { kind: "system", body: welcomeText(dog, trainer) }).catch(() => {});
 }

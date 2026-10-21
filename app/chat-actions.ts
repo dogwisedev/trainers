@@ -3,7 +3,7 @@ import { auditCall } from "@/lib/audit";
 import { revalidatePath } from "next/cache";
 import { getViewer } from "@/lib/data";
 import { isDemo, serverClient, serviceClient } from "@/lib/supabase";
-import { ensureChatsForBookings } from "@/lib/chat";
+import { ensureChatsForBookings, postWelcome } from "@/lib/chat";
 import { closeChat, reopenChat, sendClosingEmail } from "@/lib/chatOps";
 import { ensureClientUser, sendChatInvite } from "@/lib/authEmail";
 import { mailConfigured, sendMail } from "@/lib/mail";
@@ -59,6 +59,7 @@ export async function inviteClientAction(chatId: string, email?: string): Promis
       await svc.from("chats").update({ client_user_id: userId, client_email: addr }).eq("id", chatId);
     }
     await sendChatInvite({ email: addr, clientName: chat.client_name || "", title: chat.title || "your dog", trainerName: chat.trainer_name || "", chatId });
+    await postWelcome(chatId, chat.title || "your dog", chat.trainer_name || null);
     await svc.from("chats").update({ invited_at: new Date().toISOString() }).eq("id", chatId);
     revalidatePath(`/a/chats/${chatId}`);
     return { ok: true, message: `Chat link sent to ${addr}.` };

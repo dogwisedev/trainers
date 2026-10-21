@@ -42,18 +42,19 @@ async function loadSignins(): Promise<SigninRow[]> {
 
 const b64 = (s: string) => Buffer.from(s).toString("base64url");
 const sign = (body: string) => crypto.createHmac("sha256", key()).update(`welcome:${body}`).digest("base64url").slice(0, 32);
-export function welcomeLink(email: string) {
-  const body = `${b64(email.toLowerCase())}.${Date.now() + VALID_DAYS * 86400e3}`;
+export function welcomeLink(email: string, next = "/t", days = VALID_DAYS) {
+  const body = `${b64(email.toLowerCase())}.${Date.now() + days * 86400e3}.${b64(next)}`;
   return `${site()}/welcome?t=${body}.${sign(body)}`;
 }
 /** The email address in a welcome link, if the link is genuine and not expired. */
-export function verifyWelcome(token: string): string | null {
+export function verifyWelcome(token: string): { email: string; next: string } | null {
   const parts = token.split(".");
-  if (parts.length !== 3) return null;
-  const body = `${parts[0]}.${parts[1]}`, sig = sign(body);
-  if (parts[2].length !== sig.length || !crypto.timingSafeEqual(Buffer.from(parts[2]), Buffer.from(sig))) return null;
+  if (parts.length !== 3 && parts.length !== 4) return null;   // 3 parts = older links (always to /t)
+  const body = parts.slice(0, -1).join("."), given = parts[parts.length - 1], sig = sign(body);
+  if (given.length !== sig.length || !crypto.timingSafeEqual(Buffer.from(given), Buffer.from(sig))) return null;
   if (Number(parts[1]) < Date.now()) return null;
-  return Buffer.from(parts[0], "base64url").toString();
+  const next = parts.length === 4 ? Buffer.from(parts[2], "base64url").toString() : "/t";
+  return { email: Buffer.from(parts[0], "base64url").toString(), next: /^\/(?!\/)/.test(next) ? next : "/" };
 }
 
 /** Makes sure the trainer has a login linked to their profile (creates one if needed). */

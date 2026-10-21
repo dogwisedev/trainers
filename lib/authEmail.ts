@@ -1,4 +1,5 @@
-import { userIdByEmail } from "./userLookup";
+import { lastSignIns, userIdByEmail } from "./userLookup";
+import { welcomeLink } from "./trainerSignin";
 import "server-only";
 import { serviceClient } from "./supabase";
 import { sendMail } from "./mail";
@@ -86,17 +87,36 @@ export async function clientLoginLink(email: string, next: string): Promise<stri
   return `${site()}/auth/confirm?token_hash=${encodeURIComponent(data.properties.hashed_token)}&type=magiclink&next=${encodeURIComponent(next)}`;
 }
 
-/** "Here's your chat with the trainer" email from info@. */
+/** A simple password for a client: the dog's name plus 4 digits, e.g. "Bowser4821". */
+const simplePassword = (dog: string) => `${(dog.replace(/[^A-Za-z]/g, "") || "Dog").replace(/^./, (c) => c.toUpperCase()).slice(0, 12)}${Math.floor(1000 + Math.random() * 9000)}`;
+const esc = (x: string) => x.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]!));
+
+/** "Welcome to Bowser's chat" email from info@: a button that signs them straight in (works for 30 days), and a simple password as a backup. */
 export async function sendChatInvite(opts: { email: string; clientName: string; title: string; trainerName: string; chatId: string }) {
-  const first = (opts.clientName || "").split(" ")[0] || "there";
-  const link = await clientLoginLink(opts.email, `/c/${opts.chatId}`);
+  const first = (opts.clientName || "").split(" ")[0] || "there", dog = opts.title || "your dog";
+  const link = welcomeLink(opts.email, `/c/${opts.chatId}`, 30);
+  // A password only for someone who has never signed in (it never changes a password they already use)
+  let password: string | null = null;
+  const id = await userIdByEmail(opts.email);
+  if (id) {
+    const seen = await lastSignIns([id]);
+    if (seen && !seen.get(id)) {
+      const pw = simplePassword(dog.split(/\s|&/)[0]);
+      const { error } = await serviceClient().auth.admin.updateUserById(id, { password: pw });
+      if (!error) password = pw;
+    }
+  }
+  const login = `${site()}/login`;
   await sendMail({
-    to: opts.email, subject: `Your Dogwise training chat for ${opts.title}`,
-    html: emailHtml(`Chat with ${opts.trainerName || "your trainer"}`,
-      `Hi ${first}, this is your private chat for ${opts.title}'s training. ${opts.trainerName ? `${opts.trainerName} and ` : ""}the Dogwise team will share updates, photos and videos here, and you can message us any time.`,
-      "Open the chat", link,
-      `The button signs you straight in, and works once. If it has expired, go to ${site()}/login, enter this email address, leave the password empty, and we'll send you a fresh link.`),
-    text: `Hi ${first}, your chat for ${opts.title}: ${link}\nIf the link has expired, go to ${site()}/login and enter this email address.`,
+    to: opts.email, subject: `Welcome to ${dog}'s training chat`,
+    html: emailHtml(`Welcome to ${esc(dog)}'s chat`,
+      `Hi ${esc(first)}, this is your private chat for ${esc(dog)}'s training. ${opts.trainerName ? `${esc(opts.trainerName)} and ` : ""}the Dogwise team will post updates, photos and videos of ${esc(dog)} here, and you can message us any time.<br><br>
+      <b>How to use it:</b><br>1. Tap the button below. You're signed straight in.<br>2. Read the updates, and type in the box at the bottom to message us.<br>3. Tap the paperclip to send a photo or video.<br>4. We'll email you whenever there's something new.`,
+      `Open ${esc(dog)}'s chat`, link,
+      `The button works for 30 days. You can also sign in any time at <a href="${login}">${login.replace(/^https?:\/\//, "")}</a>:<br>
+      <b>Email:</b> ${esc(opts.email)}<br>${password ? `<b>Password:</b> <span style="font-size:16px;font-weight:700;color:#2A1971">${password}</span><br>` : "<b>Password:</b> the one you set before (or leave it empty and we'll email you a link).<br>"}
+      Tip: on your phone, add the page to your Home Screen so ${esc(dog)}'s chat is one tap away.`),
+    text: `Hi ${first}, welcome to ${dog}'s training chat.\nOpen it: ${link}\n(works for 30 days)\n\nOr sign in any time at ${login}\nEmail: ${opts.email}\n${password ? `Password: ${password}` : "Password: the one you set before"}\n`,
     attachments: [logo]
   });
 }
