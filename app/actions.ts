@@ -47,7 +47,9 @@ export async function signIn(_: Result | null, f: FormData): Promise<Result> {
     catch (e) { return { ok: false, message: `Couldn't send the link: ${(e as Error).message}` }; }
     return { ok: true, message: "If that email has an account, a sign-in link is on its way from info@dogwiseacademy.com. It works in any browser." };
   }
-  const { error } = await sb.auth.signInWithPassword({ email, password });
+  const { error: err0 } = await sb.auth.signInWithPassword({ email, password });
+  let error = err0;
+  if (error && password !== password.toLowerCase()) ({ error } = await sb.auth.signInWithPassword({ email, password: password.toLowerCase() })); // capitals don't matter for client passwords
   if (error) { await auditCall("signInFailed", { email }, as); return { ok: false, message: "That email and password don't match. Leave the password empty to get a sign-in link instead." }; }
   await auditCall("signInPassword", { email }, as);
   redirect("/");

@@ -1,4 +1,5 @@
-import { lastSignIns, userIdByEmail } from "./userLookup";
+import { userIdByEmail } from "./userLookup";
+import { dealContacts, readContacts } from "./hubspot";
 import { welcomeLink } from "./trainerSignin";
 import "server-only";
 import { serviceClient } from "./supabase";
@@ -87,24 +88,38 @@ export async function clientLoginLink(email: string, next: string): Promise<stri
   return `${site()}/auth/confirm?token_hash=${encodeURIComponent(data.properties.hashed_token)}&type=magiclink&next=${encodeURIComponent(next)}`;
 }
 
-/** A simple password for a client: the dog's name plus 4 digits, e.g. "Bowser4821". */
-const simplePassword = (dog: string) => `${(dog.replace(/[^A-Za-z]/g, "") || "Dog").replace(/^./, (c) => c.toUpperCase()).slice(0, 12)}${Math.floor(1000 + Math.random() * 9000)}`;
+/** The client's phone, from HubSpot (the deal's contact). */
+async function clientPhone(chatId: string): Promise<string | null> {
+  const sb = serviceClient();
+  const { data: chat } = await sb.from("chats").select("deal_key").eq("id", chatId).maybeSingle();
+  const deal = chat?.deal_key && /^\d+$/.test(chat.deal_key) ? chat.deal_key : null;
+  if (!deal) return null;
+  const { data: snap } = await sb.from("pretraining_deals").select("contact").eq("deal_id", deal).maybeSingle();
+  const fromSnap = String((snap?.contact as Record<string, string> | undefined)?.phone || "");
+  if (fromSnap.replace(/\D/g, "").length >= 4) return fromSnap;
+  try {
+    const ids = (await dealContacts([deal])).get(deal) || [];
+    const contacts = await readContacts(ids, ["phone", "mobilephone"]);
+    for (const c of contacts.values()) { const ph = String(c.phone || c.mobilephone || ""); if (ph.replace(/\D/g, "").length >= 4) return ph; }
+  } catch { /* HubSpot unreachable: fall back below */ }
+  return null;
+}
+/** The client's password: dog name + last 4 digits of their phone, all lowercase (sign-in ignores capitals), e.g. "steven2357". */
+const clientPassword = (dog: string, phone: string | null) => `${(dog.replace(/[^A-Za-z]/g, "") || "dog").toLowerCase().slice(0, 14)}${phone ? phone.replace(/\D/g, "").slice(-4) : String(Math.floor(1000 + Math.random() * 9000))}`;
 const esc = (x: string) => x.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]!));
 
 /** "Welcome to Bowser's chat" email from info@: a button that signs them straight in (works for 30 days), and a simple password as a backup. */
 export async function sendChatInvite(opts: { email: string; clientName: string; title: string; trainerName: string; chatId: string }) {
   const first = (opts.clientName || "").split(" ")[0] || "there", dog = opts.title || "your dog";
   const link = welcomeLink(opts.email, `/c/${opts.chatId}`, 30);
-  // A password only for someone who has never signed in (it never changes a password they already use)
-  let password: string | null = null;
+  // Password = dog's name + last 4 digits of the client's phone (set on every invite, so it's always the one in the latest email)
+  let password: string | null = null, fromPhone = false;
   const id = await userIdByEmail(opts.email);
   if (id) {
-    const seen = await lastSignIns([id]);
-    if (seen && !seen.get(id)) {
-      const pw = simplePassword(dog.split(/\s|&/)[0]);
-      const { error } = await serviceClient().auth.admin.updateUserById(id, { password: pw });
-      if (!error) password = pw;
-    }
+    const phone = await clientPhone(opts.chatId);
+    const pw = clientPassword(dog.split("&")[0].trim(), phone);
+    const { error } = await serviceClient().auth.admin.updateUserById(id, { password: pw });
+    if (!error) { password = pw; fromPhone = !!phone; }
   }
   const login = `${site()}/login`;
   await sendMail({
@@ -114,7 +129,7 @@ export async function sendChatInvite(opts: { email: string; clientName: string; 
       <b>How to use it:</b><br>1. Tap the button below. You're signed straight in.<br>2. Read the updates, and type in the box at the bottom to message us.<br>3. Tap the paperclip to send a photo or video.<br>4. We'll email you whenever there's something new.`,
       `Open ${esc(dog)}'s chat`, link,
       `The button works for 30 days. You can also sign in any time at <a href="${login}">${login.replace(/^https?:\/\//, "")}</a>:<br>
-      <b>Email:</b> ${esc(opts.email)}<br>${password ? `<b>Password:</b> <span style="font-size:16px;font-weight:700;color:#2A1971">${password}</span><br>` : "<b>Password:</b> the one you set before (or leave it empty and we'll email you a link).<br>"}
+      <b>Email:</b> ${esc(opts.email)}<br>${password ? `<b>Password:</b> <span style="font-size:17px;font-weight:700;color:#2A1971">${password}</span><br><span style="font-size:12px">${fromPhone ? `That's ${esc(dog.split("&")[0].trim())}'s name and the last 4 digits of your phone number. ` : ""}Capital letters don't matter.</span><br>` : "<b>Password:</b> leave it empty and we'll email you a sign-in link.<br>"}
       Tip: on your phone, add the page to your Home Screen so ${esc(dog)}'s chat is one tap away.`),
     text: `Hi ${first}, welcome to ${dog}'s training chat.\nOpen it: ${link}\n(works for 30 days)\n\nOr sign in any time at ${login}\nEmail: ${opts.email}\n${password ? `Password: ${password}` : "Password: the one you set before"}\n`,
     attachments: [logo]

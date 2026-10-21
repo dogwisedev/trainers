@@ -170,3 +170,26 @@ export async function setClientEmailsAction(chatId: string, on: boolean): Promis
     return error ? { ok: false, message: error.message } : { ok: true, message: on ? "This client will get a daily email when there are unread updates." : "This client won't get notification emails." };
   } catch (e) { return { ok: false, message: (e as Error).message }; }
 }
+
+/** Admin: send the welcome email again (new button + password) to every client in these chats who hasn't opened their chat yet. */
+export async function resendInvitesAction(chatIds: string[]): Promise<ChatResult> {
+  await auditCall("resendInvitesAction", { count: chatIds.length });
+  if (isDemo()) return { ok: false, message: "Demo mode." };
+  const v = await getViewer();
+  if (v?.role !== "admin") return { ok: false, message: "Admins only." };
+  const sb = serviceClient();
+  const { data: chats } = await sb.from("chats").select("id, title, client_email, client_name, client_user_id, trainer_name, status").in("id", chatIds.slice(0, 200)).eq("status", "open");
+  let sent = 0; const bad: string[] = [];
+  for (const c of (chats || []) as { id: string; title: string | null; client_email: string | null; client_name: string | null; client_user_id: string | null; trainer_name: string | null }[]) {
+    if (!c.client_email) { bad.push(`${c.title || "chat"}: no client email`); continue; }
+    try {
+      if (!c.client_user_id) { const uid = await ensureClientUser(c.client_email); await sb.from("chats").update({ client_user_id: uid }).eq("id", c.id); }
+      await sendChatInvite({ email: c.client_email, clientName: c.client_name || "", title: c.title || "your dog", trainerName: c.trainer_name || "", chatId: c.id });
+      await sb.from("chats").update({ invited_at: new Date().toISOString() }).eq("id", c.id);
+      await postWelcome(c.id, c.title || "your dog", c.trainer_name);
+      sent++;
+    } catch (e) { bad.push(`${c.title || "chat"}: ${(e as Error).message}`); }
+  }
+  revalidatePath("/a/chats");
+  return { ok: sent > 0 || !bad.length, message: `Sent ${sent} invite${sent === 1 ? "" : "s"}.${bad.length ? ` Not sent: ${bad.join("; ")}` : ""}` };
+}

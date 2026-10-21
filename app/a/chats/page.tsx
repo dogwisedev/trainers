@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ResendInvites } from "@/components/ResendInvites";
 import { isDemo, serviceClient } from "@/lib/supabase";
 import { Users } from "lucide-react";
 import { IconTile } from "@/components/ui";
@@ -47,6 +48,7 @@ export default async function AdminChats({ searchParams }: { searchParams: { f?:
           return <Link prefetch={false} key={k} href={`/a/chats${p.toString() ? `?${p}` : ""}`} className={`rounded-full px-3.5 py-1.5 text-[13px] font-semibold ${who2 === k ? "bg-lav text-white" : "border border-line bg-white"}`}>{l} <span className="opacity-70">{n}</span></Link>;
         })}
       </div>
+      {!closed && who2 === "no" && <ResendInvites chatIds={chats.filter((c) => c.client_email).map((c) => c.id)} />}
       {placed.length ? groupWithUnread(placed, (c) => chatUnread(c, "admin")).map((g) => (
         <section key={g.group}>
           <ChatGroupTitle label={g.label} count={g.items.length} />
