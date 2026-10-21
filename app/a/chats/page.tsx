@@ -5,7 +5,7 @@ import { IconTile } from "@/components/ui";
 import { requireRole, unreadForAdmin } from "@/lib/data";
 import { chatSpans, listChats, searchChatMessages } from "@/lib/chatData";
 import { chatUnread } from "@/lib/chatTypes";
-import { datesLabel, groupChats, nameMatches, orderChats } from "@/lib/chatOrder";
+import { datesLabel, groupChats, groupWithUnread, nameMatches, orderChats } from "@/lib/chatOrder";
 import { etParts } from "@/lib/chatRules";
 import { ChatGroupTitle, ChatListRow } from "@/components/ChatBits";
 import { ChatFilters } from "@/components/ChatFilters";
@@ -47,7 +47,7 @@ export default async function AdminChats({ searchParams }: { searchParams: { f?:
           return <Link prefetch={false} key={k} href={`/a/chats${p.toString() ? `?${p}` : ""}`} className={`rounded-full px-3.5 py-1.5 text-[13px] font-semibold ${who2 === k ? "bg-lav text-white" : "border border-line bg-white"}`}>{l} <span className="opacity-70">{n}</span></Link>;
         })}
       </div>
-      {placed.length ? groupChats(placed).map((g) => (
+      {placed.length ? groupWithUnread(placed, (c) => chatUnread(c, "admin")).map((g) => (
         <section key={g.group}>
           <ChatGroupTitle label={g.label} count={g.items.length} />
           <ul className="panel divide-y divide-line">

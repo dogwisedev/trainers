@@ -3,7 +3,7 @@ import Image from "next/image";
 import { requireRole, unreadForTrainer } from "@/lib/data";
 import { chatReads, chatSpans, listChats, searchChatMessages } from "@/lib/chatData";
 import { chatUnread } from "@/lib/chatTypes";
-import { datesLabel, groupChats, nameMatches, orderChats } from "@/lib/chatOrder";
+import { datesLabel, groupChats, groupWithUnread, nameMatches, orderChats } from "@/lib/chatOrder";
 import { etParts } from "@/lib/chatRules";
 import { ChatGroupTitle, ChatListRow } from "@/components/ChatBits";
 import { ChatFilters } from "@/components/ChatFilters";
@@ -32,7 +32,7 @@ export default async function TrainerChats({ searchParams }: { searchParams: { q
         </li>
       </ul>
       {mine.length > 0 && <ChatFilters base="/t/chats" q={q} />}
-      {groupChats(placed).map((g) => (
+      {groupWithUnread(placed, (c) => chatUnread(c, "trainer", reads[c.id])).map((g) => (
         <section key={g.group}>
           <ChatGroupTitle label={g.label} count={g.items.length} />
           <ul className="panel divide-y divide-line">

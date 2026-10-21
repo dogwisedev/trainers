@@ -49,3 +49,11 @@ export const nameMatches = (c: ChatRow, q: string) =>
 const min = (xs: string[]) => xs.reduce((m, x) => (x < m ? x : m));
 const max = (xs: string[]) => xs.reduce((m, x) => (x > m ? x : m));
 const cmp = (a: string | null, b: string | null) => (a || "").localeCompare(b || "");
+
+/** "Needs a reply" first: unread chats, newest message on top. Then the usual groups for everything else. */
+export function groupWithUnread(placed: Placed[], isUnread: (c: ChatRow) => boolean): { group: string; label: string; items: Placed[] }[] {
+  const last = (p: Placed) => p.chat.last_message_at || p.chat.created_at || "";
+  const unread = placed.filter((p) => isUnread(p.chat)).sort((a, b) => last(b).localeCompare(last(a)));
+  const rest = placed.filter((p) => !isUnread(p.chat));
+  return [...(unread.length ? [{ group: "unread", label: "Needs a reply", items: unread }] : []), ...groupChats(rest)];
+}
