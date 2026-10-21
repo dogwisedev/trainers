@@ -15,7 +15,7 @@ export const RATE_FIELDS: [keyof Rates, string][] = [
 ];
 export const EMPTY_RATES: Rates = { w2: null, w3: null, w4: null, w4_rehab: null, w5_rehab: null, w6_rehab: null, report_deduction: 100, mileage_rate: null, mileage_free_miles: 0 };
 
-const ANCHOR = "2026-10-05"; // a submission Monday (paid Fri Oct 9, 2026)
+const ANCHOR = "2026-10-26"; // an approval Monday: period Mon Oct 12 - Sun Oct 25, paid Fri Oct 30 (then every 2 weeks)
 const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 
 // ── Pay run dates ───────────────────────────────────────────────────────
@@ -34,9 +34,13 @@ export function payMondayOnOrBefore(iso: string) {
   const next = payMondayOnOrAfter(iso);
   return next === iso ? iso : addDays(next, -14);
 }
+/**
+ * A pay run: two weeks, Monday to Sunday. Approved the Monday after (submitDate), paid that Friday.
+ * e.g. period Mon Oct 12 - Sun Oct 25, approved Mon Oct 26, paid Fri Oct 30. period_end is the last day (the Sunday).
+ */
 export function runDates(submitDate: string) {
-  const periodStart = addDays(submitDate, -8); // Sunday
-  return { submit_date: submitDate, period_start: periodStart, period_end: addDays(periodStart, 14), paid_date: addDays(submitDate, 4), weeks: [periodStart, addDays(periodStart, 7)] };
+  const periodStart = addDays(submitDate, -14); // Monday, two weeks before
+  return { submit_date: submitDate, period_start: periodStart, period_end: addDays(submitDate, -1), paid_date: addDays(submitDate, 4), weeks: [periodStart, addDays(periodStart, 7)] };
 }
 
 // ── Rates ───────────────────────────────────────────────────────────────

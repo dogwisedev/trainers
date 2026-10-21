@@ -42,7 +42,7 @@ export default async function Trainers({ searchParams }: { searchParams: { view?
     </div>
   );
   if (payView) {
-    const d = runDates(submit);
+    const d = pay.run || runDates(submit); // a saved run keeps its own dates
     return (
       <>
         {header}

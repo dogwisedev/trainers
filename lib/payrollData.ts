@@ -58,9 +58,12 @@ export async function getRates(trainerId: string): Promise<Rates> {
 // ── Building drafts ─────────────────────────────────────────────────────
 /** Creates the run if needed and (re)builds every draft from bookings. Approved payslips are never touched; manual lines are kept. */
 export async function buildDrafts(sb: SupabaseClient, submitDate: string) {
-  const r = runDates(submitDate);
-  const { data: run, error: runErr } = await sb.from("pay_runs").upsert({ submit_date: r.submit_date, period_start: r.period_start, period_end: r.period_end, paid_date: r.paid_date }, { onConflict: "submit_date" }).select("*").single();
-  if (runErr) throw new Error(runErr.message);
+  // A run that already exists keeps the dates it was made with (the pay calendar changed on Oct 26, 2026); new runs use today's rule
+  const { data: saved } = await sb.from("pay_runs").select("*").eq("submit_date", submitDate).maybeSingle();
+  const fresh = runDates(submitDate);
+  const r = saved ? { ...fresh, submit_date: saved.submit_date, period_start: saved.period_start, period_end: saved.period_end, paid_date: saved.paid_date, weeks: [saved.period_start, addDays(saved.period_start, 7)] } : fresh;
+  const { data: run, error: runErr } = saved ? { data: saved, error: null } : await sb.from("pay_runs").insert({ submit_date: r.submit_date, period_start: r.period_start, period_end: r.period_end, paid_date: r.paid_date }).select("*").single();
+  if (runErr || !run) throw new Error(runErr?.message || "Couldn't create the pay run.");
 
   const lastDay = addDays(r.weeks[1], 6);
   const [{ data: trainers }, { data: bookings }, { data: rateRows }, { data: existing }, { data: tripRows }, { data: fupRows }] = await Promise.all([
