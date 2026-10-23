@@ -3,7 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import seed from "./demo-seed.json";
 import { isDemo, serverClient, serviceClient } from "./supabase";
 import { addDays, todayIso } from "./dates";
-import { BookingLike, EMPTY_RATES, PROBATION_NOTE, Rates, TripLike, applyProbation, heldFrom, draftLines, payMondayOnOrAfter, payMondayOnOrBefore, routeLines, runDates, sumLines } from "./payroll";
+import { BookingLike, EMPTY_RATES, PROBATION_NOTE, Rates, TripLike, applyProbation, heldFrom, lineKey, lineSig, draftLines, payMondayOnOrAfter, payMondayOnOrBefore, routeLines, runDates, sumLines } from "./payroll";
 import { SlipData, SlipLine } from "./payslipDoc";
 import { Trainer } from "./types";
 
@@ -70,7 +70,7 @@ export async function buildDrafts(sb: SupabaseClient, submitDate: string) {
     sb.from("trainers").select("id, name, address, probation, probation_release_run, probation_release_amount"),
     sb.from("bookings").select("id, trainer_id, client_name, dog_name, start_date, end_date, weeks, extra_days, rehab, status").neq("status", "cancelled").lte("start_date", lastDay).gte("end_date", r.weeks[0]),
     sb.from("trainer_rates").select("*"),
-    sb.from("payslips").select("id, trainer_id, status, adjustments, total, hand_edited, payslip_lines(booking_id, kind, auto, days, weeks_completed, amount, program, client, dog)").eq("pay_run_id", run.id),
+    sb.from("payslips").select("id, trainer_id, status, adjustments, total, hand_edited, skip_keys, payslip_lines(id, booking_id, kind, auto, days, weeks_completed, amount, program, client, dog)").eq("pay_run_id", run.id),
     // Trips in these two weeks (pickups, drop-offs, follow-up sessions), for mileage pay. No table yet = no mileage lines.
     sb.from("trips").select("id, trainer_id, booking_id, kind, trip_date, miles, bookings(client_name, dog_name)").gte("trip_date", r.weeks[0]).lte("trip_date", lastDay),
     // Follow-up sessions booked on the deal (follow_up_session__1..3) in these two weeks. No table yet = none.
@@ -86,7 +86,6 @@ export async function buildDrafts(sb: SupabaseClient, submitDate: string) {
 
   for (const t of trainers || []) {
     const prev = (existing || []).find((p) => p.trainer_id === t.id) as { id: string; status: string; payslip_lines?: L[] } | undefined;
-    if (prev && (prev as { hand_edited?: boolean }).hand_edited) continue; // edited and saved by an admin: leave it exactly as they made it
     // A booking line edited by hand stays as it is: don't add an automatic one next to it.
     const handEdited = new Set((prev?.payslip_lines || []).filter((l) => l.kind === "training" && !l.auto && l.booking_id).map((l) => l.booking_id));
     const tr = t as { id: string; probation?: string | null; probation_release_run?: string | null; probation_release_amount?: number | null };
@@ -99,12 +98,30 @@ export async function buildDrafts(sb: SupabaseClient, submitDate: string) {
     });
     const release = tr.probation === "approved" && tr.probation_release_run === r.submit_date && Number(tr.probation_release_amount) > 0
       ? [{ kind: "other", booking_id: null, client: "", dog: "", program: "Probation approved: held 25% paid", amount: Number(tr.probation_release_amount), days: null, weeks_completed: null, week_from: null, missingRate: false }] : [];
-    const lines = [
+    const generated = [
       ...applyProbation(draftLines(((bookings || []) as BookingLike[]).filter((b) => b.trainer_id === t.id && !handEdited.has(b.id)), rateOf(t.id), r.weeks), tr.probation === "on" || tr.probation === "declined"),
       ...fups, ...release,
       ...routeLines(trips.filter((x) => x.trainer_id === t.id), rateOf(t.id), r.weeks[0], addDays(lastDay, 1))
     ];
     if (prev?.status === "approved") { skipped++; continue; }
+    // Hand edits, line by line: automatic lines an admin deleted stay deleted, lines they changed stay as they made them.
+    let lines = generated;
+    if (prev) {
+      const pv = prev as unknown as { id: string; hand_edited?: boolean; skip_keys?: string[]; payslip_lines?: (L & { id: string })[] };
+      const have = pv.payslip_lines || [];
+      const skip = new Set<string>(pv.skip_keys || []);
+      if (pv.hand_edited) {
+        // Saved under the old "freeze the whole payslip" rule: work out once what was deleted or changed, then go back to live updates
+        for (const g of generated) {
+          const k = lineKey(g), h = have.find((x) => lineKey(x) === k);
+          if (!h) skip.add(k);
+          else if (h.auto && lineSig(h) !== lineSig(g)) { await sb.from("payslip_lines").update({ auto: false }).eq("id", h.id); h.auto = false; }
+        }
+        await sb.from("payslips").update({ hand_edited: false, skip_keys: [...skip] }).eq("id", pv.id);
+      }
+      const manual = new Set(have.filter((x) => !x.auto).map((x) => lineKey(x)));
+      lines = generated.filter((g) => !skip.has(lineKey(g)) && !manual.has(lineKey(g)));
+    }
     if (!lines.length && !prev) continue;
     missingRates += lines.filter((l) => l.missingRate).length;
     // Nothing changed since the last refresh: leave it alone (keeps refreshing fast)

@@ -32,9 +32,14 @@ export default async function ActivityLog({ searchParams }: { searchParams: { d?
     sb.from("chat_messages").select("id, created_at, chat_id, sender_name, sender_role, kind, body, chats(title, client_name)").gte("created_at", from).lt("created_at", to).neq("sender_role", "system").order("created_at").limit(3000),
     sb.from("messages").select("id, created_at, trainer_id, sender_role, sender_name, body, trainers(name)").gte("created_at", from).lt("created_at", to).order("created_at").limit(2000)
   ]);
+  // Emails next to names (admins often share a name like "Dogwise team")
+  const uids = [...new Set(((logs || []) as { user_id: string | null }[]).map((l) => l.user_id).filter((x): x is string => !!x))];
+  const { data: em } = uids.length ? await sb.rpc("user_emails", { p_ids: uids }) : { data: [] };
+  const emailOf = new Map(((em || []) as { id: string; email: string }[]).map((x) => [x.id, x.email]));
+  const named = (who: string | null, uid: string | null) => { const e = uid ? emailOf.get(uid) : null; const w = who || "?"; return e && !w.includes("@") ? `${w} (${e})` : w; };
   const rows: Row[] = [
-    ...((logs || []) as { at: string; who: string | null; role: string | null; action: string; detail: string | null; link: string | null }[]).map((l): Row => ({
-      at: l.at, who: l.who || "?", role: l.role || "", what: l.action, detail: l.detail || "", link: l.link,
+    ...((logs || []) as { at: string; who: string | null; role: string | null; action: string; detail: string | null; link: string | null; user_id: string | null }[]).map((l): Row => ({
+      at: l.at, who: named(l.who, l.user_id), role: l.role || "", what: l.action, detail: l.detail || "", link: l.link,
       kind: /sign/i.test(l.action) ? "signin" : /notification/i.test(l.action) ? "notify" : "action"
     })),
     ...((chatMsgs || []) as unknown as { created_at: string; chat_id: string; sender_name: string | null; sender_role: string; kind: string; body: string | null; chats: { title: string | null; client_name: string | null } | null }[]).map((m): Row => ({

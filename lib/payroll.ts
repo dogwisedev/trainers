@@ -154,3 +154,11 @@ export function applyProbation<T extends { kind: string; amount: number; program
   if (!onProbation) return lines;
   return lines.map((l) => (l.kind === "training" && l.amount > 0 ? { ...l, amount: round2(l.amount * PROBATION_SHARE), program: `${l.program} (75%, probation)`, description: PROBATION_NOTE } : l));
 }
+
+// ── Hand edits on payslips, line by line ─────────────────────────────────
+// Every automatic line has a key: the booking for training lines, the booking + what it is for routes and follow-ups.
+// Deleted automatic line = its key is remembered (skip_keys) and it never comes back. Changed automatic line = it becomes a
+// manual line (kept as is, and its booking gets no new automatic line). Everything else keeps updating from the bookings.
+export type KeyLine = { kind: string; booking_id?: string | null; program?: string | null; days?: number | null; amount?: number | string | null; client?: string | null; dog?: string | null };
+export const lineKey = (l: KeyLine) => `${l.kind}|${l.booking_id || ""}${l.kind === "training" ? "" : `|${String(l.program || "").split(":")[0]}`}`;
+export const lineSig = (l: KeyLine) => [l.kind, l.booking_id || "", l.days ?? "", Number(l.amount ?? 0).toFixed(2), l.program ?? "", l.client ?? "", l.dog ?? ""].join("|");

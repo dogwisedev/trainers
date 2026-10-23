@@ -64,7 +64,7 @@ export async function postSystemMessage(chatId: string, m: { kind: "system" | "r
 }
 
 /** When a report is approved, drop it in the booking's chat (PDF saved to the chat's Drive folder). Never blocks the approval. */
-export async function postReportToChat(booking: B, report: { id: string; title: string }, pdf: Uint8Array) {
+export async function postReportToChat(booking: B, report: { id: string; title: string }, pdf: Uint8Array, extra: { name: string; pdf: Uint8Array }[] = []) {
   try {
     const sb = serviceClient();
     const { data: chat } = await sb.from("chats").select("*").eq("deal_key", dealKey(booking)).eq("status", "open").maybeSingle();
@@ -75,6 +75,7 @@ export async function postReportToChat(booking: B, report: { id: string; title: 
       if (!folderId) { const f = await ensureChatFolder(chat); folderId = f.id; await sb.from("chats").update({ drive_folder_id: f.id, drive_folder_url: f.url }).eq("id", chat.id); }
       const name = `${report.title} ${new Date().toISOString().slice(0, 10)}.pdf`;
       media = [{ id: await uploadFile(folderId, name, "application/pdf", pdf), name, kind: "file", size: pdf.byteLength }];
+      for (const x of extra) media.push({ id: await uploadFile(folderId, x.name, "application/pdf", x.pdf), name: x.name, kind: "file", size: x.pdf.byteLength });
     }
     await postSystemMessage(chat.id, { kind: "report", body: report.title, media, reportId: report.id });
   } catch { /* the report email already went out; the chat card is a bonus */ }

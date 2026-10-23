@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { getViewer } from "@/lib/data";
 import { isDemo, serverClient } from "@/lib/supabase";
 import { buildDrafts, getPayslip, recalc, toSlipData } from "@/lib/payrollData";
-import { RATE_FIELDS } from "@/lib/payroll";
+import { RATE_FIELDS, KeyLine, lineKey, lineSig } from "@/lib/payroll";
 import { payslipHtml, payslipText } from "@/lib/payslipDoc";
 import { payslipPdf } from "@/lib/payslipPdf";
 import { sendMail } from "@/lib/mail";
@@ -36,6 +36,18 @@ async function saveDraft(id: string, edit: { lines: EditLine[]; adjustments: num
   const sb = serverClient();
   const { data: slip } = await sb.from("payslips").select("status").eq("id", id).single();
   if (slip?.status === "approved" && !allowApproved) throw new Error("This payslip is approved. Use Edit to correct it.");
+  // What changed by hand, line by line (compared with the automatic lines as they were)
+  const [{ data: before }, { data: cur }] = await Promise.all([
+    sb.from("payslip_lines").select("kind, booking_id, program, days, amount, client, dog, auto").eq("payslip_id", id),
+    sb.from("payslips").select("skip_keys").eq("id", id).maybeSingle()
+  ]);
+  const prevAuto = ((before || []) as (KeyLine & { auto: boolean })[]).filter((l) => l.auto);
+  const skip = new Set<string>((cur?.skip_keys as string[] | undefined) || []);
+  for (const p of prevAuto) {
+    const now = edit.lines.find((l) => l.auto && lineKey(l) === lineKey(p));
+    if (!now) skip.add(lineKey(p));                                       // deleted: don't bring it back
+    else if (lineSig(now) !== lineSig(p)) now.auto = false;               // changed: keep it as they made it
+  }
   await sb.from("payslip_lines").delete().eq("payslip_id", id);
   const rows = edit.lines.map((l, i) => ({
     payslip_id: id, kind: l.kind, booking_id: l.booking_id || null, weeks_completed: l.weeks_completed ?? null, days: l.days ?? null, week_from: l.week_from ?? null,
@@ -43,8 +55,8 @@ async function saveDraft(id: string, edit: { lines: EditLine[]; adjustments: num
     amount: Math.round(Number(l.amount || 0) * 100) / 100, auto: !!l.auto, sort: i
   }));
   if (rows.length) { const { error } = await sb.from("payslip_lines").insert(rows); if (error) throw new Error(error.message); }
-  // Saved by hand: the app never rebuilds this payslip from the bookings again
-  await sb.from("payslips").update({ adjustments: Math.round(Number(edit.adjustments || 0) * 100) / 100, notes: edit.notes?.trim() || null, hand_edited: true }).eq("id", id);
+  // Hand edits are remembered line by line; new bookings still appear on the next refresh
+  await sb.from("payslips").update({ adjustments: Math.round(Number(edit.adjustments || 0) * 100) / 100, notes: edit.notes?.trim() || null, skip_keys: [...skip], hand_edited: false }).eq("id", id);
   await recalc(sb, id);
 }
 

@@ -2,16 +2,20 @@
 import { auditCall } from "@/lib/audit";
 import { revalidatePath } from "next/cache";
 import { getViewer } from "@/lib/data";
-import { isDemo, serverClient } from "@/lib/supabase";
-import { Answers, Kind, MediaItem, Status, hasTrainerPhoto, healthFlags, kindName, reportTitle, s, validate } from "@/lib/reports";
+import { isDemo, serverClient, serviceClient } from "@/lib/supabase";
+import { Answers, Kind, MediaItem, Status, hasTrainerPhoto, healthFlags, items, kindName, reportTitle, s, validate } from "@/lib/reports";
 import { dealKey } from "@/lib/chatTypes";
 import { ensureReport, getReport, pickupMedia } from "@/lib/reportData";
 import type { Booking } from "@/lib/types";
 import { messageTrainer, raiseIncident, resolveIncidents } from "@/lib/incidents";
 import { saveFormTrip } from "@/lib/trips";
 import { pushToTrainer } from "@/lib/push";
-import { buildReport, reportHtml, reportText } from "@/lib/reportDoc";
+import { buildReport, driveUrl, reportHtml, reportText } from "@/lib/reportDoc";
 import { reportPdf } from "@/lib/reportPdf";
+import { handoverPdf } from "@/lib/handoverPdf";
+import { certificatePdf } from "@/lib/certificatePdf";
+import { programFor } from "@/lib/programs";
+import { photoBytes } from "@/lib/drive";
 import { mailConfigured, sendMail } from "@/lib/mail";
 import { BRAND_LOGO_PNG_BASE64 } from "@/lib/brandLogo";
 import { signMedia, verifyMedia } from "@/lib/mediaSig";
@@ -113,6 +117,7 @@ async function deliver(id: string, corrected: boolean): Promise<ReportResult> {
   const a = b.report.answers, to = s(a.clientEmail);
   if (!to) { await sb.from("reports").update({ send_error: "No client email" }).eq("id", id); return { ok: false, message: "Approved, but there's no client email. Add it and use Email again." }; }
   try {
+    if (b.report.kind === "handover") return await deliverHandover(id, b, to, corrected);
     const view = buildReport(b.report.kind, a, b.report.media, { startDate: b.booking.start_date, endDate: b.booking.end_date, submittedAt: b.report.submitted_at });
     const pdf = await reportPdf(view);
     const first = s(a.clientName).split(" ")[0] || "there";
@@ -275,3 +280,49 @@ export async function listChatMediaAction(bookingId: string): Promise<{ items: C
     return { items: out };
   } catch (e) { return { items: [], message: (e as Error).message }; }
 }
+
+/** Handover: the designed report PDF and the graduation certificate, emailed together and posted in the chat. Only after an admin approves. */
+async function deliverHandover(id: string, b: NonNullable<Awaited<ReturnType<typeof getReport>>>, to: string, corrected: boolean): Promise<ReportResult> {
+  const sb = serverClient(), svc = serviceClient(), a = b.report.answers, m = b.report.media || [];
+  const long = (iso: string | null | undefined) => (iso ? new Date(`${iso.slice(0, 10)}T12:00:00Z`).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" }) : "");
+  const today = new Date().toISOString().slice(0, 10);
+  const dog = s(a.dogName) || b.booking.dog_name || "your dog", trainer = s(a.trainerName) || b.trainer.name;
+  const program = programFor(s(a.program)) || programFor(b.booking.program) || s(a.program) || b.booking.program || "Dogwise program";
+  const { data: chat } = await svc.from("chats").select("id").eq("deal_key", b.booking.hubspot_deal_id || b.booking.id).maybeSingle();
+  const site = (process.env.NEXT_PUBLIC_SITE_URL || "").replace(/\/$/, "");
+  const chatUrl = chat ? `${site}/c/${chat.id}` : `${site}/c`;
+  const videos = (slot: "training" | "homework") => m.filter((x) => x.slot === slot && x.kind === "video").map((x) => ({ label: x.description || x.name, url: driveUrl(x.id) }));
+  const ph = m.find((x) => x.slot === "health" && x.kind === "photo");
+  const pdf = await handoverPdf({
+    dog, client: s(a.clientName), trainer, program, location: s(a.clientLocation), contact: to,
+    start: long(b.booking.start_date), end: long(b.booking.end_date), date: long(today),
+    goals: s(a.goals), training: items(a.training).filter((i) => i.title || i.text), homework: items(a.homework).filter((i) => i.title || i.text),
+    trainingVideos: videos("training"), homeworkVideos: videos("homework"),
+    health: s(a.healthAtHandover), extra: s(a.extra), review: s(a.overall), photo: ph ? await photoBytes(ph.id) : null, chatUrl
+  });
+  const [yy, mm, dd] = today.split("-");
+  const cert = await certificatePdf({ dog, program, trainer, date: `${mm}/${dd}/${yy}` });
+  const first = s(a.clientName).split(" ")[0] || "there";
+  const reportName = `Handover Report - ${dog}.pdf`, certName = `Certificate - ${dog} - ${program}.pdf`;
+  const html = `<div style="background:#f8f6fd;padding:28px 12px;font-family:Arial,sans-serif">
+    <div style="max-width:560px;margin:0 auto;background:#fff;border-radius:18px;border:1px solid #E3DEF2;overflow:hidden">
+      <div style="height:6px;background:#9878F8"></div>
+      <div style="padding:26px">
+        <img src="cid:dogwise-logo" alt="Dogwise Academy" width="140" style="display:block;margin-bottom:18px">
+        ${corrected ? `<p style="margin:0 0 12px;color:#904B27;font-weight:bold">Corrected: this replaces the report we sent earlier.</p>` : ""}
+        <h1 style="margin:0 0 10px;font-size:24px;color:#281870">Congratulations, ${esc(dog)} has graduated! 🎓</h1>
+        <p style="margin:0 0 14px;font-size:15px;line-height:1.55;color:#5D5880">Hi ${esc(first)}, ${esc(dog)} has completed the <b>${esc(program)}</b> program with ${esc(trainer)}. Attached are ${esc(dog)}'s <b>handover report</b>, with everything we worked on, the homework and the training videos, and ${esc(dog)}'s <b>graduation certificate</b>.</p>
+        <p style="margin:0 0 20px;font-size:15px;line-height:1.55;color:#5D5880">Both are also in your Dogwise chat, where you can message us any time.</p>
+        <a href="${chatUrl}" style="display:inline-block;background:#281870;color:#fff;text-decoration:none;font-weight:bold;padding:13px 22px;border-radius:12px">Open ${esc(dog)}'s chat</a>
+      </div>
+    </div></div>`;
+  await sendMail({
+    to, subject: `${corrected ? "Corrected: " : ""}${dog}'s handover report and certificate`, html,
+    text: `Hi ${first}, ${dog} has completed the ${program} program with ${trainer}. ${dog}'s handover report and graduation certificate are attached, and in your Dogwise chat: ${chatUrl}`,
+    attachments: [{ filename: reportName, content: pdf, contentType: "application/pdf" }, { filename: certName, content: cert, contentType: "application/pdf" }, logo]
+  });
+  await sb.from("reports").update({ sent_at: new Date().toISOString(), sent_to: to, send_error: null }).eq("id", id);
+  await postReportToChat(b.booking, { id, title: `${corrected ? "Corrected: " : ""}${dog}'s handover report and certificate` }, pdf, [{ name: certName, pdf: cert }]);
+  return { ok: true, message: `${corrected ? "Corrected report" : "Approved"}: handover report and certificate sent to ${to}.` };
+}
+const esc = (x: string) => String(x || "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]!));

@@ -1,3 +1,4 @@
+import { programFor } from "./programs";
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isDemo, serverClient } from "./supabase";
@@ -23,7 +24,7 @@ export const prefill = (kind: Kind, b: Booking, trainerName: string, week: numbe
   dogName: b.dog_name || "", trainerName, clientName: b.client_name,
   ...(kind === "weekly" ? { weekNumber: week } : {}),
   ...(kind === "intake" ? { pickupDate: b.start_date } : {}),
-  ...(kind === "handover" ? { clientEmail: b.client_email || "", program: b.program || "" } : {})
+  ...(kind === "handover" ? { clientEmail: b.client_email || "", program: programFor(b.program) || b.program || "" } : {})
 });
 
 /** Reports a trainer (or everyone, for admins) still owes: from bookings plus the reports that exist. */

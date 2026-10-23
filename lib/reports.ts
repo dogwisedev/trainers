@@ -145,7 +145,7 @@ export const INTAKE_SECTIONS: Section[] = [
 
 // The handover report has repeatable parts (training items, homework items) and picks its videos from the chat.
 export const HANDOVER_SIMPLE: Field[] = [
-  { key: "program", label: "Training program", type: "text", required: true },
+  { key: "program", label: "Training program", type: "text", required: true, hint: "One of: Adolescent Essentials, Anxiety Support, Big Puppy, Puppy Foundations, Reactivity & Aggression Reset, Rescue Restart, Strong Companion. It's on the client's certificate." },
   { key: "clientLocation", label: "Client's location", type: "text" },
   { key: "goals", label: "What are the client's main goals and focus?", type: "textarea", required: true, hint: "The personal goal or behavior the client wants worked on. This was the main focus of the training." }
 ];

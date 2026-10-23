@@ -142,3 +142,17 @@ export async function uploadFile(parentId: string, name: string, mimeType: strin
   if (!r.ok || !d.id) throw new Error(`Couldn't save the file to Drive: ${d?.error?.message || r.status}`);
   return d.id;
 }
+
+/** A photo from Drive as JPEG bytes (via Drive's thumbnail, so iPhone HEIC photos work too), or null. */
+export async function photoBytes(fileId: string, size = 1600): Promise<Uint8Array | null> {
+  try {
+    const token = await accessToken();
+    const meta = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?fields=mimeType,thumbnailLink&supportsAllDrives=true`, { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" });
+    if (!meta.ok) return null;
+    const m = (await meta.json()) as { mimeType?: string; thumbnailLink?: string };
+    const url = m.thumbnailLink ? m.thumbnailLink.replace(/=s\d+$/, `=s${size}`) : /jpe?g|png/.test(m.mimeType || "") ? `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&supportsAllDrives=true` : null;
+    if (!url) return null;
+    const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" });
+    return r.ok ? new Uint8Array(await r.arrayBuffer()) : null;
+  } catch { return null; }
+}

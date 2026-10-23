@@ -33,7 +33,8 @@ function describe(args: Record<string, unknown>): string {
       for (const [fk, fv] of v.entries()) if (!/pass|token|secret/i.test(fk) && typeof fv === "string" && fv.trim()) out.push(`${fk}: ${short(fv)}`);
     } else if (/pass|token|secret/i.test(k)) continue;
     else if (Array.isArray(v)) out.push(`${k}: ${v.length > 6 ? `${v.length} items` : v.map(short).join(", ")}`);
-    else if (v && typeof v === "object") out.push(`${k}: ${short(JSON.stringify(v))}`);
+    else if (v && typeof v === "object") continue;                                   // big objects are summarised separately
+    else if (typeof v === "string" && /^[0-9a-f-]{36}$/i.test(v)) continue;            // ids are turned into names above
     else if (v !== undefined && v !== null && v !== "") out.push(`${k}: ${short(v)}`);
   }
   return out.join(" · ").slice(0, 900);
@@ -57,9 +58,70 @@ export async function auditCall(action: string, args: Record<string, unknown> = 
     const v = who ? null : await getViewer();
     const person = who || (v ? { name: v.name, role: v.role, userId: v.userId } : null);
     const c = await context(args);
+    const email = v?.email || "";
+    const whoText = person?.name ? (email && !person.name.includes("@") && person.name.toLowerCase() !== email ? `${person.name} (${email})` : person.name) : "";
+    const special = await summarize(action, args).catch(() => null);
     await serviceClient().from("audit_log").insert({
-      user_id: person?.userId || null, who: person?.name || "Someone (not signed in)", role: person?.role || null,
-      action: LABEL[action] || action, detail: [c.about, describe(args)].filter(Boolean).join(" · ").slice(0, 1000) || null, link: c.link
+      user_id: person?.userId || null, who: whoText || "Someone (not signed in)", role: person?.role || null,
+      action: LABEL[action] || action, detail: (special || [c.about, describe(args)].filter(Boolean).join(" · ")).slice(0, 1000) || null, link: special ? null : c.link
     });
   } catch { /* the log must never stop the action */ }
+}
+
+// ── Plain-words summaries for the actions people most need to check ──
+const usd = (n: unknown) => `$${Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+type PLine = { kind: string; booking_id?: string | null; program?: string | null; description?: string | null; client?: string | null; dog?: string | null; amount: number | string; days?: number | null };
+const lineName = (l: PLine) => [l.dog || l.client || "", l.kind === "training" ? l.program || "" : l.description || l.program || l.kind].filter(Boolean).join(" ").trim() || l.kind;
+const lineId = (l: PLine) => `${l.kind}|${l.booking_id || ""}|${l.kind === "training" ? "" : (l.description || l.program || "")}`;
+
+async function payslipTitle(id: string) {
+  const { data } = await serviceClient().from("payslips").select("trainer_name, total, adjustments, notes, trainers(name), pay_runs(period_start, period_end), payslip_lines(kind, booking_id, program, description, client, dog, amount, days)").eq("id", id).maybeSingle();
+  if (!data) return null;
+  const run = data.pay_runs as unknown as { period_start: string; period_end: string } | null;
+  const d = (x: string) => new Date(`${x}T12:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+  return { title: `Payslip for ${(data.trainers as unknown as { name?: string } | null)?.name || data.trainer_name || "?"}${run ? `, ${d(run.period_start)} to ${d(run.period_end)}` : ""}`, data };
+}
+
+/** What actually changed, in words. Runs before the action, so it compares with how things were. */
+async function summarize(action: string, a: Record<string, unknown>): Promise<string | null> {
+  const sb = serviceClient();
+  if (/payslip|approve|resend|reopen|correct/i.test(action) && typeof a.id === "string") {
+    const p = await payslipTitle(a.id);
+    if (!p) return null;
+    const edit = a.edit as { lines: PLine[]; adjustments: number; notes: string } | undefined;
+    if (!edit) return p.title;
+    const before = (p.data.payslip_lines || []) as PLine[], after = edit.lines || [];
+    const changes: string[] = [];
+    for (const b of before) {
+      const n = after.find((x) => lineId(x) === lineId(b));
+      if (!n) changes.push(`removed ${lineName(b)} (${usd(b.amount)})`);
+      else if (Number(n.amount) !== Number(b.amount) || (n.days ?? null) !== (b.days ?? null)) changes.push(`${lineName(b)}: ${usd(b.amount)} → ${usd(n.amount)}${n.days !== b.days && n.days != null ? ` (${n.days} days)` : ""}`);
+    }
+    for (const n of after) if (!before.some((b) => lineId(b) === lineId(n))) changes.push(`added ${lineName(n)} (${usd(n.amount)})`);
+    if (Number(edit.adjustments || 0) !== Number(p.data.adjustments || 0)) changes.push(`adjustments ${usd(p.data.adjustments)} → ${usd(edit.adjustments)}`);
+    if ((edit.notes || "").trim() !== (p.data.notes || "").trim()) changes.push(`notes: "${(edit.notes || "").trim().slice(0, 120)}"`);
+    const newTotal = after.reduce((n, l) => n + Number(l.amount || 0), 0) + Number(edit.adjustments || 0);
+    return `${p.title}: ${changes.length ? changes.join("; ") : "no changes (just saved)"}${changes.length ? `. Total ${usd(p.data.total)} → ${usd(newTotal)}` : ""}`;
+  }
+  if (action === "resolveIncidentAction" && typeof a.id === "string") {
+    const { data } = await sb.from("chat_incidents").select("kind, detail, chats(title), bookings!booking_id(dog_name)").eq("id", a.id).maybeSingle();
+    if (!data) return null;
+    const dog = (data.chats as unknown as { title?: string } | null)?.title || (data.bookings as unknown as { dog_name?: string } | null)?.dog_name || "";
+    return `${dog ? `${dog}: ` : ""}${String(data.kind).replace(/_/g, " ")}${data.detail ? `: ${String(data.detail).slice(0, 160)}` : ""}`;
+  }
+  if ((action === "setBookingStatus" || action === "setExtraDays" || action === "emailTrainerAboutBooking") && typeof a.id === "string") {
+    const { data } = await sb.from("bookings").select("dog_name, client_name, status, extra_days, trainers(name)").eq("id", a.id).maybeSingle();
+    if (!data) return null;
+    const who = `${data.dog_name || "Dog"} (${data.client_name}, ${(data.trainers as unknown as { name?: string } | null)?.name || "no trainer"})`;
+    if (action === "setBookingStatus") return `${who}: status ${data.status} → ${String(a.status)}`;
+    if (action === "setExtraDays") return `${who}: extra days ${data.extra_days ?? 0} → ${String(a.days ?? a.n ?? Object.values(a)[1] ?? "?")}`;
+    return who;
+  }
+  if (action === "saveProfileAction" && a.values && typeof a.values === "object") {
+    const { QUESTIONS } = await import("./pretrainingFields");
+    const keys = Object.keys(a.values as object);
+    const names = keys.map((k) => QUESTIONS.find((q) => q.key === k)?.label || k).slice(0, 8);
+    return `changed ${keys.length} answer${keys.length === 1 ? "" : "s"}: ${names.join("; ")}${keys.length > 8 ? "…" : ""}`;
+  }
+  return null;
 }
