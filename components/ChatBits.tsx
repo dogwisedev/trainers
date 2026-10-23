@@ -6,7 +6,7 @@ import { timeAgo } from "@/lib/dates";
 /** One row in a chat list. */
 export function ChatListRow({ chat, href, unread, who, flag, dates, preview }: { chat: ChatRow; href: string; unread: boolean; who: string; flag?: string; dates?: string; preview?: string }) {
   return (
-    <li>
+    <li data-tour="chat-row">
       <Link prefetch={false} href={href} className="flex items-center gap-3 px-3.5 py-3 hover:bg-paper/60">
         <span className="relative">
           <Avatar name={chat.title || "Dog"} size={42} />

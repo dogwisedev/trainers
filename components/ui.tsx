@@ -18,9 +18,9 @@ export function Pill({ children, tone = "mint" }: { children: React.ReactNode; t
   return <span className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-0.5 text-[12px] font-semibold ${t}`}>{children}</span>;
 }
 
-export function Section({ title, action, children, className = "" }: { title: string; action?: React.ReactNode; children: React.ReactNode; className?: string }) {
+export function Section({ title, action, children, className = "", tour }: { title: string; action?: React.ReactNode; children: React.ReactNode; className?: string; tour?: string }) {
   return (
-    <section className={`mt-7 ${className}`}>
+    <section className={`mt-7 ${className}`} data-tour={tour}>
       <div className="mb-3 flex items-end justify-between gap-3">
         <h2 className="text-[20px] font-extrabold">{title}</h2>
         {action}

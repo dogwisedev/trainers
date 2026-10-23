@@ -14,7 +14,7 @@ export default async function MyReports() {
     <>
       <h1 className="text-[30px] font-extrabold">Reports</h1>
       <p className="mb-2 mt-1 text-ink-soft">Three forms for each dog: an intake form on pickup day, a weekly health check (Thursday to Wednesday), and a handover report when the program ends.</p>
-      <Section title="To do">
+      <Section tour="forms" title="To do">
         {open.length ? <ul className="panel divide-y divide-line">{open.map((t) => <TodoRow key={`${t.booking.id}${t.window.kind}${t.window.week}`} t={t} mode="trainer" />)}</ul>
           : <Empty title="All caught up.">New reports show up here when a dog is with you.</Empty>}
       </Section>

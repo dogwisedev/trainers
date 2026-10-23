@@ -38,7 +38,7 @@ export default async function TrainerCalendar() {
         ))}
       </ol>
 
-      <Section title="Block time off" className="scroll-mt-20" >
+      <Section tour="time-off" title="Block time off" className="scroll-mt-20" >
         <div id="time-off" className="panel p-4 md:p-6"><TimeOffForm trainerId={t.id} capacity={t.capacity} /></div>
       </Section>
 

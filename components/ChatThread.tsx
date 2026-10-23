@@ -214,8 +214,8 @@ export function ChatThread(p: { chatId: string; me: Me; initial: ChatMsg[]; hasM
       )}
 
       {p.open ? (
-        <div className={`sticky z-10 mt-4 flex items-end gap-1.5 rounded-[22px] border border-line bg-white p-2 ${p.withBottomNav ? "bottom-[calc(76px+env(safe-area-inset-bottom))] md:bottom-4" : "bottom-3"}`}>
-          <label className={`grid h-11 w-11 shrink-0 cursor-pointer place-items-center rounded-full text-ink-soft hover:bg-paper ${demo ? "opacity-40" : ""}`} aria-label="Add photo or video">
+        <div data-tour="composer" className={`sticky z-10 mt-4 flex items-end gap-1.5 rounded-[22px] border border-line bg-white p-2 ${p.withBottomNav ? "bottom-[calc(76px+env(safe-area-inset-bottom))] md:bottom-4" : "bottom-3"}`}>
+          <label data-tour="attach" className={`grid h-11 w-11 shrink-0 cursor-pointer place-items-center rounded-full text-ink-soft hover:bg-paper ${demo ? "opacity-40" : ""}`} aria-label="Add photo or video">
             <Paperclip size={20} />
             <input type="file" accept="image/*,video/*" multiple className="sr-only" disabled={demo} onChange={(e) => { attach(e.target.files); e.target.value = ""; }} />
           </label>

@@ -1,3 +1,4 @@
+import { TourInvite } from "@/components/TrainerTour";
 import Link from "next/link";
 import { CalendarPlus } from "lucide-react";
 import { getTrainer, listBookings, listTimeOff, requireRole } from "@/lib/data";
@@ -39,7 +40,8 @@ export default async function TrainerHome() {
 
   return (
     <>
-      <div className="rounded-[28px] bg-mint p-5 md:p-7">
+      <TourInvite />
+      <div className="rounded-[28px] bg-mint p-5 md:p-7" data-tour="week">
         <p className="text-[15px] text-ink-soft">{new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}</p>
         <h1 className="mt-1 text-[32px] font-extrabold leading-tight md:text-[40px]">Hi {first}</h1>
         <p className="mt-2 text-[16px]">
@@ -58,13 +60,13 @@ export default async function TrainerHome() {
       </div>
 
       {todo.length > 0 && (
-        <Section title="To do" action={<Link prefetch={false} href="/t/reports" className="text-[14px] font-semibold underline">All reports</Link>}>
+        <Section tour="todo" title="To do" action={<Link prefetch={false} href="/t/reports" className="text-[14px] font-semibold underline">All reports</Link>}>
           <ul className="panel divide-y divide-line border-biscuit">{todo.slice(0, 5).map((x) => <TodoRow key={`${x.booking.id}${x.window.kind}${x.window.week}`} t={x} mode="trainer" />)}</ul>
           {todo.length > 5 && <p className="mt-2 text-[13px] text-ink-soft">And {todo.length - 5} more in <Link prefetch={false} href="/t/reports" className="underline">Reports</Link>.</p>}
         </Section>
       )}
 
-      <Section title="With you now">
+      <Section tour="with-you" title="With you now">
         {withYou.length ? (
           <ul className="space-y-2.5">
             {withYou.map((b) => {

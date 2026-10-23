@@ -22,7 +22,7 @@ export default async function TrainerChats({ searchParams }: { searchParams: { q
       <p className="mb-4 mt-1 text-ink-soft">Message each client about their dog. Share a photo or video update at least once a day.</p>
       <ul className="panel mb-4 divide-y divide-line">
         <li>
-          <Link prefetch={false} href="/t/messages" className="flex items-center gap-3 px-3.5 py-3 hover:bg-paper/60">
+          <Link prefetch={false} href="/t/messages" data-tour="team" className="flex items-center gap-3 px-3.5 py-3 hover:bg-paper/60">
             <span className="relative grid h-[42px] w-[42px] shrink-0 place-items-center rounded-full bg-ink" aria-hidden>
               <Image src="/icons/mark.png" alt="" width={24} height={24} className="brightness-0 invert" />
               {team > 0 && <span className="absolute -right-0.5 -top-0.5 h-3 w-3 rounded-full border-2 border-white bg-heart" />}

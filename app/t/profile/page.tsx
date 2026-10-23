@@ -1,3 +1,4 @@
+import { TourAgain } from "@/components/TrainerTour";
 import { AppSetup } from "@/components/AppSetup";
 import { getTrainer, requireRole } from "@/lib/data";
 import { PasswordForm, TrainerForm } from "@/components/forms";
@@ -13,7 +14,8 @@ export default async function TrainerProfile() {
         <Avatar name={t.name} size={64} />
         <div><h1 className="text-[28px] font-extrabold leading-tight">{t.name}</h1><p className="text-ink-soft">{[t.city, t.state].filter(Boolean).join(", ")}</p></div>
       </div>
-      <div className="mt-5"><AppSetup always /></div>
+      <div className="mt-5" data-tour="setup"><AppSetup always /></div>
+      <TourAgain />
       <div className="mt-5 grid grid-cols-2 gap-3 text-[14px]">
         <div className="panel p-4"><p className="text-ink-soft">Dogs at one time</p><p className="text-[20px] font-bold">{t.capacity}</p></div>
         <div className="panel p-4"><p className="text-ink-soft">Driving range</p><p className="font-bold">{t.range_text || `${t.range_miles} miles`}</p></div>

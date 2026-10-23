@@ -23,7 +23,7 @@ export function Shell({ nav, who, children, demo, accountHref, needsPassword }: 
           {nav.map((n) => {
             const I = ICONS[n.icon];
             return (
-              <Link key={n.href} prefetch={false} href={n.href} aria-current={isActive(n.href) ? "page" : undefined} className={`relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-[15px] ${isActive(n.href) ? "bg-paper font-bold text-ink before:absolute before:-left-5 before:top-2 before:h-[calc(100%-16px)] before:w-1 before:rounded-r-full before:bg-lav" : "font-medium text-ink-soft hover:bg-canvas hover:text-ink"}`}>
+              <Link key={n.href} prefetch={false} href={n.href} data-tour={`nav-${n.label.toLowerCase()}`} aria-current={isActive(n.href) ? "page" : undefined} className={`relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-[15px] ${isActive(n.href) ? "bg-paper font-bold text-ink before:absolute before:-left-5 before:top-2 before:h-[calc(100%-16px)] before:w-1 before:rounded-r-full before:bg-lav" : "font-medium text-ink-soft hover:bg-canvas hover:text-ink"}`}>
                 <I size={19} className={isActive(n.href) ? "text-lav-deep" : ""} /> {n.label}
                 {!!n.badge && <span className="ml-auto grid h-[22px] min-w-[22px] place-items-center rounded-full bg-heart px-1.5 text-[12px] font-bold text-white">{n.badge}</span>}
               </Link>
@@ -68,7 +68,7 @@ export function Shell({ nav, who, children, demo, accountHref, needsPassword }: 
             const on = isActive(n.href);
             return (
               <li key={n.href}>
-                <Link prefetch={false} href={n.href} aria-current={on ? "page" : undefined} className="relative flex min-w-[64px] flex-col items-center gap-1 px-2 py-1 text-[11px] font-semibold">
+                <Link prefetch={false} href={n.href} data-tour={`nav-${n.label.toLowerCase()}`} aria-current={on ? "page" : undefined} className="relative flex min-w-[64px] flex-col items-center gap-1 px-2 py-1 text-[11px] font-semibold">
                   <span className={`grid h-8 w-14 place-items-center rounded-full transition-colors ${on ? "bg-paper text-lav-deep" : "text-ink-faint"}`}><I size={20} strokeWidth={on ? 2.4 : 2} /></span>
                   <span className={on ? "font-bold text-ink" : "text-ink-faint"}>{n.label}</span>
                   {!!n.badge && <span className="absolute right-2.5 top-0 grid h-[18px] min-w-[18px] place-items-center rounded-full bg-heart px-1 text-[10px] font-bold text-white ring-2 ring-white">{n.badge}</span>}

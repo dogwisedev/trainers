@@ -1,4 +1,5 @@
 import { Shell } from "@/components/Shell";
+import { TrainerTour } from "@/components/TrainerTour";
 import { requireRole, unreadForTrainer } from "@/lib/data";
 import { unreadChats } from "@/lib/chatData";
 
@@ -13,6 +14,6 @@ export default async function TrainerLayout({ children }: { children: React.Reac
       { href: "/t/chats", label: "Chats", icon: "messages", badge: unread, also: ["/t/messages"] },
       { href: "/t/pay", label: "Pay", icon: "pay" },
       { href: "/t/profile", label: "Profile", icon: "profile" }
-    ]}>{children}</Shell>
+    ]}><TrainerTour />{children}</Shell>
   );
 }

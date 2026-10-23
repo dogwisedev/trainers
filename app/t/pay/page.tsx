@@ -15,7 +15,7 @@ export default async function MyPay() {
   const total = Math.round(trips.reduce((n, t) => n + Number(t.miles), 0) * 10) / 10;
   return (
     <>
-      <h1 className="text-[30px] font-extrabold">Pay</h1>
+      <h1 className="text-[30px] font-extrabold" data-tour="pay">Pay</h1>
       <p className="mb-5 mt-1 text-ink-soft">Your payslips, every other Friday. Each one is emailed to you too.</p>
       {slips.length ? (
         <ul className="space-y-2.5">
@@ -30,7 +30,7 @@ export default async function MyPay() {
         </ul>
       ) : <Empty title="No payslips yet.">They appear here once the Dogwise team approves them.</Empty>}
 
-      <section className="mt-8">
+      <section className="mt-8" data-tour="miles">
         <div className="mb-2 flex flex-wrap items-end justify-between gap-2">
           <div><h2 className="text-[20px] font-extrabold">Your miles in {year}</h2><p className="text-[13px] text-ink-soft">{trips.length} trip{trips.length === 1 ? "" : "s"}, {total} miles. Keep this for tax time.</p></div>
           <Link prefetch={false} href="/t/followup" className="btn-ghost h-9 min-h-0 px-3 text-[13px]">Log a follow-up session</Link>
