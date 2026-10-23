@@ -18,7 +18,10 @@ export default async function Trainers({ searchParams }: { searchParams: { view?
   const payView = searchParams.view === "pay";
   const kennels = searchParams.view === "kennels";
   const current = await currentRunDate();
-  const submit = searchParams.run && isPayMonday(searchParams.run) ? searchParams.run : current;
+  // A run from the link (Past pay runs): any run that exists, including ones made under the old pay calendar
+  const asked = /^\d{4}-\d{2}-\d{2}$/.test(searchParams.run || "") ? searchParams.run! : null;
+  const saved = asked && !isDemo() ? (await serverClient().from("pay_runs").select("submit_date").eq("submit_date", asked).maybeSingle()).data : null;
+  const submit = asked && (saved || isPayMonday(asked)) ? asked : current;
   // The current run refreshes itself whenever the Payslips view opens: every booked day in its two weeks,
   // trained yet or not. Approved payslips and hand edits are left alone; archived runs are never touched.
   if (payView && !isDemo() && submit === current) {
