@@ -94,14 +94,14 @@ export function PasswordForm() {
   );
 }
 
-type FieldDef = [key: keyof Trainer, label: string, type?: "text" | "textarea" | "number" | "date" | "email" | "tel"];
+type FieldDef = [key: keyof Trainer, label: string, type?: "text" | "textarea" | "number" | "date" | "email" | "tel" | "payroll"];
 const CONTACT: FieldDef[] = [["phone", "Phone", "tel"], ["work_email", "Work email", "email"], ["address", "Address", "textarea"], ["second_location", "Second training location"]];
 const CARE: FieldDef[] = [["local_vet", "Local vet", "textarea"], ["emergency_vet", "Emergency vet", "textarea"], ["emergency_contact", "Emergency contact", "textarea"]];
 const ABOUT: FieldDef[] = [["bio", "Bio", "textarea"], ["birthday", "Birthday", "date"], ["shirt_size", "Hoodie / polo size"]];
 const ADMIN: FieldDef[] = [["name", "Name"], ["email", "Email", "email"], ["dogwise_email", "Dogwise email", "email"], ["capacity", "Dogs at one time", "number"],
   ["monthly_capacity", "Average dogs per month", "number"], ["programs", "Programs", "textarea"], ["offering", "Offering", "textarea"], ["range_text", "Driving range (as they wrote it)"],
   ["range_miles", "Range used for matching (miles)", "number"], ["city", "City"], ["state", "State"], ["zip", "ZIP"], ["lat", "Latitude", "number"], ["lon", "Longitude", "number"],
-  ["poc", "Point of contact (Dogwise)"], ["notes", "Admin notes", "textarea"]];
+  ["poc", "Point of contact (Dogwise)"], ["gusto_code", "Payroll number (from Gusto)", "payroll"], ["notes", "Admin notes", "textarea"]];
 
 export function TrainerForm({ t, admin }: { t: Partial<Trainer>; admin: boolean }) {
   const [r, act] = useFormState(saveTrainer, null);
@@ -114,7 +114,9 @@ export function TrainerForm({ t, admin }: { t: Partial<Trainer>; admin: boolean 
           const v = t[k] as string | number | null | undefined;
           return (
             <F key={k} label={label}>
-              {type === "textarea"
+              {type === "payroll"
+                ? <PayrollNumber name={k} value={(v ?? "") as string} />
+                : type === "textarea"
                 ? <textarea name={k} defaultValue={(v ?? "") as string} rows={2} className="field" />
                 : <input name={k} type={type} step={type === "number" ? "any" : undefined} defaultValue={(v ?? "") as string} className="field" required={k === "name"} />}
             </F>
@@ -189,5 +191,19 @@ export function ExtraDays({ id, current }: { id: string; current: number }) {
       </select>
       {msg && <span className="text-[12px] text-heart">{msg}</span>}
     </span>
+  );
+}
+
+/** The trainer's Gusto payroll number: filled in from the Gusto file on payday, so read-only, with "Change" for the rare wrong match. */
+function PayrollNumber({ name, value }: { name: string; value: string }) {
+  const [edit, setEdit] = useState(false);
+  return (
+    <div>
+      <div className="flex gap-2">
+        <input name={name} defaultValue={value} readOnly={!edit} className={`field ${edit ? "" : "bg-canvas text-ink-soft"}`} placeholder="Added from the Gusto file on payday" />
+        {!edit && <button type="button" className="btn-ghost h-[46px] min-h-0 shrink-0 px-3 text-[13px]" onClick={() => setEdit(true)}>Change</button>}
+      </div>
+      <p className="mt-1 text-[12px] text-ink-faint">Nothing to fill in: it comes from Gusto&apos;s contractor pay file when payslips are done.</p>
+    </div>
   );
 }

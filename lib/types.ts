@@ -1,6 +1,6 @@
 export type Role = "admin" | "trainer" | "client" | "sales";
 export type Trainer = {
-  id: string; name: string; email: string | null; work_email: string | null; dogwise_email: string | null; phone: string | null;
+  id: string; name: string; email: string | null; work_email: string | null; dogwise_email: string | null; phone: string | null; gusto_code?: string | null;
   address: string | null; city: string | null; state: string | null; zip: string | null; lat: number | null; lon: number | null;
   range_text: string | null; range_miles: number; capacity: number; monthly_capacity: number | null;
   programs: string | null; offering: string | null; notes: string | null; poc: string | null;

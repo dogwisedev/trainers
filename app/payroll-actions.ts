@@ -2,7 +2,7 @@
 import { auditCall } from "@/lib/audit";
 import { revalidatePath } from "next/cache";
 import { getViewer } from "@/lib/data";
-import { isDemo, serverClient } from "@/lib/supabase";
+import { isDemo, serverClient, serviceClient } from "@/lib/supabase";
 import { buildDrafts, getPayslip, recalc, toSlipData } from "@/lib/payrollData";
 import { RATE_FIELDS, KeyLine, lineKey, lineSig } from "@/lib/payroll";
 import { payslipHtml, payslipText } from "@/lib/payslipDoc";
@@ -218,4 +218,24 @@ export async function approveManyQuietAction(ids: string[]): Promise<Result> {
   let n = 0; const bad: string[] = [];
   for (const id of ids.slice(0, 100)) { const r = await approveQuietAction(id); if (r.ok) n++; else bad.push(r.message); }
   return bad.length ? { ok: n > 0, message: `Approved ${n}. Not approved: ${bad.join("; ")}` } : { ok: true, message: `Approved ${n} without emailing.` };
+}
+
+/** Admin: the pay run was entered and submitted in Gusto. */
+export async function markGustoPaidAction(submitDate: string): Promise<Result> {
+  await auditCall("markGustoPaidAction", { run: submitDate });
+  if (isDemo()) return DEMO;
+  const v = await admin();
+  const { error } = await serviceClient().from("pay_runs").update({ gusto_paid_at: new Date().toISOString(), gusto_paid_by: v.name }).eq("submit_date", submitDate);
+  revalidatePath("/a/trainers");
+  return error ? { ok: false, message: error.message } : { ok: true, message: "Marked as paid in Gusto." };
+}
+
+/** Admin: remember each trainer's Gusto worker code (from the Gusto template), so next time it fills in by itself. */
+export async function saveGustoCodesAction(codes: { trainerId: string; code: string }[]): Promise<Result> {
+  await auditCall("saveGustoCodesAction", { count: codes.length });
+  if (isDemo()) return DEMO;
+  await admin();
+  const sb = serviceClient();
+  for (const c of codes.slice(0, 300)) if (/^[A-Za-z0-9]{3,20}$/.test(c.code)) await sb.from("trainers").update({ gusto_code: c.code }).eq("id", c.trainerId);
+  return { ok: true, message: "Saved." };
 }

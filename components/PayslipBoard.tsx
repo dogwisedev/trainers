@@ -71,7 +71,7 @@ export function PayslipBoard({ slips: initial, submit, label, paid, demo }: { sl
           <p className="text-[19px] font-extrabold">{label}</p>
           <p className="text-[13px] text-ink-soft">Paid Fri {paid}. {money(total)} across {slips.length} trainers.</p>
         </div>
-        <Link prefetch={false} href="/a/payroll" className="text-[14px] font-semibold underline">Past pay runs</Link>
+        <span className="flex gap-4"><Link prefetch={false} href="/a/payroll" className="text-[14px] font-semibold underline">Past pay runs</Link><Link prefetch={false} href={`/a/payroll/gusto?run=${submit}`} className="text-[14px] font-semibold underline">Gusto list</Link></span>
       </div>
       {slips.length > 0 && (
         <div className="mt-3 h-2 overflow-hidden rounded-full bg-paper" aria-label={`${counts.approved} of ${counts.all} approved`}>

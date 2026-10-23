@@ -75,7 +75,7 @@ export async function setPassword(_: Result | null, f: FormData): Promise<Result
 }
 
 // ── Trainers ──────────────────────────────────────────────────────────────
-const ADMIN_FIELDS = ["name", "email", "dogwise_email", "city", "state", "zip", "range_text", "programs", "offering", "notes", "poc"];
+const ADMIN_FIELDS = ["name", "email", "dogwise_email", "city", "state", "zip", "range_text", "programs", "offering", "notes", "poc", "gusto_code"];
 const SHARED_FIELDS = ["phone", "work_email", "address", "shirt_size", "second_location", "local_vet", "emergency_vet", "emergency_contact", "bio", "birthday"];
 
 export async function saveTrainer(_: Result | null, f: FormData): Promise<Result> {
