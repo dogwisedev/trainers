@@ -1,13 +1,17 @@
 "use client";
 import { useMemo, useState, useTransition } from "react";
-import { Download, Upload } from "lucide-react";
-import { markGustoPaidAction, saveGustoCodesAction } from "@/app/payroll-actions";
+import { Check, Download, Upload } from "lucide-react";
+import { markGustoPaidAction, saveGustoPayeesAction, setGustoCodeAction } from "@/app/payroll-actions";
 
-// Payday: upload Gusto's contractor pay template, check each trainer's match, download it filled in (flat_amount), import into Gusto.
-// The file is read and filled in this browser only: it never reaches our server (it has SSN digits in it).
+// Payday in Gusto, mapped once and saved:
+//  - Gusto people: uploaded once from Gusto's contractor pay template (names + worker codes only; the SSN digits are never sent).
+//    Upload again only when someone new is added in Gusto.
+//  - Each trainer is linked to the Gusto person who gets paid for them (a spouse or a business is fine), saved straight away.
+//  - Download: Gusto's file, built from the saved list and the approved payslips. No upload needed on payday.
 type Pay = { trainerId: string; name: string; amount: number; code: string | null };
 type GRow = { code: string; first: string; last: string; business: string };
 const money = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const HEADER = ["last_name", "first_name", "business_name", "worker_code", "ssn/ein", "hourly_rate", "hours", "flat_amount", "bonus", "reimbursement", "tips", "cash_tips", "invoice_number", "note"];
 
 function parseCsv(text: string): string[][] {
   const rows: string[][] = []; let row: string[] = [], cell = "", q = false;
@@ -35,92 +39,94 @@ function suggest(name: string, g: GRow[]): { code: string; sure: boolean } | nul
   return null;
 }
 
-export function GustoFill({ run, pay, paidAt, paidBy, pending }: { run: string; pay: Pay[]; paidAt: string | null; paidBy: string | null; pending: number }) {
-  const [file, setFile] = useState<{ name: string; rows: string[][] } | null>(null);
-  const [pick, setPick] = useState<Record<string, string>>({});
-  const [how, setHow] = useState<Record<string, "saved" | "auto" | "check" | "none">>({});
+
+export function GustoFill({ run, pay, others, payees: initial, paidAt, paidBy, pending }: { run: string; pay: Pay[]; others: Pay[]; payees: GRow[]; paidAt: string | null; paidBy: string | null; pending: number }) {
+  const [payees, setPayees] = useState<GRow[]>(initial);
+  const [codes, setCodes] = useState<Record<string, string>>(() => Object.fromEntries([...pay, ...others].map((t) => [t.trainerId, t.code || ""])));
+  const [saving, setSaving] = useState<string>("");
   const [msg, setMsg] = useState("");
   const [busy, start] = useTransition();
   const [paid, setPaid] = useState({ at: paidAt, by: paidBy });
-  const head = file?.rows[0].map((h) => h.trim().toLowerCase()) || [];
-  const col = (n: string) => head.indexOf(n);
-  const g: GRow[] = useMemo(() => !file ? [] : file.rows.slice(1).map((r) => ({ code: r[col("worker_code")]?.trim() || "", first: r[col("first_name")] || "", last: r[col("last_name")] || "", business: r[col("business_name")] || "" })).filter((r) => r.code), [file]); // eslint-disable-line react-hooks/exhaustive-deps
+  const byCode = useMemo(() => new Map(payees.map((p) => [p.code, p])), [payees]);
   const label = (r: GRow) => (r.last || r.first ? `${r.last}${r.first ? `, ${r.first}` : ""}` : r.business) + (r.business && (r.last || r.first) ? ` (${r.business})` : "");
+  const sorted = useMemo(() => [...payees].sort((a, b) => label(a).localeCompare(label(b))), [payees]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const load = async (f: File) => {
+  const upload = async (f: File) => {
     setMsg("");
-    const rows = parseCsv(await f.text());
-    const h = rows[0]?.map((x) => x.trim().toLowerCase()) || [];
-    if (!h.includes("worker_code") || !h.includes("flat_amount")) { setMsg("That doesn't look like Gusto's contractor pay template (no worker_code / flat_amount columns)."); return; }
-    setFile({ name: f.name, rows });
-    const gr = rows.slice(1).map((r) => ({ code: r[h.indexOf("worker_code")]?.trim() || "", first: r[h.indexOf("first_name")] || "", last: r[h.indexOf("last_name")] || "", business: r[h.indexOf("business_name")] || "" })).filter((r) => r.code);
-    const p: Record<string, string> = {}, w: Record<string, "saved" | "auto" | "check" | "none"> = {};
-    for (const t of pay) {
-      if (t.code && gr.some((r) => r.code === t.code)) { p[t.trainerId] = t.code; w[t.trainerId] = "saved"; continue; }
-      const s = suggest(t.name, gr);
-      p[t.trainerId] = s?.code || ""; w[t.trainerId] = s ? (s.sure ? "auto" : "check") : "none";
-    }
-    setPick(p); setHow(w);
+    const rows = parseCsv(await f.text()), h = rows[0]?.map((x) => x.trim().toLowerCase()) || [];
+    if (!h.includes("worker_code")) { setMsg("That doesn't look like Gusto's contractor pay template (no worker_code column)."); return; }
+    const list = rows.slice(1).map((r) => ({ code: (r[h.indexOf("worker_code")] || "").trim(), first: r[h.indexOf("first_name")] || "", last: r[h.indexOf("last_name")] || "", business: r[h.indexOf("business_name")] || "" })).filter((r) => r.code);
+    start(async () => { const res = await saveGustoPayeesAction(list); setMsg(res.message); if (res.ok) setPayees(list); });
   };
-  const missing = pay.filter((t) => !pick[t.trainerId]);
-  const dupes = Object.entries(pay.reduce<Record<string, string[]>>((m, t) => { const c = pick[t.trainerId]; if (c) (m[c] ||= []).push(t.name); return m; }, {})).filter(([, n]) => n.length > 1);
-  const total = pay.reduce((n, t) => n + t.amount, 0), inFile = pay.filter((t) => pick[t.trainerId]).reduce((n, t) => n + t.amount, 0);
-
-  const download = () => start(async () => {
-    if (!file) return;
-    if (missing.length && !window.confirm(`${missing.length} trainer${missing.length > 1 ? "s aren't" : " isn't"} matched to anyone in Gusto (${missing.map((t) => t.name).join(", ")}). They won't be in the file. Download anyway?`)) return;
-    const byCode: Record<string, number> = {};
-    for (const t of pay) if (pick[t.trainerId]) byCode[pick[t.trainerId]] = (byCode[pick[t.trainerId]] || 0) + t.amount;
-    const ci = col("worker_code"), ai = col("flat_amount");
-    const out = file.rows.map((r, i) => (i === 0 ? r : (() => { const c = [...r]; while (c.length < head.length) c.push(""); const amt = byCode[(r[ci] || "").trim()]; if (amt) c[ai] = amt.toFixed(2); return c; })()));
-    const blob = new Blob([toCsv(out)], { type: "text/csv" }), a = document.createElement("a");
-    a.href = URL.createObjectURL(blob); a.download = `gusto-contractor-pay-${run}.csv`; a.click(); URL.revokeObjectURL(a.href);
-    const save = pay.filter((t) => pick[t.trainerId] && pick[t.trainerId] !== t.code).map((t) => ({ trainerId: t.trainerId, code: pick[t.trainerId] }));
-    if (save.length) await saveGustoCodesAction(save);
-    setMsg(`Downloaded. ${pay.length - missing.length} trainers, $${money(inFile)}. Now import it in Gusto (Pay contractors), check the total, then submit.`);
+  const link = (trainerId: string, code: string) => {
+    setCodes((c) => ({ ...c, [trainerId]: code })); setSaving(trainerId);
+    start(async () => { const r = await setGustoCodeAction(trainerId, code); setSaving(""); if (!r.ok) setMsg(r.message); });
+  };
+  const suggestions = [...pay, ...others].filter((t) => !codes[t.trainerId]).map((t) => ({ t, s: suggest(t.name, payees) })).filter((x) => x.s);
+  const saveSuggestions = () => start(async () => {
+    for (const { t, s } of suggestions) { await setGustoCodeAction(t.trainerId, s!.code); }
+    setCodes((c) => ({ ...c, ...Object.fromEntries(suggestions.map(({ t, s }) => [t.trainerId, s!.code])) }));
+    setMsg(`Linked ${suggestions.length} trainers. Check any marked "Check this".`);
   });
+
+  const unlinked = pay.filter((t) => !codes[t.trainerId] || !byCode.has(codes[t.trainerId]));
+  const total = pay.reduce((n, t) => n + t.amount, 0), inFile = pay.filter((t) => !unlinked.includes(t)).reduce((n, t) => n + t.amount, 0);
+  const download = () => {
+    if (unlinked.length && !window.confirm(`${unlinked.map((t) => t.name).join(", ")} ${unlinked.length > 1 ? "aren't" : "isn't"} linked to anyone in Gusto, so ${unlinked.length > 1 ? "they" : "they"}'ll be left out ($${money(total - inFile)}). Download anyway?`)) return;
+    const amt: Record<string, number> = {};
+    for (const t of pay) { const c = codes[t.trainerId]; if (c && byCode.has(c)) amt[c] = (amt[c] || 0) + t.amount; }
+    const rows = [HEADER, ...[...payees].sort((a, b) => (a.last || a.business).localeCompare(b.last || b.business)).map((p) => [p.last, p.first, p.business, p.code, "", "", "", amt[p.code] ? amt[p.code].toFixed(2) : "", "", "", "", "", "", ""])];
+    const blob = new Blob([toCsv(rows)], { type: "text/csv" }), a = document.createElement("a");
+    a.href = URL.createObjectURL(blob); a.download = `gusto-contractor-pay-${run}.csv`; a.click(); URL.revokeObjectURL(a.href);
+    setMsg(`Downloaded: ${pay.length - unlinked.length} trainers, $${money(inFile)}. Import it in Gusto (Pay contractors), check the total, then submit.`);
+  };
+  const Row = ({ t, showAmount }: { t: Pay; showAmount: boolean }) => {
+    const c = codes[t.trainerId], p = c ? byCode.get(c) : undefined, sug = !c ? suggest(t.name, payees) : null;
+    return (
+      <li className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3.5 py-3">
+        <span className="min-w-[35%] flex-1"><span className="block font-semibold">{t.name}</span>{p && <span className="block text-[12px] text-ink-faint">Paid in Gusto as {label(p)}</span>}</span>
+        {showAmount && <span className="font-mono font-bold tabular-nums">${money(t.amount)}</span>}
+        <div className="flex w-full items-center gap-2 sm:w-auto">
+          <select className="field h-10 py-0 text-[14px] sm:w-64" value={c || ""} onChange={(e) => link(t.trainerId, e.target.value)}>
+            <option value="">{sug ? `Not linked (suggested: ${label(byCode.get(sug.code)!)})` : "Not linked to Gusto"}</option>
+            {sorted.map((r) => <option key={r.code} value={r.code}>{label(r)}</option>)}
+          </select>
+          {saving === t.trainerId ? <span className="text-[12px] text-ink-faint">Saving…</span> : p ? <Check size={16} className="text-fern" aria-label="Linked" /> : <span className="whitespace-nowrap rounded-full bg-heart-wash px-2 py-0.5 text-[11px] font-bold text-heart">{sug ? (sug.sure ? "Suggested" : "Check this") : "Not linked"}</span>}
+        </div>
+      </li>
+    );
+  };
 
   return (
     <>
       {pending > 0 && <p className="mb-4 rounded-xl bg-heart-wash p-3 text-[14px] font-semibold text-heart">{pending} payslip{pending > 1 ? "s are" : " is"} not approved yet, so not included. Approve first.</p>}
-      <ol className="panel mb-4 space-y-2 p-4 text-[14px]">
-        <li><b>1.</b> In Gusto: <b>Pay contractors</b>, then download the template (CSV).</li>
-        <li><b>2.</b> Upload it here, and check the matches below.</li>
-        <li><b>3.</b> Download the filled file, and import it in Gusto. Check the total, then submit.</li>
-      </ol>
-      <label className="btn-ink mb-4 w-full cursor-pointer sm:w-auto"><Upload size={17} />{file ? `Uploaded: ${file.name}` : "Upload Gusto's template"}
-        <input type="file" accept=".csv,text/csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) load(f); }} />
-      </label>
+      {!payees.length ? (
+        <div className="panel mb-4 p-4"><p className="font-bold">First, the Gusto people list (once)</p><p className="mt-1 text-[14px] text-ink-soft">In Gusto: Pay contractors, then download the template (CSV), and upload it here. Only names and worker codes are kept.</p></div>
+      ) : null}
       {msg && <p role="status" className="mb-4 rounded-xl bg-paper p-3 text-[14px] font-semibold">{msg}</p>}
-      <ul className="panel divide-y divide-line">
-        {pay.map((t) => {
-          const w = how[t.trainerId];
-          return (
-            <li key={t.trainerId} className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3.5 py-3">
-              <span className="min-w-[40%] flex-1 font-semibold">{t.name}</span>
-              <span className="font-mono font-bold tabular-nums">${money(t.amount)}</span>
-              {file && (
-                <div className="flex w-full items-center gap-2 sm:w-auto">
-                  <select className="field h-10 py-0 text-[14px] sm:w-64" value={pick[t.trainerId] || ""} onChange={(e) => { setPick((p) => ({ ...p, [t.trainerId]: e.target.value })); setHow((h) => ({ ...h, [t.trainerId]: e.target.value ? "saved" : "none" })); }}>
-                    <option value="">Not in Gusto</option>
-                    {g.map((r) => <option key={r.code} value={r.code}>{label(r)}</option>)}
-                  </select>
-                  <span className={`whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-bold ${w === "saved" || w === "auto" ? "bg-paper text-fern" : w === "check" ? "bg-biscuit-wash text-[#7A5418]" : "bg-heart-wash text-heart"}`}>{w === "saved" ? "Matched" : w === "auto" ? "Auto" : w === "check" ? "Check this" : "No match"}</span>
-                </div>
-              )}
-            </li>
-          );
-        })}
-        {!pay.length && <li className="p-6 text-center text-ink-soft">No approved payslips in this pay run yet.</li>}
-      </ul>
-      {dupes.length > 0 && <p className="mt-3 rounded-xl bg-heart-wash p-3 text-[14px] font-semibold text-heart">Two trainers are matched to the same Gusto person: {dupes.map(([, n]) => n.join(" and ")).join("; ")}. Fix one of them.</p>}
+      {suggestions.length > 0 && payees.length > 0 && (
+        <div className="panel mb-4 flex flex-wrap items-center gap-3 p-3.5"><p className="min-w-0 flex-1 text-[14px]"><b>{suggestions.length} trainer{suggestions.length > 1 ? "s" : ""} not linked yet</b>, with a suggested match.</p>
+          <button type="button" className="btn-ink h-9 min-h-0 px-3 text-[13px]" disabled={busy} onClick={saveSuggestions}>Link all suggestions</button></div>
+      )}
+      <h2 className="group-title">This pay run <span className="count">{pay.length}</span></h2>
+      <ul className="panel divide-y divide-line">{pay.map((t) => <Row key={t.trainerId} t={t} showAmount />)}{!pay.length && <li className="p-6 text-center text-ink-soft">No approved payslips in this pay run yet.</li>}</ul>
       <div className="panel mt-3 flex flex-wrap items-center justify-between gap-3 p-4">
-        <div><p className="text-[13px] text-ink-soft">Total to pay ({pay.length} trainers)</p><p className="text-[26px] font-extrabold tabular-nums">${money(total)}</p><p className="text-[12px] text-ink-faint">Check this matches Gusto&apos;s total before you submit.</p></div>
+        <div><p className="text-[13px] text-ink-soft">Total to pay ({pay.length} trainers)</p><p className="text-[26px] font-extrabold tabular-nums">${money(total)}</p>
+          {unlinked.length > 0 ? <p className="text-[12px] font-semibold text-heart">{unlinked.length} not linked: ${money(total - inFile)} won&apos;t be in the file.</p> : <p className="text-[12px] text-ink-faint">Check this matches Gusto&apos;s total before you submit.</p>}</div>
         <div className="flex flex-wrap gap-2">
-          <button type="button" className="btn-ink" disabled={!file || busy || dupes.length > 0} onClick={download}><Download size={17} />Download filled file</button>
+          <button type="button" className="btn-ink" disabled={!payees.length || !pay.length} onClick={download}><Download size={17} />Download Gusto file</button>
           {paid.at ? <span className="self-center text-[14px] font-semibold text-fern">Paid in Gusto {new Date(paid.at).toLocaleDateString("en-US")}{paid.by ? ` by ${paid.by}` : ""}</span>
             : <button type="button" className="btn-ghost" disabled={busy || !pay.length} onClick={() => { if (window.confirm(`Mark this pay run as paid in Gusto ($${money(total)})?`)) start(async () => { const r = await markGustoPaidAction(run); if (r.ok) setPaid({ at: new Date().toISOString(), by: "you" }); else setMsg(r.message); }); }}>Mark as paid in Gusto</button>}
         </div>
+      </div>
+      {others.length > 0 && (
+        <details className="panel mt-4 p-0"><summary className="cursor-pointer px-4 py-3 font-bold">Other trainers <span className="count">{others.length}</span> <span className="text-[13px] font-normal text-ink-soft">not in this pay run</span></summary>
+          <ul className="divide-y divide-line border-t border-line">{others.map((t) => <Row key={t.trainerId} t={t} showAmount={false} />)}</ul></details>
+      )}
+      <div className="panel mt-4 flex flex-wrap items-center gap-3 p-4">
+        <p className="min-w-0 flex-1 text-[14px]"><b>Gusto people: {payees.length}.</b> Upload Gusto&apos;s template again only when someone new is added in Gusto.</p>
+        <label className="btn-ghost cursor-pointer"><Upload size={16} />{payees.length ? "Update from Gusto" : "Upload Gusto's template"}
+          <input type="file" accept=".csv,text/csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) upload(f); e.target.value = ""; }} /></label>
       </div>
     </>
   );

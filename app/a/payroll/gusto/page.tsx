@@ -21,6 +21,12 @@ export default async function Gusto({ searchParams }: { searchParams: { run?: st
     .map((x) => ({ id: x.id, trainerId: x.trainer_id, code: x.trainers?.gusto_code || null, name: x.trainers?.name || x.trainer_name || "?", total: Number(x.total || 0), approved: x.status === "approved" }));
   const approved = all.filter((x) => x.approved && x.total !== 0).sort((a, b) => surname(a.name).localeCompare(surname(b.name)) || a.name.localeCompare(b.name));
   const pending = all.filter((x) => !x.approved).length;
+  const [{ data: payees }, { data: trs }] = await Promise.all([
+    sb.from("gusto_payees").select("code, first_name, last_name, business_name"),
+    sb.from("trainers").select("id, name, gusto_code").eq("active", true).order("name")
+  ]);
+  const inRun = new Set(approved.map((x) => x.trainerId));
+  const others = ((trs || []) as { id: string; name: string; gusto_code: string | null }[]).filter((t) => !inRun.has(t.id)).map((t) => ({ trainerId: t.id, name: t.name, amount: 0, code: t.gusto_code }));
   return (
     <>
       <div className="mb-1 flex items-center gap-2">
@@ -28,7 +34,7 @@ export default async function Gusto({ searchParams }: { searchParams: { run?: st
         <h1 className="text-[28px] font-extrabold leading-tight">Gusto list</h1>
       </div>
       <p className="mb-4 text-ink-soft">{periodLabel(run.period_start, run.period_end)}, paid Fri {usDate(run.paid_date)}. Approved payslips only, sorted by surname like Gusto.</p>
-      <GustoFill run={run.submit_date} pay={approved.map((x) => ({ trainerId: x.trainerId, name: x.name, amount: x.total, code: x.code }))} paidAt={run.gusto_paid_at} paidBy={run.gusto_paid_by} pending={pending} />
+      <GustoFill run={run.submit_date} pay={approved.map((x) => ({ trainerId: x.trainerId, name: x.name, amount: x.total, code: x.code }))} others={others} payees={((payees || []) as { code: string; first_name: string | null; last_name: string | null; business_name: string | null }[]).map((p) => ({ code: p.code, first: p.first_name || "", last: p.last_name || "", business: p.business_name || "" }))} paidAt={run.gusto_paid_at} paidBy={run.gusto_paid_by} pending={pending} />
     </>
   );
 }

@@ -239,3 +239,25 @@ export async function saveGustoCodesAction(codes: { trainerId: string; code: str
   for (const c of codes.slice(0, 300)) if (/^[A-Za-z0-9]{3,20}$/.test(c.code)) await sb.from("trainers").update({ gusto_code: c.code }).eq("id", c.trainerId);
   return { ok: true, message: "Saved." };
 }
+
+/** Admin: save Gusto's people (from the contractor pay template). Names and worker codes only: SSN/EIN digits are never sent here. */
+export async function saveGustoPayeesAction(rows: { code: string; first: string; last: string; business: string }[]): Promise<Result> {
+  await auditCall("saveGustoPayeesAction", { count: rows.length });
+  if (isDemo()) return DEMO;
+  await admin();
+  const clean = rows.filter((r) => /^[A-Za-z0-9]{3,20}$/.test(r.code)).slice(0, 1000)
+    .map((r) => ({ code: r.code, first_name: r.first.slice(0, 80) || null, last_name: r.last.slice(0, 80) || null, business_name: r.business.slice(0, 120) || null, updated_at: new Date().toISOString() }));
+  if (!clean.length) return { ok: false, message: "No people found in that file." };
+  const { error } = await serviceClient().from("gusto_payees").upsert(clean);
+  revalidatePath("/a/payroll/gusto");
+  return error ? { ok: false, message: error.message } : { ok: true, message: `Saved ${clean.length} Gusto people.` };
+}
+/** Admin: link one trainer to a Gusto person (or unlink with ""). Saved straight away. */
+export async function setGustoCodeAction(trainerId: string, code: string): Promise<Result> {
+  await auditCall("setGustoCodeAction", { trainerId, code });
+  if (isDemo()) return DEMO;
+  await admin();
+  if (code && !/^[A-Za-z0-9]{3,20}$/.test(code)) return { ok: false, message: "That's not a Gusto worker code." };
+  const { error } = await serviceClient().from("trainers").update({ gusto_code: code || null }).eq("id", trainerId);
+  return error ? { ok: false, message: error.message } : { ok: true, message: "Saved." };
+}
