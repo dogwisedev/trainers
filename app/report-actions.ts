@@ -12,10 +12,7 @@ import { saveFormTrip } from "@/lib/trips";
 import { pushToTrainer } from "@/lib/push";
 import { buildReport, driveUrl, reportHtml, reportText } from "@/lib/reportDoc";
 import { reportPdf } from "@/lib/reportPdf";
-import { handoverPdf } from "@/lib/handoverPdf";
-import { certificatePdf } from "@/lib/certificatePdf";
-import { programFor } from "@/lib/programs";
-import { photoBytes } from "@/lib/drive";
+import { handoverFiles } from "@/lib/handoverFiles";
 import { mailConfigured, sendMail } from "@/lib/mail";
 import { BRAND_LOGO_PNG_BASE64 } from "@/lib/brandLogo";
 import { signMedia, verifyMedia } from "@/lib/mediaSig";
@@ -282,28 +279,10 @@ export async function listChatMediaAction(bookingId: string): Promise<{ items: C
 }
 
 /** Handover: the designed report PDF and the graduation certificate, emailed together and posted in the chat. Only after an admin approves. */
-async function deliverHandover(id: string, b: NonNullable<Awaited<ReturnType<typeof getReport>>>, to: string, corrected: boolean): Promise<ReportResult> {
-  const sb = serverClient(), svc = serviceClient(), a = b.report.answers, m = b.report.media || [];
-  const long = (iso: string | null | undefined) => (iso ? new Date(`${iso.slice(0, 10)}T12:00:00Z`).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" }) : "");
-  const today = new Date().toISOString().slice(0, 10);
-  const dog = s(a.dogName) || b.booking.dog_name || "your dog", trainer = s(a.trainerName) || b.trainer.name;
-  const program = programFor(s(a.program)) || programFor(b.booking.program) || s(a.program) || b.booking.program || "Dogwise program";
-  const { data: chat } = await svc.from("chats").select("id").eq("deal_key", b.booking.hubspot_deal_id || b.booking.id).maybeSingle();
-  const site = (process.env.NEXT_PUBLIC_SITE_URL || "").replace(/\/$/, "");
-  const chatUrl = chat ? `${site}/c/${chat.id}` : `${site}/c`;
-  const videos = (slot: "training" | "homework") => m.filter((x) => x.slot === slot && x.kind === "video").map((x) => ({ label: x.description || x.name, url: driveUrl(x.id) }));
-  const ph = m.find((x) => x.slot === "health" && x.kind === "photo");
-  const pdf = await handoverPdf({
-    dog, client: s(a.clientName), trainer, program, location: s(a.clientLocation), contact: to,
-    start: long(b.booking.start_date), end: long(b.booking.end_date), date: long(today),
-    goals: s(a.goals), training: items(a.training).filter((i) => i.title || i.text), homework: items(a.homework).filter((i) => i.title || i.text),
-    trainingVideos: videos("training"), homeworkVideos: videos("homework"),
-    health: s(a.healthAtHandover), extra: s(a.extra), review: s(a.overall), photo: ph ? await photoBytes(ph.id) : null, chatUrl
-  });
-  const [yy, mm, dd] = today.split("-");
-  const cert = await certificatePdf({ dog, program, trainer, date: `${mm}/${dd}/${yy}` });
+async function deliverHandover(id: string, b: NonNullable<Awaited<ReturnType<typeof getReport>>>, to: string, corrected: boolean, test = false): Promise<ReportResult> {
+  const sb = serverClient(), a = b.report.answers;
+  const { pdf, cert, dog, program, trainer, chatUrl, reportName, certName } = await handoverFiles(b, to);
   const first = s(a.clientName).split(" ")[0] || "there";
-  const reportName = `Handover Report - ${dog}.pdf`, certName = `Certificate - ${dog} - ${program}.pdf`;
   const html = `<div style="background:#f8f6fd;padding:28px 12px;font-family:Arial,sans-serif">
     <div style="max-width:560px;margin:0 auto;background:#fff;border-radius:18px;border:1px solid #E3DEF2;overflow:hidden">
       <div style="height:6px;background:#9878F8"></div>
@@ -317,12 +296,25 @@ async function deliverHandover(id: string, b: NonNullable<Awaited<ReturnType<typ
       </div>
     </div></div>`;
   await sendMail({
-    to, subject: `${corrected ? "Corrected: " : ""}${dog}'s handover report and certificate`, html,
+    to, subject: `${test ? "[TEST] " : ""}${corrected ? "Corrected: " : ""}${dog}'s handover report and certificate`, html: test ? `<p style="font-family:Arial;color:#904B27;font-weight:bold">Test copy: only you received this. The client has not been emailed.</p>${html}` : html,
     text: `Hi ${first}, ${dog} has completed the ${program} program with ${trainer}. ${dog}'s handover report and graduation certificate are attached, and in your Dogwise chat: ${chatUrl}`,
     attachments: [{ filename: reportName, content: pdf, contentType: "application/pdf" }, { filename: certName, content: cert, contentType: "application/pdf" }, logo]
   });
+  if (test) return { ok: true, message: `Test copy sent to ${to}. The client was not emailed.` };
   await sb.from("reports").update({ sent_at: new Date().toISOString(), sent_to: to, send_error: null }).eq("id", id);
   await postReportToChat(b.booking, { id, title: `${corrected ? "Corrected: " : ""}${dog}'s handover report and certificate` }, pdf, [{ name: certName, pdf: cert }]);
   return { ok: true, message: `${corrected ? "Corrected report" : "Approved"}: handover report and certificate sent to ${to}.` };
 }
 const esc = (x: string) => String(x || "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]!));
+
+/** Admin: email ME the handover report + certificate exactly as the client would get them. Changes nothing, emails nobody else. */
+export async function sendHandoverTestAction(id: string): Promise<ReportResult> {
+  await auditCall("sendHandoverTestAction", { id });
+  if (isDemo()) return DEMO;
+  const v = await who();
+  if (v.role !== "admin" || !v.email) return { ok: false, message: "Admins only." };
+  const b = await getReport(id);
+  if (!b || b.report.kind !== "handover") return { ok: false, message: "Only handover reports have a test copy." };
+  try { return await deliverHandover(id, b, v.email, false, true); }
+  catch (e) { return { ok: false, message: `Couldn't send the test: ${(e as Error).message}` }; }
+}

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { HandoverTestEmail } from "@/components/HandoverTestEmail";
 import { notFound } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
 import { requireRole } from "@/lib/data";
@@ -21,6 +22,14 @@ export default async function AdminReport({ params }: { params: { id: string } }
           <p className="truncate text-[14px] text-ink-soft"><Link prefetch={false} className="underline" href={`/a/trainers/${trainer.id}`}>{trainer.name}</Link>, client {booking.client_name}</p>
         </div>
       </div>
+      {r.kind === "handover" && (
+        <div className="panel mb-4 flex flex-wrap items-center gap-2 p-3.5">
+          <p className="min-w-0 flex-1 text-[14px]"><b>See what the client gets.</b> Previews and the test email go only to you. Save any changes first.</p>
+          <a href={`/a/reports/${r.id}/preview`} target="_blank" rel="noopener" className="btn-ghost h-9 min-h-0 px-3 text-[13px]">Preview report PDF</a>
+          <a href={`/a/reports/${r.id}/preview?doc=certificate`} target="_blank" rel="noopener" className="btn-ghost h-9 min-h-0 px-3 text-[13px]">Preview certificate</a>
+          <HandoverTestEmail id={r.id} />
+        </div>
+      )}
       <ReportForm id={r.id} kind={r.kind} mode="admin" status={r.status} bookingId={booking.id} week={r.week_number} initialAnswers={r.answers} initialMedia={r.media}
         startDate={booking.start_date} endDate={booking.end_date} submittedAt={r.submitted_at} reviewNote={r.review_note} due={r.due_by} late={b.late} demo={isDemo()} chatId={b.chat?.id ?? null}
         meta={{ approvedBy: r.approved_by_name, approvedAt: r.approved_at, sentTo: r.sent_to, sentAt: r.sent_at, error: r.send_error, byAdmin: r.by_admin, waivedBy: r.waived_by, waivedAt: r.waived_at }} />
