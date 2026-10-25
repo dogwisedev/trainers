@@ -98,9 +98,23 @@ export async function saveTrainer(_: Result | null, f: FormData): Promise<Result
     if (error) return { ok: false, message: error.message };
     redirect(`/a/trainers/${data.id}`);
   }
+  const { data: before } = await sb.from("trainers").select("email").eq("id", id).maybeSingle();
   const { error } = await sb.from("trainers").update(row).eq("id", id);
   if (error) return { ok: false, message: error.message };
   revalidatePath("/", "layout");
+  // Email changed by an admin: move the trainer's login to the new email too (same password, nothing for them to do)
+  const newEmail = String(row.email || "").trim().toLowerCase();
+  if (isAdmin && "email" in row && newEmail && newEmail !== String(before?.email || "").trim().toLowerCase()) {
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(newEmail)) return { ok: false, message: "Profile saved, but that email doesn't look right, so the login wasn't changed." };
+    const admin = serviceClient();
+    const { data: logins } = await admin.from("profiles").select("id").eq("trainer_id", id);
+    if (!logins?.length) return { ok: true, message: "Profile saved. They don't have a login yet: send their login to the new email." };
+    for (const l of logins) {
+      const { error: e } = await admin.auth.admin.updateUserById(l.id, { email: newEmail, email_confirm: true });
+      if (e) return { ok: false, message: `Profile saved, but the login couldn't move to ${newEmail}: ${/already|registered|exists/i.test(e.message) ? "another account already uses that email" : e.message}.` };
+    }
+    return { ok: true, message: `Profile saved. They now sign in with ${newEmail} (same password).` };
+  }
   return { ok: true, message: "Profile saved." };
 }
 
