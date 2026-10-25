@@ -68,7 +68,7 @@ export function Shell({ nav, who, children, demo, accountHref, needsPassword }: 
             const on = isActive(n.href);
             return (
               <li key={n.href}>
-                <Link prefetch={false} href={n.href} data-tour={`nav-${n.label.toLowerCase()}`} aria-current={on ? "page" : undefined} className="relative flex min-w-[64px] flex-col items-center gap-1 px-2 py-1 text-[11px] font-semibold">
+                <Link prefetch={false} href={n.href} data-tour={`nav-${n.label.toLowerCase()}`} aria-current={on ? "page" : undefined} className="relative flex min-w-[56px] flex-col items-center gap-1 px-1 py-1 text-[11px] font-semibold">
                   <span className={`grid h-8 w-14 place-items-center rounded-full transition-colors ${on ? "bg-paper text-lav-deep" : "text-ink-faint"}`}><I size={20} strokeWidth={on ? 2.4 : 2} /></span>
                   <span className={on ? "font-bold text-ink" : "text-ink-faint"}>{n.label}</span>
                   {!!n.badge && <span className="absolute right-2.5 top-0 grid h-[18px] min-w-[18px] place-items-center rounded-full bg-heart px-1 text-[10px] font-bold text-white ring-2 ring-white">{n.badge}</span>}
