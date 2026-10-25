@@ -22,7 +22,7 @@ const LABEL: Record<string, string> = {
   signInPassword: "Signed in with their password", signInFailed: "Tried to sign in: wrong email or password", signInLinkSent: "Asked for a sign-in link by email",
   signInLinkUsed: "Signed in with an email link", pushOn: "Turned notifications on", pushOff: "Turned notifications off", pushTest: "Sent themselves a test notification",
   bookingApi: "Booked a dog from the HubSpot extension",
-  addVaccineFileAction: "Uploaded a vaccine record", saveGustoPayeesAction: "Updated the Gusto people list", setGustoCodeAction: "Linked a trainer to Gusto", markGustoPaidAction: "Marked a pay run paid in Gusto", saveGustoCodesAction: "Saved Gusto payroll numbers", inviteSalesAction: "Sent a sales login", importSalesAction: "Imported sales from the Monies sheet", reportIncidentAction: "Reported an incident"
+  addVaccineFileAction: "Uploaded a vaccine record", linkDealAction: "Linked a booking to a HubSpot deal", saveGustoPayeesAction: "Updated the Gusto people list", setGustoCodeAction: "Linked a trainer to Gusto", markGustoPaidAction: "Marked a pay run paid in Gusto", saveGustoCodesAction: "Saved Gusto payroll numbers", inviteSalesAction: "Sent a sales login", importSalesAction: "Imported sales from the Monies sheet", reportIncidentAction: "Reported an incident"
 };
 
 const short = (v: unknown) => String(v ?? "").replace(/\s+/g, " ").slice(0, 120);

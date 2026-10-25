@@ -15,6 +15,7 @@ import { dogPage, hubspotDeal } from "@/lib/todo";
 import { TRIP_LABEL } from "@/lib/payroll";
 import { remainingOf } from "@/lib/money";
 import { FollowupDates } from "@/components/FollowupDates";
+import { LinkDeal } from "@/components/LinkDeal";
 import { emailTrainerAboutBooking, setBookingStatus } from "@/app/actions";
 import { ActionButton, ExtraDays } from "@/components/forms";
 import { ReportsToggle } from "@/components/ReportsToggle";
@@ -118,6 +119,7 @@ export default async function DogPageView({ params, searchParams }: { params: { 
                 <Fact k="Dates" v={b.hubspot_deal_id && datesFromHubspot() ? "From HubSpot (change them on the deal)" : "Set in the app"} />
               </dl>
             </section>
+            {!b.hubspot_deal_id && <LinkDeal bookingId={b.id} hasDeal={false} />}
             {b.hubspot_deal_id && (
               <section className="panel p-4">
                 <h2 className="mb-3 text-[17px] font-extrabold">Payment</h2>
@@ -140,6 +142,7 @@ export default async function DogPageView({ params, searchParams }: { params: { 
             )}
             <section className="panel space-y-3 p-4">
               <h2 className="text-[17px] font-extrabold">Actions</h2>
+              {b.hubspot_deal_id && <LinkDeal bookingId={b.id} hasDeal />}
               <div className="flex flex-wrap items-center gap-2">
                 <ActionButton className="btn-ghost" action={emailTrainerAboutBooking.bind(null, b.id)}>{b.notified_at ? "Email the trainer again" : "Email the trainer"}</ActionButton>
                 {!chat && <StartChat bookingId={b.id} />}

@@ -14,7 +14,7 @@ import { validMiles } from "@/lib/trips";
 import { pushToAdmins, pushToTrainer } from "@/lib/push";
 import { currentRunDate, probationHeld } from "@/lib/payrollData";
 import { FOLLOWUP_PROPS, syncMoney } from "@/lib/money";
-import { updateDeal } from "@/lib/hubspot";
+import { readDeals, updateDeal } from "@/lib/hubspot";
 import { ensureChatsForBookings } from "@/lib/chat";
 import { datesFromHubspot } from "@/lib/hubspot";
 import { syncHubspotDates } from "@/lib/hubspotSync";
@@ -364,4 +364,51 @@ export async function setFollowupsAction(bookingId: string, dates: string[]): Pr
   await syncMoney({ dealIds: [b.hubspot_deal_id], sb }).catch(() => null);
   revalidatePath("/", "layout");
   return { ok: true, message: "Saved on the deal. Each session is paid in the pay period of its date." };
+}
+
+/**
+ * Admin: link a booking to a HubSpot deal by pasting the deal's URL (or number). Also links the client's other dogs booked by hand
+ * with the same trainer around the same dates, and merges their chats into the deal's chat (every message kept).
+ */
+export async function linkDealAction(bookingId: string, input: string): Promise<Result> {
+  await auditCall("linkDealAction", { bookingId, input });
+  if (isDemo()) return DEMO;
+  const v = await viewerOrThrow();
+  if (v.role !== "admin") return { ok: false, message: "Admins only." };
+  const deal = cleanDealId(input);
+  if (!deal || !/^\d+$/.test(deal)) return { ok: false, message: "Paste the deal's HubSpot link (or its number)." };
+  const sb = serviceClient();
+  const { data: b } = await sb.from("bookings").select("id, client_name, trainer_id, start_date, end_date, hubspot_deal_id, dog_name").eq("id", bookingId).maybeSingle();
+  if (!b) return { ok: false, message: "Booking not found." };
+  if (b.hubspot_deal_id === deal) return { ok: true, message: "Already linked to that deal." };
+  let dealName = "";
+  try { const d = (await readDeals([deal], ["dealname", "hs_is_closed_won"])).get(deal); if (!d) return { ok: false, message: `HubSpot has no deal ${deal}. Check the link.` }; dealName = d.dealname || ""; }
+  catch { /* HubSpot unreachable: link anyway, the sync checks it later */ }
+  // This booking, plus the same client's other hand-made bookings (no deal) with this trainer, starting within a week of it
+  const { data: sibs } = await sb.from("bookings").select("id, start_date, dog_name, hubspot_deal_id").eq("trainer_id", b.trainer_id).ilike("client_name", b.client_name).is("hubspot_deal_id", null).neq("status", "cancelled");
+  const near = (x: string) => Math.abs(new Date(x).getTime() - new Date(b.start_date).getTime()) <= 7 * 86400e3;
+  const moving = [b, ...((sibs || []) as { id: string; start_date: string; dog_name: string | null; hubspot_deal_id: string | null }[]).filter((x) => x.id !== b.id && near(x.start_date))];
+  const oldKeys = [...new Set(moving.map((x) => x.hubspot_deal_id || x.id))];
+  const { error } = await sb.from("bookings").update({ hubspot_deal_id: deal }).in("id", moving.map((x) => x.id));
+  if (error) return { ok: false, message: error.message };
+  // Chats: keep the deal's chat if it has one (else the first old one), move everything else into it
+  const { data: chats } = await sb.from("chats").select("id, deal_key, created_at").in("deal_key", [deal, ...oldKeys]).eq("status", "open").order("created_at");
+  const list = (chats || []) as { id: string; deal_key: string }[];
+  const keep = list.find((c) => c.deal_key === deal) || list[0];
+  let merged = 0;
+  if (keep) {
+    for (const c of list.filter((x) => x.id !== keep.id)) {
+      await sb.from("chat_messages").update({ chat_id: keep.id }).eq("chat_id", c.id);
+      await sb.from("chat_incidents").update({ chat_id: keep.id }).eq("chat_id", c.id);
+      await sb.from("chat_reads").delete().eq("chat_id", c.id);
+      await sb.from("chats").delete().eq("id", c.id);
+      merged++;
+    }
+    const { data: dogs } = await sb.from("bookings").select("dog_name").eq("hubspot_deal_id", deal).neq("status", "cancelled");
+    const title = [...new Set(((dogs || []) as { dog_name: string | null }[]).map((d) => (d.dog_name || "").trim()).filter(Boolean))].join(" & ");
+    await sb.from("chats").update({ deal_key: deal, ...(title ? { title } : {}) }).eq("id", keep.id);
+  }
+  revalidatePath("/", "layout");
+  const names = moving.map((x) => x.dog_name || "dog").join(" & ");
+  return { ok: true, message: `Linked ${names} to ${dealName || `deal ${deal}`}.${merged ? ` Merged ${merged} chat${merged > 1 ? "s" : ""} into one, every message kept.` : ""} HubSpot keeps the dates, checklist and payments in sync from now on.` };
 }
