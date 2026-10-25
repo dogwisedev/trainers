@@ -22,7 +22,7 @@ export default async function Dogs({ searchParams }: { searchParams: { f?: strin
         <h1 className="text-[30px] font-extrabold">Dogs</h1>
         <Link prefetch={false} href="/a/bookings/new" className="btn-ink h-10 min-h-0 px-4"><Plus size={17} />Book a dog</Link>
       </div>
-      <p className="mb-4 mt-1 text-ink-soft">Every dog, past and present. Tap one to see everything about it: dates, before training, chat and forms.</p>
+      <p className="mb-4 mt-1 text-ink-soft">Every dog, past and present. Tap one for everything about it.</p>
       <ChatFilters base="/a/dogs" q={q} t={t} f={tab} placeholder="Search dog, client, email, trainer or deal ID" trainers={trainers.map((x) => ({ id: x.id, name: x.name })).sort((a, b) => a.name.localeCompare(b.name))} />
       <div className="mb-4 flex flex-wrap gap-2">
         {TABS.map((x) => <Link key={x.key} prefetch={false} href={link(x.key)} className={`rounded-full px-3.5 py-1.5 text-[13px] font-semibold ${x.key === tab ? "bg-ink text-white" : "border border-line bg-white"}`}>{x.label}</Link>)}

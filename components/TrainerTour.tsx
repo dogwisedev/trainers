@@ -5,8 +5,9 @@ import { X } from "lucide-react";
 
 // A 2-minute guided tour of the real trainer app: highlights each part of the screen with a sentence, then moves on,
 // page to page. Start: the card on Home, "Take the tour again" on Profile, or any link with ?tour=1.
-type Step = { page: "home" | "chats" | "chat" | "forms" | "calendar" | "pay" | "profile"; sel: string; title: string; text: string };
+type Step = { page: "home" | "chats" | "chat" | "forms" | "calendar" | "pay" | "profile"; sel: string; title: string; text: string; centre?: boolean };
 const STEPS: Step[] = [
+  { page: "home", sel: "", centre: true, title: "Welcome to the Dogwise app", text: "Your dogs, your client chats, your forms and your pay, all in one place. This takes 2 minutes: tap Next to see where everything is." },
   { page: "home", sel: '[data-tour="week"]', title: "Your week", text: "Your dogs and kennels for the coming weeks. Each square is a kennel: dark means a dog is booked, light means free." },
   { page: "home", sel: '[data-tour="todo"]', title: "To do", text: "Forms that are due for your dogs. Tap Start to fill one in." },
   { page: "home", sel: '[data-tour="with-you"]', title: "With you now", text: "The dogs in your care right now, with their dates." },
@@ -21,7 +22,8 @@ const STEPS: Step[] = [
   { page: "calendar", sel: '[data-tour="time-off"]', title: "Time off", text: "Block the dates you can't take dogs, and we won't book you then." },
   { page: "pay", sel: '[data-tour="pay"]', title: "Pay", text: "Your payslips, every other Friday. Each one is emailed to you too." },
   { page: "pay", sel: '[data-tour="miles"]', title: "Miles and follow-ups", text: "Your miles from pickups, drop-offs and follow-up sessions (keep this for tax time). Log a follow-up session here." },
-  { page: "profile", sel: '[data-tour="setup"]', title: "Notifications", text: "Turn on notifications so you never miss a message. Set your password under the key icon. That's the tour!" }
+  { page: "profile", sel: '[data-tour="setup"]', title: "Notifications", text: "Turn on notifications so you never miss a message. Your password is under the key icon at the top." },
+  { page: "profile", sel: "", centre: true, title: "You're all set", text: "That's everything. Questions? Message the team in Chats, under Dogwise team. You can take this tour again any time, here on Profile." }
 ];
 const PAGE_PATH: Record<Step["page"], string> = { home: "/t", chats: "/t/chats", chat: "", forms: "/t/reports", calendar: "/t/calendar", pay: "/t/pay", profile: "/t/profile" };
 const pageOf = (path: string): Step["page"] | null =>
@@ -35,6 +37,7 @@ export function TrainerTour() {
   const path = usePathname(), router = useRouter();
   const [state, setState] = useState<{ i: number; chat?: string } | null>(null);
   const [rect, setRect] = useState<DOMRect | null>(null);
+  const [skipped, setSkipped] = useState(false);
   useEffect(() => {
     try {
       if (new URLSearchParams(location.search).get("tour") === "1") localStorage.setItem(KEY, JSON.stringify({ i: 0 }));
@@ -47,13 +50,34 @@ export function TrainerTour() {
   // Find and follow the highlighted element
   const measure = useCallback(() => { if (!step || step.page !== here) return setRect(null); const el = visible(step.sel); setRect(el ? el.getBoundingClientRect() : null); }, [step, here]);
   useEffect(() => {
-    setRect(null); // never leave the previous step's highlight on screen
+    setRect(null); setSkipped(false); // never leave the previous step's highlight on screen
     if (!step || step.page !== here) return;
     let tries = 0;
-    const t = setInterval(() => { const el = visible(step.sel); if (el || ++tries > 20) { clearInterval(t); el?.scrollIntoView({ block: "center", behavior: "smooth" }); setTimeout(measure, 350); } }, 100);
+    if (step.centre) return;
+    const t = setInterval(() => {
+      const el = visible(step.sel);
+      if (el) { clearInterval(t); el.scrollIntoView({ block: "center", behavior: "smooth" }); setTimeout(measure, 350); }
+      else if (++tries > 15) { clearInterval(t); setSkipped(true); }
+    }, 100);
     window.addEventListener("resize", measure); window.addEventListener("scroll", measure, true);
     return () => { clearInterval(t); window.removeEventListener("resize", measure); window.removeEventListener("scroll", measure, true); };
   }, [step, here, measure]);
+  const go = (n: number) => {
+    if (!state) return;
+    if (n >= STEPS.length) { save(null); try { localStorage.setItem(DONE, "1"); } catch { /* ignore */ } return; }
+    if (n < 0) return;
+    let next = STEPS[n];
+    let chat = state.chat;
+    // Leaving the chat list: open the first chat (or skip the chat steps if there are none)
+    if (next.page === "chat" && !chat) {
+      const a = document.querySelector<HTMLAnchorElement>('[data-tour="chat-row"] a');
+      if (a) chat = a.getAttribute("href") || undefined;
+      else { while (n < STEPS.length && STEPS[n].page === "chat") n++; next = STEPS[n]; }
+    }
+    save({ i: n, chat });
+    if (next && next.page !== here) router.push(next.page === "chat" ? chat! : PAGE_PATH[next.page]);
+  };  // A part that isn't on this trainer's screen: move on to the next step by itself
+  useEffect(() => { if (skipped && state) go(state.i + 1); }, [skipped]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!state || !step) return null;
   // On the wrong page (e.g. after tapping around): offer to carry on
   if (step.page !== here) {
@@ -67,21 +91,8 @@ export function TrainerTour() {
       </div>
     );
   }
-  const go = (n: number) => {
-    if (n >= STEPS.length) { save(null); try { localStorage.setItem(DONE, "1"); } catch { /* ignore */ } return; }
-    if (n < 0) return;
-    let next = STEPS[n];
-    let chat = state.chat;
-    // Leaving the chat list: open the first chat (or skip the chat steps if there are none)
-    if (next.page === "chat" && !chat) {
-      const a = document.querySelector<HTMLAnchorElement>('[data-tour="chat-row"] a');
-      if (a) chat = a.getAttribute("href") || undefined;
-      else { while (n < STEPS.length && STEPS[n].page === "chat") n++; next = STEPS[n]; }
-    }
-    save({ i: n, chat });
-    if (next && next.page !== here) router.push(next.page === "chat" ? chat! : PAGE_PATH[next.page]);
-  };
-  const pad = 8, r = rect;
+
+  const pad = 8, r = step.centre ? null : rect;
   const below = !r || r.top < window.innerHeight * 0.5;
   return (
     <div className="fixed inset-0 z-[70]" role="dialog" aria-modal="true" aria-label={`Tour step ${state.i + 1}`}>
@@ -94,12 +105,13 @@ export function TrainerTour() {
             <p className="text-[12px] font-bold text-lav-deep">Step {state.i + 1} of {STEPS.length}</p>
             <button type="button" className="text-[13px] font-semibold text-ink-soft underline" onClick={() => { save(null); try { localStorage.setItem(DONE, "1"); } catch { /* ignore */ } }}>Skip tour</button>
           </div>
-          <h2 className="mt-1 text-[19px] font-extrabold">{step.title}</h2>
-          <p className="mt-1 text-[15px] leading-snug text-ink-soft">{step.text}</p>
+          {step.centre && <span className="mx-auto mt-2 grid h-16 w-16 place-items-center rounded-[20px] bg-paper"><img src="/icons/mark.png" alt="" className="h-10 w-10" /></span>}
+          <h2 className={`mt-1 font-extrabold ${step.centre ? "text-center text-[22px]" : "text-[19px]"}`}>{step.title}</h2>
+          <p className={`mt-1 text-[15px] leading-snug text-ink-soft ${step.centre ? "text-center" : ""}`}>{step.text}</p>
           <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-paper"><div className="h-full rounded-full bg-lav" style={{ width: `${((state.i + 1) / STEPS.length) * 100}%` }} /></div>
           <div className="mt-3 flex gap-2">
             {state.i > 0 && <button type="button" className="btn-ghost h-10 min-h-0 flex-1" onClick={() => { const p = STEPS[state.i - 1]; save({ ...state, i: state.i - 1 }); if (p.page !== here) router.push(p.page === "chat" ? state.chat || "/t/chats" : PAGE_PATH[p.page]); }}>Back</button>}
-            <button type="button" className="btn-ink h-10 min-h-0 flex-[2]" onClick={() => go(state.i + 1)}>{state.i === STEPS.length - 1 ? "Finish" : "Next"}</button>
+            <button type="button" className="btn-ink h-11 min-h-0 flex-[2]" onClick={() => go(state.i + 1)}>{state.i === 0 ? "Show me around" : state.i === STEPS.length - 1 ? "Finish" : "Next"}</button>
           </div>
         </div>
       </div>
@@ -113,13 +125,19 @@ export function TourInvite() {
   useEffect(() => { try { setShow(!localStorage.getItem(DONE) && !localStorage.getItem(KEY)); } catch { /* ignore */ } }, []);
   if (!show) return null;
   return (
-    <div className="panel mb-4 flex flex-wrap items-center gap-3 border-lav/40 p-4">
-      <div className="min-w-0 flex-1"><p className="font-bold">New to the app?</p><p className="text-[14px] text-ink-soft">Take the 2-minute tour: it shows you everything, step by step.</p></div>
-      <button type="button" className="btn-ink" onClick={startTour}>Take the tour</button>
-      <button type="button" className="text-[13px] font-semibold text-ink-soft underline" onClick={() => { try { localStorage.setItem(DONE, "1"); } catch { /* ignore */ } setShow(false); }}>Not now</button>
+    <div className="panel mb-4 overflow-hidden border-lav/40">
+      <div className="flex items-center gap-3 p-4">
+        <span className="grid h-12 w-12 shrink-0 place-items-center rounded-[16px] bg-paper"><img src="/icons/mark.png" alt="" className="h-8 w-8" /></span>
+        <div className="min-w-0 flex-1"><p className="font-bold">New to the app?</p><p className="text-[14px] text-ink-soft">A 2-minute tour shows you where everything is.</p></div>
+      </div>
+      <div className="flex border-t border-line">
+        <button type="button" className="flex-1 px-4 py-3 text-[14px] font-semibold text-ink-soft hover:bg-paper/60" onClick={() => { try { localStorage.setItem(DONE, "1"); } catch { /* ignore */ } setShow(false); }}>Not now</button>
+        <button type="button" className="flex-1 border-l border-line bg-ink px-4 py-3 text-[14px] font-bold text-white" onClick={startTour}>Take the tour</button>
+      </div>
     </div>
   );
 }
+
 /** Button on Profile: take the tour again. */
 export function TourAgain() {
   return <button type="button" className="btn-ghost mt-4 w-full sm:w-auto" onClick={startTour}>Take the app tour again</button>;

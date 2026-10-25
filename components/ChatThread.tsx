@@ -155,11 +155,9 @@ export function ChatThread(p: { chatId: string; me: Me; initial: ChatMsg[]; hasM
   const coarse = typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches;
   return (
     <div className="flex min-h-[62dvh] flex-col">
-      <div className="mb-3 flex items-center justify-between gap-2">
-        <p className="text-[13px] text-ink-faint">Chat with {p.otherLabel}</p>
-        {folder
-          ? <a href={folder} target="_blank" rel="noopener" className="btn-ghost h-9 min-h-0 px-3 text-[13px]"><FolderOpen size={15} />Look at media</a>
-          : <span className="text-[12px] text-ink-faint">Photos and videos will appear here</span>}
+      <div className="mb-3 flex min-h-[36px] items-center justify-between gap-2">
+        <p className="min-w-0 truncate rounded-full bg-white/70 px-3 py-1.5 text-[12.5px] font-semibold text-ink-soft">With {p.otherLabel}</p>
+        {folder && <a href={folder} target="_blank" rel="noopener" className="btn-ghost h-9 min-h-0 shrink-0 px-3 text-[13px]"><FolderOpen size={15} />All photos and videos</a>}
       </div>
       <div className="flex-1 space-y-2">
         {more && <div className="text-center"><button type="button" onClick={loadEarlier} className="text-[13px] font-semibold underline">Load earlier messages</button></div>}

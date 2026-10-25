@@ -31,7 +31,7 @@ export default async function AdminChats({ searchParams }: { searchParams: { f?:
   return (
     <>
       <h1 className="text-[30px] font-extrabold">Chats</h1>
-      <p className="mb-4 mt-1 text-ink-soft">One chat per booking: the client, the trainer and the whole Dogwise team. Any admin can open any chat.</p>
+      <p className="mb-4 mt-1 text-ink-soft">One chat per dog, with the owner, the trainer and the team.</p>
       <Link prefetch={false} href="/a/messages" className="panel mb-4 flex items-center gap-3 px-3.5 py-3 hover:bg-paper/60">
         <IconTile tone="ink"><Users size={19} /></IconTile>
         <span className="min-w-0 flex-1"><span className="block font-bold">Trainer messages</span><span className="block text-[13px] text-ink-soft">Direct messages with trainers</span></span>
