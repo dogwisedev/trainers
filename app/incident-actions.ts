@@ -1,5 +1,5 @@
 "use server";
-import { auditCall } from "@/lib/audit";
+import { audited } from "@/lib/audit";
 import { revalidatePath } from "next/cache";
 import { getViewer } from "@/lib/data";
 import { isDemo, serviceClient } from "@/lib/supabase";
@@ -11,7 +11,7 @@ const site = () => (process.env.NEXT_PUBLIC_SITE_URL || "").replace(/\/$/, "");
 
 /** Trainer (or admin): report an incident from the dog's chat. Admins are emailed straight away and it goes on To do. */
 export async function reportIncidentAction(_: IncidentResult | null, f: FormData): Promise<IncidentResult> {
-  await auditCall("reportIncidentAction", { f });
+  return audited("reportIncidentAction", { f }, async () => {
   if (isDemo()) return { ok: false, message: "Demo mode." };
   const v = await getViewer();
   if (!v || (v.role !== "trainer" && v.role !== "admin")) return { ok: false, message: "Sign in again." };
@@ -43,4 +43,5 @@ export async function reportIncidentAction(_: IncidentResult | null, f: FormData
   }, sb);
   revalidatePath("/", "layout");
   return { ok: true, message: "Sent to the Dogwise team. They've been emailed and will call you if needed. Post any photos in the chat." };
+});
 }

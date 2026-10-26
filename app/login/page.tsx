@@ -20,11 +20,11 @@ export default async function Login({ searchParams }: { searchParams: { error?: 
       <div className="relative mx-auto grid max-w-5xl gap-8 md:grid-cols-[1.1fr_1fr] md:items-center md:gap-14 md:pt-10">
         <div>
           <Image src="/brand-logo.png" alt="Dogwise Academy" width={150} height={48} priority />
-          <h1 className="mt-10 text-[44px] font-extrabold leading-[1.02] md:text-[56px]">Welcome to<br />Dogwise.</h1>
-          <p className="mt-4 max-w-md text-[17px] leading-relaxed text-ink-soft">Dogs, owners, trainers and the team, all in one place.</p>
+          <h1 className="mt-10 text-hero font-extrabold leading-[1.02] md:text-hero-lg">Welcome to<br />Dogwise.</h1>
+          <p className="mt-4 max-w-md text-lead leading-relaxed text-ink-soft">Dogs, owners, trainers and the team, all in one place.</p>
           <ul className="mt-7 hidden space-y-3 md:block">
             {who.map(({ icon: I, title, text }) => (
-              <li key={title} className="flex items-center gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-[14px] bg-white text-lav-deep shadow-card"><I size={19} /></span><span><b className="block text-[15px]">{title}</b><span className="text-[14px] text-ink-soft">{text}</span></span></li>
+              <li key={title} className="flex items-center gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-[14px] bg-white text-lav-deep shadow-card"><I size={19} /></span><span><b className="block text-body">{title}</b><span className="text-body text-ink-soft">{text}</span></span></li>
             ))}
           </ul>
         </div>
@@ -34,24 +34,24 @@ export default async function Login({ searchParams }: { searchParams: { error?: 
           </div>
           <HashSignIn />
           {searchParams.error && (
-            <div role="alert" className="mb-4 rounded-2xl border border-heart/20 bg-white px-4 py-3 text-[14px] text-heart shadow-card">
+            <div role="alert" className="mb-4 rounded-2xl border border-heart/20 bg-white px-4 py-3 text-body text-heart shadow-card">
               <p>{{
-                link: "That link has expired or was already used. Enter your email below, leave the password empty, and we'll send you a fresh one.",
-                browser: "That sign-in link was opened in a different browser from the one that asked for it. Ask for a new link and open it in this browser.",
+                link: "That link has expired or was already used. Enter your email below, leave the password empty, and we'll email you a 6-digit code.",
+                browser: "That sign-in link was opened in a different browser from the one that asked for it. Enter your email below and use the 6-digit code instead.",
                 noprofile: "You're signed in, but your account isn't set up yet. Email info@dogwiseacademy.com and we'll sort it out."
               }[searchParams.error] || "Signing in didn't work. Ask for a new link and try again."}</p>
-              {searchParams.detail && <p className="mt-1 text-[12px] text-ink-faint">{searchParams.detail}</p>}
+              {searchParams.detail && <p className="mt-1 text-caption text-ink-faint">{searchParams.detail}</p>}
             </div>
           )}
           <div className="relative rounded-[28px] border border-line bg-white p-6 shadow-[0_30px_60px_-30px_rgba(40,24,112,.35)] md:p-8">
-            <h2 className="text-[24px] font-extrabold">Sign in</h2>
-            <p className="mb-5 mt-1 text-[14px] text-ink-soft">With the email you gave Dogwise.</p>
+            <h2 className="text-h2 font-extrabold">Sign in</h2>
+            <p className="mb-5 mt-1 text-body text-ink-soft">With the email you gave Dogwise.</p>
             <LoginForm demo={demo} trainers={trainers} />
           </div>
-          <p className="mt-5 text-center text-[13px] text-ink-soft">Need help signing in? Email <a className="font-semibold underline" href="mailto:info@dogwiseacademy.com">info@dogwiseacademy.com</a></p>
+          <p className="mt-5 text-center text-small text-ink-soft">Need help signing in? Email <a className="font-semibold underline" href="mailto:info@dogwiseacademy.com">info@dogwiseacademy.com</a></p>
           <ul className="mt-7 space-y-2.5 md:hidden">
             {who.map(({ icon: I, title, text }) => (
-              <li key={title} className="flex items-center gap-3"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-white text-lav-deep shadow-card"><I size={17} /></span><span className="text-[14px]"><b>{title}</b> <span className="text-ink-soft">{text}</span></span></li>
+              <li key={title} className="flex items-center gap-3"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-white text-lav-deep shadow-card"><I size={17} /></span><span className="text-body"><b>{title}</b> <span className="text-ink-soft">{text}</span></span></li>
             ))}
           </ul>
         </div>

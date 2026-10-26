@@ -18,15 +18,15 @@ export default async function AdminReport({ params }: { params: { id: string } }
       <div className="mb-4 flex items-center gap-3">
         <Link prefetch={false} href={`/a/dogs/${booking.id}?tab=forms`} className="grid h-10 w-10 place-items-center rounded-full hover:bg-mint-wash" aria-label="Back to the dog"><ChevronLeft /></Link>
         <div className="min-w-0">
-          <h1 className="truncate text-[24px] font-extrabold leading-tight">{kindName(r.kind)}: {booking.dog_name || "Dog"}</h1>
-          <p className="truncate text-[14px] text-ink-soft"><Link prefetch={false} className="underline" href={`/a/trainers/${trainer.id}`}>{trainer.name}</Link>, client {booking.client_name}</p>
+          <h1 className="truncate text-h2 font-extrabold leading-tight">{kindName(r.kind)}: {booking.dog_name || "Dog"}</h1>
+          <p className="truncate text-body text-ink-soft"><Link prefetch={false} className="underline" href={`/a/trainers/${trainer.id}`}>{trainer.name}</Link>, client {booking.client_name}</p>
         </div>
       </div>
       {r.kind === "handover" && (
         <div className="panel mb-4 flex flex-wrap items-center gap-2 p-3.5">
-          <p className="min-w-0 flex-1 text-[14px]"><b>See what the client gets.</b> Previews and the test email go only to you. Save any changes first.</p>
-          <a href={`/a/reports/${r.id}/preview`} target="_blank" rel="noopener" className="btn-ghost h-9 min-h-0 px-3 text-[13px]">Preview report PDF</a>
-          <a href={`/a/reports/${r.id}/preview?doc=certificate`} target="_blank" rel="noopener" className="btn-ghost h-9 min-h-0 px-3 text-[13px]">Preview certificate</a>
+          <p className="min-w-0 flex-1 text-body"><b>See what the client gets.</b> Previews and the test email go only to you. Save any changes first.</p>
+          <a href={`/a/reports/${r.id}/preview`} target="_blank" rel="noopener" className="btn-ghost h-9 min-h-0 px-3 text-small">Preview report PDF</a>
+          <a href={`/a/reports/${r.id}/preview?doc=certificate`} target="_blank" rel="noopener" className="btn-ghost h-9 min-h-0 px-3 text-small">Preview certificate</a>
           <HandoverTestEmail id={r.id} />
         </div>
       )}

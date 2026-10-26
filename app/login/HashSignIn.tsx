@@ -17,5 +17,5 @@ export function HashSignIn() {
       window.location.replace(error ? `/login?error=link&detail=${encodeURIComponent(error.message)}` : h.get("type") === "invite" ? "/t/profile" : "/");
     });
   }, []);
-  return busy ? <p className="mt-6 rounded-xl bg-white/80 px-4 py-3 text-[14px]">Signing you in…</p> : null;
+  return busy ? <p className="mt-6 rounded-xl bg-white/80 px-4 py-3 text-body">Signing you in…</p> : null;
 }

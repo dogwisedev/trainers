@@ -33,14 +33,14 @@ export default async function TrainerDetail({ params, searchParams }: { params: 
   return (
     <>
       {searchParams.saved === "booking" && (
-        <p className={`mb-4 rounded-xl px-3 py-2 text-[14px] ${searchParams.emailed === "failed" ? "bg-heart-wash text-heart" : "bg-mint-wash text-fern"}`}>
+        <p className={`mb-4 rounded-xl px-3 py-2 text-body ${searchParams.emailed === "failed" ? "bg-heart-wash text-heart" : "bg-mint-wash text-fern"}`}>
           Booking saved.{searchParams.emailed === "1" ? " The trainer has been emailed with a calendar invite." : searchParams.emailed === "off" ? " Email isn't set up yet, so the trainer wasn't emailed." : searchParams.emailed === "failed" ? " The email to the trainer failed: check their email address." : ""}
         </p>
       )}
       <div className="flex items-start gap-4">
         <Avatar name={t.name} size={64} />
         <div className="min-w-0 flex-1">
-          <h1 className="text-[28px] font-extrabold leading-tight">{t.name}</h1>
+          <h1 className="text-h1 font-extrabold leading-tight">{t.name}</h1>
           <p className="mt-0.5 inline-flex items-center gap-1 text-ink-soft"><MapPin size={15} />{[t.city, t.state].filter(Boolean).join(", ") || "No location"}</p>
           <div className="mt-2 flex flex-wrap gap-1.5">{t.active ? <Pill>Active</Pill> : <Pill tone="heart">Inactive</Pill>}{t.poc && <Pill tone="line">Contact: {t.poc}</Pill>}</div>
         </div>
@@ -54,20 +54,20 @@ export default async function TrainerDetail({ params, searchParams }: { params: 
 
       <div className="mt-5 rounded-[26px] bg-mint p-4 md:p-6">
         <div className="mb-3 grid grid-cols-3 gap-2 text-center">
-          <div><p className="text-[24px] font-extrabold">{t.capacity}</p><p className="text-[12px] text-ink-soft">dogs at once</p></div>
-          <div><p className="text-[24px] font-extrabold">{when(o3)}</p><p className="text-[12px] text-ink-soft">3-week opening</p></div>
-          <div><p className="text-[24px] font-extrabold">{Math.round(utilisation(use.slice(0, 8)) * 100)}%</p><p className="text-[12px] text-ink-soft">full, next 8 wks</p></div>
+          <div><p className="text-h2 font-extrabold">{t.capacity}</p><p className="text-caption text-ink-soft">dogs at once</p></div>
+          <div><p className="text-h2 font-extrabold">{when(o3)}</p><p className="text-caption text-ink-soft">3-week opening</p></div>
+          <div><p className="text-h2 font-extrabold">{Math.round(utilisation(use.slice(0, 8)) * 100)}%</p><p className="text-caption text-ink-soft">full, next 8 wks</p></div>
         </div>
         <div className="rounded-[20px] bg-white/70 p-4"><KennelStrip use={use} /><KennelLegend /></div>
-        <p className="mt-3 text-[13px] text-ink-soft">2-week opening: {when(o2)}. Range: {t.range_text || `${t.range_miles} mi`} (matching uses {t.range_miles} mi).</p>
+        <p className="mt-3 text-small text-ink-soft">2-week opening: {when(o2)}. Range: {t.range_text || `${t.range_miles} mi`} (matching uses {t.range_miles} mi).</p>
       </div>
 
       {t.data_flags?.length > 0 && (
         <Section title="Check these details">
           <ul className="space-y-2">
             {t.data_flags.map((f) => (
-              <li key={f} className="flex items-center justify-between gap-3 rounded-xl bg-biscuit-wash px-3.5 py-2.5 text-[14px]">
-                <span>{f}</span><ActionButton className="btn-ghost h-9 min-h-0 px-3 text-[13px]" action={clearFlag.bind(null, id, f)}>Checked</ActionButton>
+              <li key={f} className="flex items-center justify-between gap-3 rounded-xl bg-biscuit-wash px-3.5 py-2.5 text-body">
+                <span>{f}</span><ActionButton className="btn-ghost h-9 min-h-0 px-3 text-small" action={clearFlag.bind(null, id, f)}>Checked</ActionButton>
               </li>
             ))}
           </ul>
@@ -77,10 +77,10 @@ export default async function TrainerDetail({ params, searchParams }: { params: 
       {prob && prob.probation !== "none" && (
         <section id="probation" className={`panel mt-6 scroll-mt-20 p-4 ${prob.probation === "on" && prob.done >= 4 ? "border-biscuit" : ""}`}>
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-[17px] font-extrabold">Probation</h2>
+            <h2 className="text-lead font-extrabold">Probation</h2>
             <Pill tone={prob.probation === "approved" ? "mint" : prob.probation === "declined" ? "heart" : "biscuit"}>{prob.probation === "approved" ? "Approved" : prob.probation === "declined" ? "Declined" : "On probation"}</Pill>
           </div>
-          <p className="mt-1 text-[14px] text-ink-soft">{prob.done} training{prob.done === 1 ? "" : "s"} finished. {prob.probation === "approved" ? `Approved by ${prob.by || "admin"}. Held pay ($${Number(prob.releaseAmount || 0).toFixed(2)}) is paid in the pay run of ${prob.releaseRun}.` : `Program pay is at 75%; $${prob.held.toFixed(2)} held so far (from approved payslips).`}</p>
+          <p className="mt-1 text-body text-ink-soft">{prob.done} training{prob.done === 1 ? "" : "s"} finished. {prob.probation === "approved" ? `Approved by ${prob.by || "admin"}. Held pay ($${Number(prob.releaseAmount || 0).toFixed(2)}) is paid in the pay run of ${prob.releaseRun}.` : `Program pay is at 75%; $${prob.held.toFixed(2)} held so far (from approved payslips).`}</p>
           {prob.probation !== "approved" && (
             <div className="mt-3 flex flex-wrap gap-2">
               <ActionButton className="btn-ink" confirm={`Approve ${t.name}'s probation? The $${prob.held.toFixed(2)} held so far is paid in the next pay run, and their pay is 100% from now on.`} action={decideProbationAction.bind(null, t.id, true)}>Approve probation</ActionButton>
@@ -90,27 +90,27 @@ export default async function TrainerDetail({ params, searchParams }: { params: 
         </section>
       )}
 
-      <Section title="Dogs" action={<Link prefetch={false} href={`/a/bookings/new?trainer=${id}`} className="btn-mint h-10 min-h-0 px-3 text-[14px]"><CalendarPlus size={16} />Book a dog</Link>}>
+      <Section title="Dogs" action={<Link prefetch={false} href={`/a/bookings/new?trainer=${id}`} className="btn-mint h-10 min-h-0 px-3 text-body"><CalendarPlus size={16} />Book a dog</Link>}>
         {upcoming.length ? (
           <ul className="panel divide-y divide-line">
             {upcoming.map((b) => (
               <li key={b.id}>
                 <Link prefetch={false} href={`/a/dogs/${b.id}`} className="flex flex-wrap items-center justify-between gap-3 p-4 hover:bg-mint-wash">
-                  <div><p className="font-semibold">{b.dog_name || "Dog"} <span className="font-normal text-ink-soft">with {b.client_name}</span></p><p className="text-[14px] text-ink-soft">{range(b.start_date, b.end_date)}, {b.program || `${b.weeks}-week`}{b.extra_days ? ` + ${b.extra_days} day${b.extra_days > 1 ? "s" : ""}` : ""}{b.rehab ? ", rehab" : ""}</p></div>
+                  <div><p className="font-semibold">{b.dog_name || "Dog"} <span className="font-normal text-ink-soft">with {b.client_name}</span></p><p className="text-body text-ink-soft">{range(b.start_date, b.end_date)}, {b.program || `${b.weeks}-week`}{b.extra_days ? ` + ${b.extra_days} day${b.extra_days > 1 ? "s" : ""}` : ""}{b.rehab ? ", rehab" : ""}</p></div>
                   <div className="flex flex-wrap items-center gap-2">
                     {!b.notified_at && <Pill tone="heart">Trainer not emailed</Pill>}
                     <Pill tone={b.start_date <= today ? "biscuit" : b.status === "pending" ? "line" : "mint"}>{b.start_date <= today ? "In care" : b.status === "pending" ? "Pending" : "Upcoming"}</Pill>
-                    <span className="btn-ghost h-9 min-h-0 px-3 text-[13px]">Open</span>
+                    <span className="btn-ghost h-9 min-h-0 px-3 text-small">Open</span>
                   </div>
                 </Link>
               </li>
             ))}
           </ul>
-        ) : <p className="text-[14px] text-ink-soft">No dogs booked.</p>}
+        ) : <p className="text-body text-ink-soft">No dogs booked.</p>}
       </Section>
 
-      <Section title="Finished" action={finished.rows.length ? <Link prefetch={false} href={`/a/dogs?f=finished&t=${id}`} className="btn-ghost h-10 min-h-0 px-3 text-[14px]">See all</Link> : undefined}>
-        {finished.rows.length ? <BookingHistory rows={finished.rows} role="admin" showTrainer={false} /> : <p className="text-[14px] text-ink-soft">No finished trainings yet.</p>}
+      <Section title="Finished" action={finished.rows.length ? <Link prefetch={false} href={`/a/dogs?f=finished&t=${id}`} className="btn-ghost h-10 min-h-0 px-3 text-body">See all</Link> : undefined}>
+        {finished.rows.length ? <BookingHistory rows={finished.rows} role="admin" showTrainer={false} /> : <p className="text-body text-ink-soft">No finished trainings yet.</p>}
       </Section>
 
       <Section title="Time off">
@@ -118,7 +118,7 @@ export default async function TrainerDetail({ params, searchParams }: { params: 
           <ul className="panel mb-3 divide-y divide-line">
             {off.map((o) => (
               <li key={o.id} className="flex items-center justify-between gap-3 py-2 pl-4 pr-2">
-                <div><p className="font-semibold">{range(o.start_date, o.end_date)}</p><p className="text-[13px] text-ink-soft">{o.reason}{o.slots_blocked ? `, ${o.slots_blocked} kennel${o.slots_blocked > 1 ? "s" : ""}` : ", whole calendar"}{o.note ? `. ${o.note}` : ""}</p></div>
+                <div><p className="font-semibold">{range(o.start_date, o.end_date)}</p><p className="text-small text-ink-soft">{o.reason}{o.slots_blocked ? `, ${o.slots_blocked} kennel${o.slots_blocked > 1 ? "s" : ""}` : ", whole calendar"}{o.note ? `. ${o.note}` : ""}</p></div>
                 <DeleteTimeOff id={o.id} />
               </li>
             ))}

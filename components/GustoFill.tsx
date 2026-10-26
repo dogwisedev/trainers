@@ -84,14 +84,14 @@ export function GustoFill({ run, pay, others, payees: initial, paidAt, paidBy, p
     const c = codes[t.trainerId], p = c ? byCode.get(c) : undefined, sug = !c ? suggest(t.name, payees) : null;
     return (
       <li className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3.5 py-3">
-        <span className="min-w-[35%] flex-1"><span className="block font-semibold">{t.name}</span>{p && <span className="block text-[12px] text-ink-faint">Paid in Gusto as {label(p)}</span>}</span>
+        <span className="min-w-[35%] flex-1"><span className="block font-semibold">{t.name}</span>{p && <span className="block text-caption text-ink-faint">Paid in Gusto as {label(p)}</span>}</span>
         {showAmount && <span className="font-mono font-bold tabular-nums">${money(t.amount)}</span>}
         <div className="flex w-full items-center gap-2 sm:w-auto">
-          <select className="field h-10 py-0 text-[14px] sm:w-64" value={c || ""} onChange={(e) => link(t.trainerId, e.target.value)}>
+          <select className="field h-10 py-0 text-body sm:w-64" value={c || ""} onChange={(e) => link(t.trainerId, e.target.value)}>
             <option value="">{sug ? `Not linked (suggested: ${label(byCode.get(sug.code)!)})` : "Not linked to Gusto"}</option>
             {sorted.map((r) => <option key={r.code} value={r.code}>{label(r)}</option>)}
           </select>
-          {saving === t.trainerId ? <span className="text-[12px] text-ink-faint">Saving…</span> : p ? <Check size={16} className="text-fern" aria-label="Linked" /> : <span className="whitespace-nowrap rounded-full bg-heart-wash px-2 py-0.5 text-[11px] font-bold text-heart">{sug ? (sug.sure ? "Suggested" : "Check this") : "Not linked"}</span>}
+          {saving === t.trainerId ? <span className="text-caption text-ink-faint">Saving…</span> : p ? <Check size={16} className="text-fern" aria-label="Linked" /> : <span className="whitespace-nowrap rounded-full bg-heart-wash px-2 py-0.5 text-micro font-bold text-heart">{sug ? (sug.sure ? "Suggested" : "Check this") : "Not linked"}</span>}
         </div>
       </li>
     );
@@ -99,32 +99,32 @@ export function GustoFill({ run, pay, others, payees: initial, paidAt, paidBy, p
 
   return (
     <>
-      {pending > 0 && <p className="mb-4 rounded-xl bg-heart-wash p-3 text-[14px] font-semibold text-heart">{pending} payslip{pending > 1 ? "s are" : " is"} not approved yet, so not included. Approve first.</p>}
+      {pending > 0 && <p className="mb-4 rounded-xl bg-heart-wash p-3 text-body font-semibold text-heart">{pending} payslip{pending > 1 ? "s are" : " is"} not approved yet, so not included. Approve first.</p>}
       {!payees.length ? (
-        <div className="panel mb-4 p-4"><p className="font-bold">First, the Gusto people list (once)</p><p className="mt-1 text-[14px] text-ink-soft">In Gusto: Pay contractors, then download the template (CSV), and upload it here. Only names and worker codes are kept.</p></div>
+        <div className="panel mb-4 p-4"><p className="font-bold">First, the Gusto people list (once)</p><p className="mt-1 text-body text-ink-soft">In Gusto: Pay contractors, then download the template (CSV), and upload it here. Only names and worker codes are kept.</p></div>
       ) : null}
-      {msg && <p role="status" className="mb-4 rounded-xl bg-paper p-3 text-[14px] font-semibold">{msg}</p>}
+      {msg && <p role="status" className="mb-4 rounded-xl bg-paper p-3 text-body font-semibold">{msg}</p>}
       {suggestions.length > 0 && payees.length > 0 && (
-        <div className="panel mb-4 flex flex-wrap items-center gap-3 p-3.5"><p className="min-w-0 flex-1 text-[14px]"><b>{suggestions.length} trainer{suggestions.length > 1 ? "s" : ""} not linked yet</b>, with a suggested match.</p>
-          <button type="button" className="btn-ink h-9 min-h-0 px-3 text-[13px]" disabled={busy} onClick={saveSuggestions}>Link all suggestions</button></div>
+        <div className="panel mb-4 flex flex-wrap items-center gap-3 p-3.5"><p className="min-w-0 flex-1 text-body"><b>{suggestions.length} trainer{suggestions.length > 1 ? "s" : ""} not linked yet</b>, with a suggested match.</p>
+          <button type="button" className="btn-ink h-9 min-h-0 px-3 text-small" disabled={busy} onClick={saveSuggestions}>Link all suggestions</button></div>
       )}
       <h2 className="group-title">This pay run <span className="count">{pay.length}</span></h2>
       <ul className="panel divide-y divide-line">{pay.map((t) => <Row key={t.trainerId} t={t} showAmount />)}{!pay.length && <li className="p-6 text-center text-ink-soft">No approved payslips in this pay run yet.</li>}</ul>
       <div className="panel mt-3 flex flex-wrap items-center justify-between gap-3 p-4">
-        <div><p className="text-[13px] text-ink-soft">Total to pay ({pay.length} trainers)</p><p className="text-[26px] font-extrabold tabular-nums">${money(total)}</p>
-          {unlinked.length > 0 ? <p className="text-[12px] font-semibold text-heart">{unlinked.length} not linked: ${money(total - inFile)} won&apos;t be in the file.</p> : <p className="text-[12px] text-ink-faint">Check this matches Gusto&apos;s total before you submit.</p>}</div>
+        <div><p className="text-small text-ink-soft">Total to pay ({pay.length} trainers)</p><p className="text-h1 font-extrabold tabular-nums">${money(total)}</p>
+          {unlinked.length > 0 ? <p className="text-caption font-semibold text-heart">{unlinked.length} not linked: ${money(total - inFile)} won&apos;t be in the file.</p> : <p className="text-caption text-ink-faint">Check this matches Gusto&apos;s total before you submit.</p>}</div>
         <div className="flex flex-wrap gap-2">
           <button type="button" className="btn-ink" disabled={!payees.length || !pay.length} onClick={download}><Download size={17} />Download Gusto file</button>
-          {paid.at ? <span className="self-center text-[14px] font-semibold text-fern">Paid in Gusto {new Date(paid.at).toLocaleDateString("en-US")}{paid.by ? ` by ${paid.by}` : ""}</span>
+          {paid.at ? <span className="self-center text-body font-semibold text-fern">Paid in Gusto {new Date(paid.at).toLocaleDateString("en-US")}{paid.by ? ` by ${paid.by}` : ""}</span>
             : <button type="button" className="btn-ghost" disabled={busy || !pay.length} onClick={() => { if (window.confirm(`Mark this pay run as paid in Gusto ($${money(total)})?`)) start(async () => { const r = await markGustoPaidAction(run); if (r.ok) setPaid({ at: new Date().toISOString(), by: "you" }); else setMsg(r.message); }); }}>Mark as paid in Gusto</button>}
         </div>
       </div>
       {others.length > 0 && (
-        <details className="panel mt-4 p-0"><summary className="cursor-pointer px-4 py-3 font-bold">Other trainers <span className="count">{others.length}</span> <span className="text-[13px] font-normal text-ink-soft">not in this pay run</span></summary>
+        <details className="panel mt-4 p-0"><summary className="cursor-pointer px-4 py-3 font-bold">Other trainers <span className="count">{others.length}</span> <span className="text-small font-normal text-ink-soft">not in this pay run</span></summary>
           <ul className="divide-y divide-line border-t border-line">{others.map((t) => <Row key={t.trainerId} t={t} showAmount={false} />)}</ul></details>
       )}
       <div className="panel mt-4 flex flex-wrap items-center gap-3 p-4">
-        <p className="min-w-0 flex-1 text-[14px]"><b>Gusto people: {payees.length}.</b> Upload Gusto&apos;s template again only when someone new is added in Gusto.</p>
+        <p className="min-w-0 flex-1 text-body"><b>Gusto people: {payees.length}.</b> Upload Gusto&apos;s template again only when someone new is added in Gusto.</p>
         <label className="btn-ghost cursor-pointer"><Upload size={16} />{payees.length ? "Update from Gusto" : "Upload Gusto's template"}
           <input type="file" accept=".csv,text/csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) upload(f); e.target.value = ""; }} /></label>
       </div>

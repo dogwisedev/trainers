@@ -22,12 +22,12 @@ export function TrainerList({ rows }: { rows: Row[] }) {
         </label>
         <div className="-mx-4 mt-2.5 flex gap-1.5 overflow-x-auto px-4 [scrollbar-width:none]">
           {["", ...states].map((s) => (
-            <button key={s || "all"} onClick={() => setState(s)} className={`shrink-0 rounded-full px-3.5 py-1.5 text-[13px] font-semibold ${state === s ? "bg-ink text-white" : "border border-line bg-white"}`}>{s || "All states"}</button>
+            <button key={s || "all"} onClick={() => setState(s)} className={`shrink-0 rounded-full px-3.5 py-1.5 text-small font-semibold ${state === s ? "bg-ink text-white" : "border border-line bg-white"}`}>{s || "All states"}</button>
           ))}
-          <button onClick={() => setShowInactive((x) => !x)} className={`shrink-0 rounded-full px-3.5 py-1.5 text-[13px] font-semibold ${showInactive ? "bg-heart text-white" : "border border-line bg-white text-ink-soft"}`}>Inactive</button>
+          <button onClick={() => setShowInactive((x) => !x)} className={`shrink-0 rounded-full px-3.5 py-1.5 text-small font-semibold ${showInactive ? "bg-heart text-white" : "border border-line bg-white text-ink-soft"}`}>Inactive</button>
         </div>
       </div>
-      <p className="mb-2 text-[13px] text-ink-faint">{list.length} {showInactive ? "inactive" : "active"} trainer{list.length === 1 ? "" : "s"}</p>
+      <p className="mb-2 text-small text-ink-faint">{list.length} {showInactive ? "inactive" : "active"} trainer{list.length === 1 ? "" : "s"}</p>
       <ul className="grid gap-2.5 md:grid-cols-2">
         {list.map((r) => (
           <li key={r.id}>
@@ -35,8 +35,8 @@ export function TrainerList({ rows }: { rows: Row[] }) {
               <Avatar name={r.name} />
               <div className="min-w-0 flex-1">
                 <p className="truncate font-bold">{r.name}{r.flags > 0 && <span className="ml-1.5 inline-block h-2 w-2 rounded-full bg-biscuit align-middle" aria-label="Has details to check" />}</p>
-                <p className="truncate text-[13px] text-ink-soft">{r.place}</p>
-                <p className="mt-1 text-[13px]">{r.away ? <span className="text-heart">Away this week</span> : <><span className="font-semibold">{r.freeNow} free</span><span className="text-ink-soft"> of {r.cap}. 3-week opening {r.opening}</span></>}</p>
+                <p className="truncate text-small text-ink-soft">{r.place}</p>
+                <p className="mt-1 text-small">{r.away ? <span className="text-heart">Away this week</span> : <><span className="font-semibold">{r.freeNow} free</span><span className="text-ink-soft"> of {r.cap}. 3-week opening {r.opening}</span></>}</p>
               </div>
               <div className="flex flex-col-reverse gap-[3px]" aria-hidden>
                 {Array.from({ length: Math.min(r.cap, 8) }, (_, i) => <span key={i} className={`h-2.5 w-2.5 rounded-[3px] ${r.away ? "kennel-blocked" : i < r.inNow ? "bg-ink" : i < r.cap - r.freeNow ? "kennel-blocked" : "bg-mint"}`} />)}

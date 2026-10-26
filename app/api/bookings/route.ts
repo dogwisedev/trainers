@@ -9,6 +9,8 @@ import { datesFromHubspot } from "@/lib/hubspot";
 import { syncHubspotDates } from "@/lib/hubspotSync";
 import { cleanDealId } from "@/lib/dealId";
 import { auditCall } from "@/lib/audit";
+import { inviteWithBooking } from "@/lib/autoInvite";
+import { clearUnbooked } from "@/lib/unbookedDeals";
 
 // Book a Closed Won HubSpot deal into a trainer's calendar (used by the Sales extension).
 // POST /api/bookings   header x-api-key: BOOKING_KEY
@@ -110,8 +112,9 @@ export async function POST(req: Request) {
   await auditCall("bookingApi", { deal: dealId || "", dogs: ((created || []) as { dog_name: string | null }[]).map((c) => c.dog_name).join(", "), trainer: trainer?.name || "" }, { name: String(b.booked_by || b.agent || "HubSpot extension"), role: "extension" });
   const emailed = await notifyBookings(sb, (created || []).map((c: { id: string }) => c.id), "new");
   if (emailed.skipped || emailed.errors.length) console.error("booking email", JSON.stringify(emailed)); // shows in Vercel logs
-  // One chat per deal. Never blocks the booking; clients are only emailed their link when CHAT_INVITE_CLIENTS=1.
-  const chats = await ensureChatsForBookings(created || [], { invite: process.env.CHAT_INVITE_CLIENTS === "1" }).catch(() => []);
+  // One chat per deal. Never blocks the booking. The client gets their link now if training starts within 7 days (otherwise the chat check sends it then).
+  const chats = await ensureChatsForBookings(created || [], { invite: inviteWithBooking((created || []) as { start_date: string; end_date: string }[]) }).catch(() => []);
+  await clearUnbooked(dealId, sb);
 
   return NextResponse.json({
     bookings: created, booking: created?.[0], trainer: { id: trainer.id, name: trainer.name }, emailed, chats,

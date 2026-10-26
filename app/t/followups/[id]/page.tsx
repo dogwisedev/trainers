@@ -17,7 +17,7 @@ export default async function TrainerFollowups({ params }: { params: { id: strin
     <>
       <div className="mb-1 flex items-center gap-2">
         <Link prefetch={false} href="/t/past" className="grid h-10 w-10 place-items-center rounded-full hover:bg-mint-wash" aria-label="Back"><ChevronLeft /></Link>
-        <h1 className="text-[28px] font-extrabold leading-tight">Follow-up sessions</h1>
+        <h1 className="text-h1 font-extrabold leading-tight">Follow-up sessions</h1>
       </div>
       <p className="mb-4 text-ink-soft">{b.dog_name || "Dog"}, {b.client_name}. Set the session dates: each one is paid on the payslip for that date.</p>
       <div className="panel p-4">{b.hubspot_deal_id ? <FollowupDates bookingId={b.id} dates={(m?.followups as string[] | undefined) || []} /> : <p className="text-ink-soft">This booking has no HubSpot deal. Ask the team.</p>}</div>

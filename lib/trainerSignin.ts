@@ -85,22 +85,22 @@ export async function sendSigninHello(trainerId: string): Promise<{ ok: boolean;
     await sendMail({
       to: email,
       subject: `${first}, your Dogwise Academy app is ready for you`,
-      text: `Hi ${first},\n\nWe noticed you haven't had a chance to open the Dogwise Academy app yet, so here's a quick hand.\n\nIt's where you'll find the dogs booked with you, each dog's forms (intake, weekly health check, handover), your chats with clients and the Dogwise team, and your payslips.\n\n1. Open this link: it signs you straight in, no password needed: ${link}\n2. Choose a password when it asks, so you can sign in any time.\n3. On your phone, add it to your home screen so it's one tap away.\n\nThe link works for ${VALID_DAYS} days. Any trouble, just reply to this email and we'll help.\n\nThe Dogwise team`,
+      text: `Hi ${first},\n\nWe noticed you haven't had a chance to open the Dogwise Academy app yet, so here's a quick hand.\n\nIt's where you'll find the dogs booked with you, each dog's forms (intake, weekly health check, handover), your chats with clients and the Dogwise team, and your payslips.\n\n1. Open this link: it signs you straight in, no password needed: ${link}\n2. Choose a password when it asks, so you can sign in any time.\n3. On your phone, add it to your home screen so it's one tap away. Open it from there and sign in with your email and password, or tap "Email me a code".\n\nThe link works for ${VALID_DAYS} days. Any trouble, just reply to this email and we'll help.\n\nThe Dogwise team`,
       html: `<div style="background:#f4f5f8;padding:24px 12px;font-family:Inter,Segoe UI,Roboto,Helvetica,Arial,sans-serif">
   <div style="max-width:540px;margin:0 auto;background:#ffffff;border-radius:18px;overflow:hidden;border:1px solid #E7E3F3">
-    <div style="height:6px;background:linear-gradient(90deg,#2A1971,#6B4FE0)"></div>
+    <div style="height:6px;background:linear-gradient(90deg,#281870,#6E4FE0)"></div>
     <div style="padding:26px">
       <img src="cid:dogwise-logo" alt="Dogwise Academy" width="140" style="display:block;height:auto">
-      <div style="font-size:22px;font-weight:800;color:#2A1971;margin-top:18px">Hi ${esc(first)}, your app is ready</div>
+      <div style="font-size:22px;font-weight:800;color:#281870;margin-top:18px">Hi ${esc(first)}, your app is ready</div>
       <p style="font-size:15px;line-height:1.6;color:#41395E;margin:8px 0 12px">We noticed you haven't had a chance to open the Dogwise Academy app yet, so here's a quick hand. It's where you'll find:</p>
       <ul style="font-size:15px;line-height:1.5;color:#41395E;margin:0 0 16px;padding-left:20px">
         ${li("the dogs booked with you, with their dates")}${li("each dog's forms: intake, weekly health check and handover")}${li("your chats with clients and the Dogwise team")}${li("your payslips")}
       </ul>
       <p style="font-size:15px;font-weight:700;color:#1C1734;margin:0 0 6px">Getting in takes a minute:</p>
       <ol style="font-size:15px;line-height:1.5;color:#41395E;margin:0 0 20px;padding-left:20px">
-        ${li("Tap the button below. It signs you straight in, no password needed.")}${li("Choose a password when it asks, so you can sign in any time.")}${li("On your phone, add it to your home screen: on iPhone tap Share, then <b>Add to Home Screen</b>; on Android tap the ⋮ menu, then <b>Add to Home screen</b>.")}
+        ${li("Tap the button below. It signs you straight in, no password needed.")}${li("Choose a password when it asks, so you can sign in any time.")}${li("On your phone, add it to your home screen: on iPhone tap Share, then <b>Add to Home Screen</b>; on Android tap the ⋮ menu, then <b>Add to Home screen</b>. Open it from there and sign in with your email and password, or tap <b>Email me a code</b>.")}
       </ol>
-      <a href="${link}" style="display:inline-block;background:#2A1971;color:#ffffff;text-decoration:none;font-weight:700;padding:13px 24px;border-radius:10px">Open my app</a>
+      <a href="${link}" style="display:inline-block;background:#281870;color:#ffffff;text-decoration:none;font-weight:700;padding:13px 24px;border-radius:10px">Open my app</a>
       <p style="font-size:13px;line-height:1.6;color:#6B6880;margin:20px 0 0">The button works for ${VALID_DAYS} days. Any trouble at all, just reply to this email and we'll help you get in.</p>
       <p style="font-size:15px;color:#41395E;margin:16px 0 0">The Dogwise team</p>
     </div>

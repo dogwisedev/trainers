@@ -6,8 +6,8 @@ import { dealKey, MediaRef } from "./chatTypes";
 import { Booking } from "./types";
 
 // Booking chats, created by the server. One chat per HubSpot deal (a two-dog booking is one chat).
-// Set CHAT_INVITE_CLIENTS=1 in Vercel to email clients their chat link automatically when a booking is made.
-// Without it, chats are still created and an admin sends each client's link with the "Invite client" button.
+// Clients are emailed their chat link automatically 7 days before training (lib/autoInvite.ts; CHAT_AUTO_INVITE=off to stop it).
+// Admins can still send it any time with the "Invite client" button.
 
 type B = Pick<Booking, "id" | "trainer_id" | "client_name" | "dog_name" | "hubspot_deal_id"> & { client_email?: string | null };
 export type EnsureResult = { chatId: string; created: boolean; invited: boolean; note?: string };
@@ -85,7 +85,7 @@ export async function postReportToChat(booking: B, report: { id: string; title: 
 export function welcomeText(dog: string, trainer: string | null) {
   return `👋 Welcome to ${dog}'s chat! This is where you, ${trainer || "your trainer"} and the Dogwise team talk about ${dog}.\n\n`
     + `• Updates, photos and videos of ${dog} are posted here every day.\n`
-    + `• Type in the box at the bottom to send a message. Tap the paperclip to send a photo or video.\n`
+    + `• Type in the box at the bottom to send a message. Tap the paperclip to send a photo, video or PDF.\n`
     + `• You'll get an email (and a phone notification, if you turn them on) when there's something new.`;
 }
 export async function postWelcome(chatId: string, dog: string, trainer: string | null) {

@@ -12,6 +12,10 @@ import { CHAT_KINDS, INCIDENT_LABEL, IncidentKind, RULES, clientDigestDue, clien
 import { clearFormIncidents } from "./incidents";
 import { catchUpBookings } from "./bookingCatchup";
 import { sendDailyDigest } from "./digest";
+import { autoInviteClients } from "./autoInvite";
+import { registerNotifyUrl, sweepNotifications } from "./chatNotify";
+import { watchDirectEdits } from "./directEdits";
+import { auditSystem } from "./audit";
 
 const URGENT_CHAT: IncidentKind[] = ["client_waiting", "client_pileup"];
 
@@ -29,10 +33,19 @@ export async function runChatChecks(now = new Date()) {
   const sb = serviceClient();
   const { data: chatRows } = await sb.from("chats").select("*").eq("status", "open");
   const chats = (chatRows || []) as ChatRow[];
-  const out = { chats: chats.length, opened: 0, cleared: 0, realerted: 0, digests: 0, errors: [] as string[] };
+  const out = { chats: chats.length, opened: 0, cleared: 0, realerted: 0, digests: 0, invited: 0, notified: 0, errors: [] as string[] };
   try { out.cleared += await clearFormIncidents(sb); } catch (e) { out.errors.push(`forms: ${(e as Error).message}`); }
   try { const c = await catchUpBookings(sb); out.errors.push(...c.errors.map((x) => `booking email: ${x}`)); } catch (e) { out.errors.push(`booking email: ${(e as Error).message}`); }
   try { if (await sendDailyDigest(sb)) out.digests++; } catch (e) { out.errors.push(`daily summary: ${(e as Error).message}`); }
+  // Chat notifications the database and the sender's app both missed (should be rare: each one is logged)
+  try {
+    await registerNotifyUrl(sb);
+    const missed = await sweepNotifications(sb);
+    out.notified = missed;
+    if (missed) await auditSystem("Sent missed chat notifications", `${missed} message${missed > 1 ? "s" : ""} hadn't been notified within 90 seconds, so the 10-minute check sent ${missed > 1 ? "them" : "it"}.`, { ok: true });
+  } catch (e) { out.errors.push(`notifications: ${(e as Error).message}`); }
+  try { await watchDirectEdits(sb); } catch (e) { out.errors.push(`direct edits: ${(e as Error).message}`); }
+  try { const inv = await autoInviteClients(sb); out.invited = inv.invited; out.errors.push(...inv.errors.map((x) => `invite: ${x}`)); } catch (e) { out.errors.push(`invite: ${(e as Error).message}`); }
 
   // Bookings per chat (a chat's key is the HubSpot deal id, or the booking id)
   const keys = chats.map((c) => c.deal_key);
@@ -115,10 +128,11 @@ export async function runChatChecks(now = new Date()) {
         await sendMail({
           to: c.client_email!, subject: `New updates for ${c.title || "your dog"}`,
           text: `Hi ${first}, there are new updates from ${c.trainer_name || "your trainer"} in your Dogwise chat: ${link}\n\nTo stop these emails: ${stop}`,
-          html: `<div style="background:#f4f5f8;padding:24px 12px;font-family:Arial,sans-serif"><div style="max-width:520px;margin:0 auto;background:#fff;border:1px solid #E7E3F3;border-radius:16px;padding:24px"><img src="cid:dogwise-logo" width="130" alt="Dogwise Academy" style="display:block;margin-bottom:14px"><p style="font-size:16px;font-weight:bold;color:#2A1971;margin:0 0 8px">New updates for ${esc(c.title || "your dog")}</p><p style="font-size:15px;color:#333;line-height:1.5;margin:0 0 18px">Hi ${esc(first)}, there are new messages, photos or videos from ${esc(c.trainer_name || "your trainer")} waiting for you.</p><a href="${link}" style="background:#2A1971;color:#fff;padding:11px 20px;border-radius:9px;text-decoration:none;font-weight:bold;display:inline-block">Open the chat</a><p style="font-size:12px;color:#8796AD;margin:20px 0 0">We email you at most once a day. <a href="${stop}" style="color:#8796AD">Stop these emails</a></p></div></div>`,
+          html: `<div style="background:#f4f5f8;padding:24px 12px;font-family:Arial,sans-serif"><div style="max-width:520px;margin:0 auto;background:#fff;border:1px solid #E7E3F3;border-radius:16px;padding:24px"><img src="cid:dogwise-logo" width="130" alt="Dogwise Academy" style="display:block;margin-bottom:14px"><p style="font-size:16px;font-weight:bold;color:#281870;margin:0 0 8px">New updates for ${esc(c.title || "your dog")}</p><p style="font-size:15px;color:#333;line-height:1.5;margin:0 0 18px">Hi ${esc(first)}, there are new messages, photos or videos from ${esc(c.trainer_name || "your trainer")} waiting for you.</p><a href="${link}" style="background:#281870;color:#fff;padding:11px 20px;border-radius:9px;text-decoration:none;font-weight:bold;display:inline-block">Open the chat</a><p style="font-size:12px;color:#8796AD;margin:20px 0 0">We email you at most once a day. <a href="${stop}" style="color:#8796AD">Stop these emails</a></p></div></div>`,
           attachments: [logo]
         });
         await sb.from("chats").update({ notified_client_at: now.toISOString() }).eq("id", c.id);
+        await auditSystem("Emailed a client about new chat updates", `${c.title || "Dog"} (${c.client_name || "client"}): unread updates, emailed to ${c.client_email}.`, { link: `/a/chats/${c.id}` });
         out.digests++;
       } catch (e) { out.errors.push(`digest ${c.id}: ${(e as Error).message}`); }
     }
@@ -157,7 +171,11 @@ export async function closeChat(chatId: string): Promise<{ ok: boolean; message:
     catch (e) { emailNote = ` The email to the client failed (${(e as Error).message}); use "Send summary again".`; }
   }
   await sb.from("chats").update({ status: "closed", closed_at: new Date().toISOString(), transcript_url: transcriptUrl, ...(archived ? { archived_at: new Date().toISOString() } : {}) }).eq("id", chatId);
-  if (archived) await sb.from("chat_messages").delete().eq("chat_id", chatId); // safe: the transcript is in Drive
+  if (archived) {
+    const { count } = await sb.from("chat_messages").select("id", { count: "exact", head: true }).eq("chat_id", chatId);
+    await sb.from("chat_messages").delete().eq("chat_id", chatId); // safe: the transcript is in Drive
+    await auditSystem("Archived a closed chat to Drive", `${chat.title || "Dog"} (${chat.client_name || "client"}): ${count ?? "all"} messages saved to the transcript in Drive and removed from the app.`, { link: transcriptUrl });
+  }
   // Only the chat's own incidents: a booking or money incident linked to this chat stays open until someone deals with it
   await sb.from("chat_incidents").update({ status: "resolved", resolved_at: new Date().toISOString(), resolved_by: "chat closed", auto_resolved: true }).eq("chat_id", chatId).neq("status", "resolved").in("kind", [...CHAT_KINDS, "intake_media_missing", "handover_photo_missing"]);
   return { ok: true, message: `Chat closed${archived ? " and archived to Drive" : ""}.${emailNote}` };
@@ -166,11 +184,11 @@ export async function closeChat(chatId: string): Promise<{ ok: boolean; message:
 export async function sendClosingEmail(chat: ChatRow, transcriptUrl: string | null, folderUrl: string | null, attach: Uint8Array | null) {
   if (!mailConfigured()) throw new Error("Email isn't set up");
   const first = (chat.client_name || "").split(" ")[0] || "there";
-  const btn = (label: string, url: string) => `<a href="${url}" style="background:#2A1971;color:#fff;padding:11px 20px;border-radius:9px;text-decoration:none;font-weight:bold;display:inline-block;margin:0 8px 8px 0">${esc(label)}</a>`;
+  const btn = (label: string, url: string) => `<a href="${url}" style="background:#281870;color:#fff;padding:11px 20px;border-radius:9px;text-decoration:none;font-weight:bold;display:inline-block;margin:0 8px 8px 0">${esc(label)}</a>`;
   await sendMail({
     to: chat.client_email!, subject: `Your Dogwise chat for ${chat.title || "your dog"}`,
     text: `Hi ${first}, we've closed your chat for ${chat.title || "your dog"}. Everything is saved for you.\n${transcriptUrl ? `Transcript: ${transcriptUrl}\n` : ""}${folderUrl ? `All photos and videos: ${folderUrl}\n` : ""}\nNeed us again? Sign in at ${site()}/login and start a new chat any time.`,
-    html: `<div style="background:#f4f5f8;padding:24px 12px;font-family:Arial,sans-serif"><div style="max-width:520px;margin:0 auto;background:#fff;border:1px solid #E7E3F3;border-radius:16px;padding:24px"><img src="cid:dogwise-logo" width="130" alt="Dogwise Academy" style="display:block;margin-bottom:14px"><p style="font-size:18px;font-weight:bold;color:#2A1971;margin:0 0 8px">Your chat for ${esc(chat.title || "your dog")} is closed</p><p style="font-size:15px;color:#333;line-height:1.5;margin:0 0 16px">Hi ${esc(first)}, everything from the chat is saved for you.</p>${transcriptUrl ? btn("Read the chat", transcriptUrl) : ""}${folderUrl ? btn("All photos and videos", folderUrl) : ""}<p style="font-size:14px;color:#555;line-height:1.5;margin:14px 0 0">Need us again? <a href="${site()}/login" style="color:#6B4FE0;font-weight:bold">Sign in</a> with this email address and start a new chat any time.</p></div></div>`,
+    html: `<div style="background:#f4f5f8;padding:24px 12px;font-family:Arial,sans-serif"><div style="max-width:520px;margin:0 auto;background:#fff;border:1px solid #E7E3F3;border-radius:16px;padding:24px"><img src="cid:dogwise-logo" width="130" alt="Dogwise Academy" style="display:block;margin-bottom:14px"><p style="font-size:18px;font-weight:bold;color:#281870;margin:0 0 8px">Your chat for ${esc(chat.title || "your dog")} is closed</p><p style="font-size:15px;color:#333;line-height:1.5;margin:0 0 16px">Hi ${esc(first)}, everything from the chat is saved for you.</p>${transcriptUrl ? btn("Read the chat", transcriptUrl) : ""}${folderUrl ? btn("All photos and videos", folderUrl) : ""}<p style="font-size:14px;color:#555;line-height:1.5;margin:14px 0 0">Need us again? <a href="${site()}/login" style="color:#6E4FE0;font-weight:bold">Sign in</a> with this email address and start a new chat any time.</p></div></div>`,
     attachments: [logo, ...(attach ? [{ filename: "Chat transcript.pdf", content: attach, contentType: "application/pdf" }] : [])]
   });
 }

@@ -57,11 +57,11 @@ export async function runReportReminders(now = new Date()) {
       await sendMail({
         to, subject,
         text: `Hi ${first},\n${due.length ? `\nDue today:\n${due.map(line).join("\n")}\n` : ""}${open.length ? `\nNow open:\n${open.map(line).join("\n")}\n` : ""}\n${penalty}\nOpen your forms: ${link}`,
-        html: `<div style="background:#f4f5f8;padding:24px 12px;font-family:Arial,sans-serif"><div style="max-width:520px;margin:0 auto;background:#fff;border:1px solid #E7E3F3;border-radius:16px;padding:24px"><img src="cid:dogwise-logo" width="130" alt="Dogwise Academy" style="display:block;margin-bottom:14px"><p style="font-size:16px;font-weight:bold;color:#2A1971;margin:0 0 10px">Hi ${esc(first)}, ${due.length ? "something is due today" : "a form is ready for you"}</p>
+        html: `<div style="background:#f4f5f8;padding:24px 12px;font-family:Arial,sans-serif"><div style="max-width:520px;margin:0 auto;background:#fff;border:1px solid #E7E3F3;border-radius:16px;padding:24px"><img src="cid:dogwise-logo" width="130" alt="Dogwise Academy" style="display:block;margin-bottom:14px"><p style="font-size:16px;font-weight:bold;color:#281870;margin:0 0 10px">Hi ${esc(first)}, ${due.length ? "something is due today" : "a form is ready for you"}</p>
           ${due.length ? `<p style="font-size:14px;font-weight:bold;color:#C2415D;margin:0 0 4px">Due today</p>${due.map((i) => `<p style="font-size:15px;margin:0 0 6px">${esc(line(i))}</p>`).join("")}` : ""}
-          ${open.length ? `<p style="font-size:14px;font-weight:bold;color:#2A1971;margin:12px 0 4px">Now open</p>${open.map((i) => `<p style="font-size:15px;margin:0 0 6px">${esc(line(i))}</p>`).join("")}` : ""}
+          ${open.length ? `<p style="font-size:14px;font-weight:bold;color:#281870;margin:12px 0 4px">Now open</p>${open.map((i) => `<p style="font-size:15px;margin:0 0 6px">${esc(line(i))}</p>`).join("")}` : ""}
           ${penalty ? `<p style="font-size:13px;color:#6B6880;margin:14px 0 0">${esc(penalty)}</p>` : ""}
-          <p style="margin:18px 0 0"><a href="${link}" style="background:#2A1971;color:#fff;padding:11px 20px;border-radius:9px;text-decoration:none;font-weight:bold;display:inline-block">Open my forms</a></p></div></div>`,
+          <p style="margin:18px 0 0"><a href="${link}" style="background:#281870;color:#fff;padding:11px 20px;border-radius:9px;text-decoration:none;font-weight:bold;display:inline-block">Open my forms</a></p></div></div>`,
         attachments: [{ filename: "dogwise.png", content: Buffer.from(BRAND_LOGO_PNG_BASE64, "base64"), contentType: "image/png", cid: "dogwise-logo" }]
       });
       // record every reminder this email covered ("due" implies "open" too, so they don't get both later)

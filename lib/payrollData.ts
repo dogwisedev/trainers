@@ -81,6 +81,7 @@ export async function buildDrafts(sb: SupabaseClient, submitDate: string) {
   const trips = ((tripRows || []) as unknown as (TripLike & { bookings: { client_name: string; dog_name: string | null } | null })[]).map((t) => ({ ...t, client: t.bookings?.client_name || "", dog: t.bookings?.dog_name || "" }));
   const rateOf = (id: string) => { const x = (rateRows || []).find((q) => q.trainer_id === id); return x ? { ...EMPTY_RATES, ...x, report_deduction: Number(x.report_deduction ?? 100) } as Rates : EMPTY_RATES; };
   let built = 0, skipped = 0, missingRates = 0, unchanged = 0;
+  const changedNames: string[] = [];
   type L = { booking_id: string | null; kind: string; auto: boolean; days?: number | null; amount: number | string; program?: string | null; client?: string | null; dog?: string | null };
   const sig = (l: L) => [l.kind, l.booking_id, l.days ?? "", Number(l.amount ?? 0).toFixed(2), l.program ?? "", l.client ?? "", l.dog ?? ""].join("|");
 
@@ -153,9 +154,9 @@ export async function buildDrafts(sb: SupabaseClient, submitDate: string) {
       if (error) throw new Error(error.message);
     }
     await recalc(sb, slipId!);
-    built++;
+    built++; changedNames.push(t.name);
   }
-  return { run, built, skipped, missingRates, unchanged };
+  return { run, built, skipped, missingRates, unchanged, changedNames };
 }
 
 export async function recalc(sb: SupabaseClient, slipId: string) {

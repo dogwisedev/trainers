@@ -15,12 +15,12 @@ export default async function PastDogs({ searchParams }: { searchParams: { q?: s
     <>
       <div className="mb-1 flex items-center gap-2">
         <Link prefetch={false} href="/t" className="grid h-10 w-10 place-items-center rounded-full hover:bg-mint-wash" aria-label="Back"><ChevronLeft /></Link>
-        <h1 className="text-[30px] font-extrabold">Past dogs</h1>
+        <h1 className="text-h1 font-extrabold">Past dogs</h1>
       </div>
       <p className="mb-4 text-ink-soft">Dogs you&apos;ve finished training, with their forms.</p>
       <ChatFilters base="/t/past" q={q} placeholder="Search dog or client" />
       {rows.length ? <BookingHistory rows={rows} role="trainer" showTrainer={false} /> : <Empty title={q ? "No dogs match." : "No finished trainings yet."} />}
-      {more && <p className="mt-3 text-center text-[13px] text-ink-soft">Showing the latest {rows.length}. Search to find older ones.</p>}
+      {more && <p className="mt-3 text-center text-small text-ink-soft">Showing the latest {rows.length}. Search to find older ones.</p>}
     </>
   );
 }

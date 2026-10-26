@@ -17,7 +17,7 @@ export default async function MySales({ searchParams }: { searchParams: { m?: st
   const data = ownerId ? await salesMonth(month, ownerId) : { sellers: [], total: 0, remaining: 0, count: 0 };
   return (
     <>
-      <h1 className="text-[32px] font-extrabold leading-tight">Hi {v.name.split(" ")[0]}</h1>
+      <h1 className="text-h1 font-extrabold leading-tight">Hi {v.name.split(" ")[0]}</h1>
       <p className="mt-1 text-ink-soft">Your sales: Closed Won deals by the month they were won.</p>
       <SalesView month={month} months={months} base="/s" {...data} admin={false} />
     </>

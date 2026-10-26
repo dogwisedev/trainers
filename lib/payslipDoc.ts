@@ -9,7 +9,7 @@ export type SlipData = {
 
 const esc = (s: unknown) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
 // Dogwise brand, from the logo: deep navy + violet, with soft lavender surfaces.
-export const NAVY = "#2A1971", VIOLET = "#6B4FE0", LAVENDER = "#F4F1FF", LINE = "#E7E3F3", MUTED = "#6B6880", ROSE = "#C2415D", INK = "#1C1734";
+export const NAVY = "#281870", VIOLET = "#6E4FE0", LAVENDER = "#F4F1FF", LINE = "#E7E3F3", MUTED = "#6B6880", ROSE = "#C2415D", INK = "#1C1734";
 
 /** First column of a line: weeks completed, extra days, deduction %, or blank. */
 export const lineLead = (l: SlipLine) => (l.kind === "deduction" ? (l.pct != null ? `${l.pct}%` : "") : l.days ? (l.days % 7 === 0 ? l.days / 7 : `${l.days} day${l.days === 1 ? "" : "s"}`) : l.weeks_completed ?? "");

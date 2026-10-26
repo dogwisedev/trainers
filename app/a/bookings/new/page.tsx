@@ -4,7 +4,7 @@ import { short, todayIso, weekStart, weeksFrom } from "@/lib/dates";
 import { BookingForm, TrainerOption } from "@/components/forms";
 
 export const maxDuration = 60; // booking saves, reads HubSpot, emails the trainer and makes the chat
-export default async function NewBooking({ searchParams }: { searchParams: { trainer?: string } }) {
+export default async function NewBooking({ searchParams }: { searchParams: { trainer?: string; deal?: string } }) {
   await requireRole("admin");
   const today = todayIso();
   const [trainers, bookings, off] = await Promise.all([listTrainers(), listBookings({ from: today }), listTimeOff({ from: today })]);
@@ -15,9 +15,9 @@ export default async function NewBooking({ searchParams }: { searchParams: { tra
   });
   return (
     <>
-      <h1 className="text-[30px] font-extrabold">Book a dog</h1>
-      <p className="mb-5 mt-1 text-ink-soft">The trainer sees it on their calendar straight away.</p>
-      <div className="panel p-4 md:p-6"><BookingForm trainers={opts} defaultTrainer={searchParams.trainer} /></div>
+      <h1 className="text-h1 font-extrabold">Book a dog</h1>
+      <p className="mb-5 mt-1 text-ink-soft">Start with the HubSpot deal. The trainer sees the booking straight away, and the client gets their chat link 7 days before training.</p>
+      <div className="panel p-4 md:p-6"><BookingForm trainers={opts} defaultTrainer={searchParams.trainer} defaultDeal={searchParams.deal && /^\d+$/.test(searchParams.deal) ? searchParams.deal : undefined} /></div>
     </>
   );
 }

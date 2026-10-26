@@ -12,19 +12,22 @@ p { text-wrap: pretty; }
 :focus-visible { outline: 2px solid #9878F8; outline-offset: 2px; }
 
 @layer components {
-  .field { @apply block w-full rounded-xl border border-line bg-white px-3.5 py-3 text-[16px] text-ink placeholder:text-ink-faint focus:border-lav focus:outline-none focus:ring-4 focus:ring-lav/15 md:text-[15px]; }
-  .label { @apply mb-1.5 block text-[13px] font-semibold text-ink-soft; }
-  .btn { @apply inline-flex min-h-[44px] select-none items-center justify-center gap-2 rounded-xl px-4 text-[15px] font-semibold transition-colors active:scale-[.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lav focus-visible:ring-offset-2 disabled:opacity-50; }
+  .field { @apply block w-full rounded-xl border border-line bg-white px-3.5 py-3 text-input text-ink placeholder:text-ink-faint focus:border-lav focus:outline-none focus:ring-4 focus:ring-lav/15 md:text-body; }
+  .label { @apply mb-1.5 block text-small font-semibold text-ink-soft; }
+  .btn { @apply inline-flex min-h-[44px] select-none items-center justify-center gap-2 rounded-xl px-4 text-body font-semibold transition-colors active:scale-[.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lav focus-visible:ring-offset-2 disabled:opacity-50; }
   .btn-ink { @apply btn bg-ink text-white shadow-[0_1px_0_rgba(255,255,255,.12)_inset,0_2px_6px_-2px_rgba(40,24,112,.45)] hover:bg-fern; }
-  .btn-mint { @apply btn bg-lav text-white hover:bg-lav-deep; }
+  .btn-mint { @apply btn bg-lav-deep text-white hover:bg-fern; }
   .btn-ghost { @apply btn border border-line bg-white text-ink hover:border-lav/50 hover:bg-paper; }
   .btn-danger { @apply btn border border-heart/30 bg-white text-heart hover:bg-heart-wash; }
   .panel { @apply rounded-[20px] border border-line bg-white shadow-card; }
-  .chip { @apply inline-flex items-center gap-1.5 rounded-full border border-line bg-white px-3 py-1.5 text-[13px] font-semibold text-ink-soft; }
+  .chip { @apply inline-flex items-center gap-1.5 rounded-full border border-line bg-white px-3 py-1.5 text-small font-semibold text-ink-soft; }
   .chip-on { @apply border-ink bg-ink text-white; }
-  .group-title { @apply mb-2.5 mt-7 flex items-center gap-2 px-1 text-[16px] font-bold text-ink; }
-  .count { @apply inline-grid h-[22px] min-w-[22px] place-items-center rounded-full bg-paper px-1.5 text-[12px] font-bold text-ink-soft; }
+  .group-title { @apply mb-2.5 mt-7 flex items-center gap-2 px-1 text-lead font-bold text-ink; }
+  .count { @apply inline-grid h-[22px] min-w-[22px] place-items-center rounded-full bg-paper px-1.5 text-caption font-bold text-ink-soft; }
+  .skeleton { @apply animate-shimmer rounded-xl bg-[linear-gradient(90deg,#EFEAF8_0%,#F8F5FD_40%,#EFEAF8_80%)] bg-[length:800px_100%]; }
   .kennel-blocked { background: repeating-linear-gradient(135deg, #FDE8EC 0 4px, #F7C4CE 4px 8px); }
 }
+
+@keyframes fadein { from { opacity: 0; } to { opacity: 1; } }
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }

@@ -5,7 +5,7 @@ import { ReportView } from "./reportDoc";
 
 // A4-ish US Letter report, any length: wraps text, breaks pages, clickable video links. Same look as the payslip.
 const hex = (h: string) => rgb(parseInt(h.slice(1, 3), 16) / 255, parseInt(h.slice(3, 5), 16) / 255, parseInt(h.slice(5, 7), 16) / 255);
-const NAVY = hex("#2A1971"), VIOLET = hex("#6B4FE0"), LAVENDER = hex("#F4F1FF"), LINE = hex("#E7E3F3"), MUTED = hex("#6B6880"), INK = hex("#1C1734");
+const NAVY = hex("#281870"), VIOLET = hex("#6E4FE0"), LAVENDER = hex("#F4F1FF"), LINE = hex("#E7E3F3"), MUTED = hex("#6B6880"), INK = hex("#1C1734");
 
 // Standard PDF fonts only cover Latin-1: swap curly quotes and dashes, drop anything else (emoji, other alphabets).
 export const pdfSafe = (t: string) => t

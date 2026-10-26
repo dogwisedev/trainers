@@ -1,5 +1,5 @@
 "use server";
-import { auditCall } from "@/lib/audit";
+import { audited } from "@/lib/audit";
 import { revalidatePath } from "next/cache";
 import { getViewer } from "@/lib/data";
 import { isDemo, serverClient, serviceClient } from "@/lib/supabase";
@@ -45,7 +45,7 @@ function cleanMedia(incoming: MediaItem[], existing: MediaItem[], bookingId: str
 async function adminNotify(subject: string, text: string, link: string) {
   const to = process.env.ADMIN_NOTIFY_EMAIL || process.env.PAYROLL_NOTIFY_EMAIL;
   if (!to || !mailConfigured()) return;
-  await sendMail({ to, subject, text: `${text}\n${link}`, html: `<p style="font-family:Arial,sans-serif;font-size:15px">${text}</p><p><a href="${link}" style="background:#2A1971;color:#fff;padding:10px 18px;border-radius:9px;text-decoration:none;font-weight:bold">Review it</a></p>` }).catch(() => {});
+  await sendMail({ to, subject, text: `${text}\n${link}`, html: `<p style="font-family:Arial,sans-serif;font-size:15px">${text}</p><p><a href="${link}" style="background:#281870;color:#fff;padding:10px 18px;border-radius:9px;text-decoration:none;font-weight:bold">Review it</a></p>` }).catch(() => {});
 }
 
 // ── Saving ────────────────────────────────────────────────────────────
@@ -65,7 +65,7 @@ export async function saveReportAction(id: string, answers: Answers, media: Medi
 }
 
 export async function submitReportAction(id: string, answers: Answers, media: MediaItem[]): Promise<ReportResult> {
-  await auditCall("submitReportAction", { id, answers, media });
+  return audited("submitReportAction", { id, answers, media }, async () => {
   if (isDemo()) return DEMO;
   try {
     const v = await who();
@@ -104,6 +104,7 @@ export async function submitReportAction(id: string, answers: Answers, media: Me
     revalidatePath("/", "layout");
     return { ok: true, message: (b.report.kind === "handover" ? "Submitted. The Dogwise team will review it and send it to the client." : "Submitted. Thank you.") + mediaNote };
   } catch (e) { return { ok: false, message: (e as Error).message }; }
+});
 }
 
 // ── Review ────────────────────────────────────────────────────────────
@@ -137,7 +138,7 @@ async function deliver(id: string, corrected: boolean): Promise<ReportResult> {
 }
 
 export async function approveReportAction(id: string, answers: Answers, media: MediaItem[]): Promise<ReportResult> {
-  await auditCall("approveReportAction", { id, answers, media });
+  return audited("approveReportAction", { id, answers, media }, async () => {
   if (isDemo()) return DEMO;
   try {
     const v = await who();
@@ -169,10 +170,11 @@ export async function approveReportAction(id: string, answers: Answers, media: M
     revalidatePath("/", "layout");
     return { ...sent, nextId: next?.[0]?.id || null };
   } catch (e) { return { ok: false, message: (e as Error).message }; }
+});
 }
 
 export async function sendBackAction(id: string, note: string): Promise<ReportResult> {
-  await auditCall("sendBackAction", { id, note });
+  return audited("sendBackAction", { id, note }, async () => {
   if (isDemo()) return DEMO;
   try {
     const v = await who();
@@ -187,25 +189,27 @@ export async function sendBackAction(id: string, note: string): Promise<ReportRe
       const link = `${site()}/t/reports/${id}`;
       await pushToTrainer(b.trainer.id, { title: `Changes needed: ${s(b.report.answers.dogName)}'s form`, body: s(note), url: `/t/reports/${id}`, tag: `report-${id}` });
       await sendMail({ to: b.trainer.email, subject: `Changes needed: ${s(b.report.answers.dogName)}'s report`, text: `${s(note)}\n\nFix it here: ${link}`,
-        html: `<p style="font-family:Arial,sans-serif;font-size:15px">Hi ${b.trainer.name.split(" ")[0]}, the team sent ${s(b.report.answers.dogName)}'s report back:</p><blockquote style="font-family:Arial,sans-serif;font-size:15px;border-left:4px solid #6B4FE0;margin:10px 0;padding:4px 14px;color:#333">${s(note).replace(/</g, "&lt;").replace(/\n/g, "<br>")}</blockquote><p><a href="${link}" style="background:#2A1971;color:#fff;padding:10px 18px;border-radius:9px;text-decoration:none;font-weight:bold">Open the report</a></p>` }).catch(() => {});
+        html: `<p style="font-family:Arial,sans-serif;font-size:15px">Hi ${b.trainer.name.split(" ")[0]}, the team sent ${s(b.report.answers.dogName)}'s report back:</p><blockquote style="font-family:Arial,sans-serif;font-size:15px;border-left:4px solid #6E4FE0;margin:10px 0;padding:4px 14px;color:#333">${s(note).replace(/</g, "&lt;").replace(/\n/g, "<br>")}</blockquote><p><a href="${link}" style="background:#281870;color:#fff;padding:10px 18px;border-radius:9px;text-decoration:none;font-weight:bold">Open the report</a></p>` }).catch(() => {});
     }
     const { data: next } = await sb.from("reports").select("id").eq("status", "submitted").neq("id", id).order("submitted_at", { ascending: true }).limit(1);
     revalidatePath("/", "layout");
     return { ok: true, message: "Sent back to the trainer.", nextId: next?.[0]?.id || null };
   } catch (e) { return { ok: false, message: (e as Error).message }; }
+});
 }
 
 export async function resendReportAction(id: string): Promise<ReportResult> {
-  await auditCall("resendReportAction", { id });
+  return audited("resendReportAction", { id }, async () => {
   if (isDemo()) return DEMO;
   try { if ((await who()).role !== "admin") return { ok: false, message: "Admins only." }; } catch (e) { return { ok: false, message: (e as Error).message }; }
   const r = await deliver(id, false);
   revalidatePath(`/a/reports/${id}`);
   return r.ok ? { ...r, message: r.message.replace("Approved and sent", "Sent again") } : r;
+});
 }
 
 export async function setReportsEnabledAction(bookingId: string, on: boolean): Promise<ReportResult> {
-  await auditCall("setReportsEnabledAction", { bookingId, on });
+  return audited("setReportsEnabledAction", { bookingId, on }, async () => {
   if (isDemo()) return DEMO;
   try {
     if ((await who()).role !== "admin") return { ok: false, message: "Admins only." };
@@ -213,13 +217,14 @@ export async function setReportsEnabledAction(bookingId: string, on: boolean): P
     revalidatePath("/", "layout");
     return error ? { ok: false, message: error.message } : { ok: true, message: on ? "Reports are on for this booking." : "Reports are off for this booking." };
   } catch (e) { return { ok: false, message: (e as Error).message }; }
+});
 }
 export type { Status, Kind };
 
 // ── Not needed (admin): a form made by mistake, or for days the dog wasn't in care ──
 /** Marks a form "not needed": it leaves every to-do list (admin and trainer), reminders and late counts. Works whether or not it was started. */
 export async function waiveReportAction(bookingId: string, kind: Kind, week: number, reportId?: string | null): Promise<ReportResult> {
-  await auditCall("waiveReportAction", { bookingId, kind, week, reportId });
+  return audited("waiveReportAction", { bookingId, kind, week, reportId }, async () => {
   if (isDemo()) return DEMO;
   try {
     const v = await who();
@@ -241,11 +246,12 @@ export async function waiveReportAction(bookingId: string, kind: Kind, week: num
     revalidatePath("/", "layout");
     return { ok: true, message: "Marked not needed. It's gone from the trainer's list too." };
   } catch (e) { return { ok: false, message: (e as Error).message }; }
+});
 }
 
 /** Undo "not needed": back to a draft the trainer can fill in. */
 export async function unwaiveReportAction(id: string): Promise<ReportResult> {
-  await auditCall("unwaiveReportAction", { id });
+  return audited("unwaiveReportAction", { id }, async () => {
   if (isDemo()) return DEMO;
   try {
     const v = await who();
@@ -254,6 +260,7 @@ export async function unwaiveReportAction(id: string): Promise<ReportResult> {
     revalidatePath("/", "layout");
     return error ? { ok: false, message: error.message } : { ok: true, message: "Back on the trainer's list." };
   } catch (e) { return { ok: false, message: (e as Error).message }; }
+});
 }
 
 // ── Choose photos and videos from the dog's chat (nothing is uploaded again: it's all in Drive already) ──
@@ -309,7 +316,7 @@ const esc = (x: string) => String(x || "").replace(/[&<>"]/g, (c) => ({ "&": "&a
 
 /** Admin: email ME the handover report + certificate exactly as the client would get them. Changes nothing, emails nobody else. */
 export async function sendHandoverTestAction(id: string): Promise<ReportResult> {
-  await auditCall("sendHandoverTestAction", { id });
+  return audited("sendHandoverTestAction", { id }, async () => {
   if (isDemo()) return DEMO;
   const v = await who();
   if (v.role !== "admin" || !v.email) return { ok: false, message: "Admins only." };
@@ -317,4 +324,5 @@ export async function sendHandoverTestAction(id: string): Promise<ReportResult> 
   if (!b || b.report.kind !== "handover") return { ok: false, message: "Only handover reports have a test copy." };
   try { return await deliverHandover(id, b, v.email, false, true); }
   catch (e) { return { ok: false, message: `Couldn't send the test: ${(e as Error).message}` }; }
+});
 }

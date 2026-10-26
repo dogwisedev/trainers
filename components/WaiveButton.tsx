@@ -19,8 +19,8 @@ export function WaiveButton({ bookingId, kind, week, reportId, undo, after, clas
   };
   return (
     <span className="inline-flex items-center gap-2">
-      <button type="button" disabled={pending} onClick={click} className={className || "btn-ghost h-9 min-h-0 whitespace-nowrap px-3 text-[13px]"}>{pending ? "…" : undo ? "Bring it back" : "Not needed"}</button>
-      {msg && <span role="alert" className="text-[12px] text-heart">{msg}</span>}
+      <button type="button" disabled={pending} onClick={click} className={className || "btn-ghost h-9 min-h-0 whitespace-nowrap px-3 text-small"}>{pending ? "…" : undo ? "Bring it back" : "Not needed"}</button>
+      {msg && <span role="alert" className="text-caption text-heart">{msg}</span>}
     </span>
   );
 }

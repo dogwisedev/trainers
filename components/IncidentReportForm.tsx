@@ -11,7 +11,7 @@ function Send() {
 }
 const YesNo = ({ name, label, onChange }: { name: string; label: string; onChange?: (v: string) => void }) => (
   <fieldset><legend className="label">{label}</legend>
-    <div className="flex gap-2">{["yes", "no"].map((v) => <label key={v} className="flex items-center gap-1.5 rounded-full border border-line bg-white px-3.5 py-1.5 text-[14px] has-[:checked]:border-ink has-[:checked]:bg-mint"><input type="radio" name={name} value={v} required onChange={() => onChange?.(v)} />{v === "yes" ? "Yes" : "No"}</label>)}</div>
+    <div className="flex gap-2">{["yes", "no"].map((v) => <label key={v} className="flex items-center gap-1.5 rounded-full border border-line bg-white px-3.5 py-1.5 text-body has-[:checked]:border-ink has-[:checked]:bg-mint"><input type="radio" name={name} value={v} required onChange={() => onChange?.(v)} />{v === "yes" ? "Yes" : "No"}</label>)}</div>
   </fieldset>
 );
 
@@ -35,9 +35,9 @@ export function IncidentReportForm({ chatId, dogs, now, back }: { chatId: string
       <YesNo name="vet" label="Did the dog see a vet (or need to)?" onChange={setVet} />
       {vet === "yes" && <label className="block"><span className="label">Vet details</span><input name="vet_details" className="field" required placeholder="Clinic, what they said, cost if known" /></label>}
       <YesNo name="client_told" label="Has the client been told?" />
-      <p className="rounded-xl bg-paper p-3 text-[13px] text-ink-soft">Post any photos or videos in the dog&apos;s chat. If it&apos;s an emergency, call the office as well.</p>
+      <p className="rounded-xl bg-paper p-3 text-small text-ink-soft">Post any photos or videos in the dog&apos;s chat. If it&apos;s an emergency, call the office as well.</p>
       <Send />
-      {r && !r.ok && <p role="alert" className="rounded-xl bg-heart-wash px-3 py-2 text-[14px] text-heart">{r.message}</p>}
+      {r && !r.ok && <p role="alert" className="rounded-xl bg-heart-wash px-3 py-2 text-body text-heart">{r.message}</p>}
     </form>
   );
 }

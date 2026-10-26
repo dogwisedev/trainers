@@ -19,7 +19,7 @@ export default async function ReportIncident({ params }: { params: { id: string 
     <>
       <div className="mb-4 flex items-center gap-3">
         <Link prefetch={false} href={`/t/chats/${chat.id}`} className="grid h-10 w-10 place-items-center rounded-full hover:bg-mint-wash" aria-label="Back to the chat"><ChevronLeft /></Link>
-        <div className="min-w-0"><h1 className="truncate text-[24px] font-extrabold leading-tight">Report an incident</h1><p className="truncate text-[14px] text-ink-soft">{chat.title || "Dog"}, {chat.client_name}</p></div>
+        <div className="min-w-0"><h1 className="truncate text-h2 font-extrabold leading-tight">Report an incident</h1><p className="truncate text-body text-ink-soft">{chat.title || "Dog"}, {chat.client_name}</p></div>
       </div>
       <IncidentReportForm chatId={chat.id} dogs={dogs} now={now} back={`/t/chats/${chat.id}`} />
     </>

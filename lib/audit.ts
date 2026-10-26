@@ -21,7 +21,9 @@ const LABEL: Record<string, string> = {
   saveProfileAction: "Edited before-training answers", reviewVaccinesAction: "Checked vaccines", setClearedAction: "Changed 'OK to start'", setSlotAction: "Changed which dog is which on a deal",
   signInPassword: "Signed in with their password", signInFailed: "Tried to sign in: wrong email or password", signInLinkSent: "Asked for a sign-in link by email",
   signInLinkUsed: "Signed in with an email link", pushOn: "Turned notifications on", pushOff: "Turned notifications off", pushTest: "Sent themselves a test notification",
-  bookingApi: "Booked a dog from the HubSpot extension",
+  bookingApi: "Booked a dog from the HubSpot extension", signInCodeSent: "Asked for a sign-in code by email", signInCode: "Signed in with an email code",
+  signInCodeFailed: "Tried a sign-in code: wrong or expired", uploadFailed: "Upload failed", uploadWarning: "Upload warning", setDisplayNameAction: "Changed their name",
+  dismissDealAction: "Dismissed a 'Closed Won, not booked' deal", dealPrefillAction: "Looked up a HubSpot deal to book", payslipDraftsRefreshed: "Opened Payslips: drafts updated from bookings", screenError: "Saw an error screen",
   addVaccineFileAction: "Uploaded a vaccine record", linkDealAction: "Linked a booking to a HubSpot deal", saveGustoPayeesAction: "Updated the Gusto people list", setGustoCodeAction: "Linked a trainer to Gusto", markGustoPaidAction: "Marked a pay run paid in Gusto", saveGustoCodesAction: "Saved Gusto payroll numbers", inviteSalesAction: "Sent a sales login", importSalesAction: "Imported sales from the Monies sheet", reportIncidentAction: "Reported an incident"
 };
 
@@ -52,20 +54,71 @@ async function context(args: Record<string, unknown>): Promise<{ about: string; 
   return { about: "", link: null };
 }
 
-export async function auditCall(action: string, args: Record<string, unknown> = {}, who?: { name: string; role: string; userId?: string | null }) {
+type Who = { name: string; role: string; userId?: string | null };
+type Prepared = { user_id: string | null; who: string; role: string | null; action: string; detail: string | null; link: string | null };
+
+/** Works out who, what and "before" (runs before the action, so summaries compare with how things were). */
+async function prepare(action: string, args: Record<string, unknown>, who?: Who): Promise<Prepared> {
+  const v = who ? null : await getViewer();
+  const person = who || (v ? { name: v.name, role: v.role, userId: v.userId } : null);
+  const c = await context(args);
+  const email = v?.email || "";
+  const whoText = person?.name ? (email && !person.name.includes("@") && person.name.toLowerCase() !== email ? `${person.name} (${email})` : person.name) : "";
+  const special = await summarize(action, args).catch(() => null);
+  return {
+    user_id: person?.userId || null, who: whoText || "Someone (not signed in)", role: person?.role || null,
+    action: LABEL[action] || action, detail: (special || [c.about, describe(args)].filter(Boolean).join(" · ")).slice(0, 1000) || null, link: special ? null : c.link
+  };
+}
+
+/** Saves one log line. Works before and after migration 032 (the ok/error columns). */
+async function write(row: Prepared, ok: boolean | null, error: string | null = null) {
+  const sb = serviceClient();
+  const { error: e } = await sb.from("audit_log").insert({ ...row, ok, error: error ? error.slice(0, 500) : null });
+  if (e && /column|schema cache/i.test(e.message)) await sb.from("audit_log").insert({ ...row, detail: [row.detail, ok === false ? `FAILED: ${error || ""}` : ""].filter(Boolean).join(" · ") || null });
+}
+
+/** A note in the log (sign-ins, notifications). Never throws. */
+export async function auditCall(action: string, args: Record<string, unknown> = {}, who?: Who, outcome?: { ok: boolean; error?: string | null }) {
+  if (isDemo()) return;
+  try { await write(await prepare(action, args, who), outcome ? outcome.ok : null, outcome?.error || null); }
+  catch { /* the log must never stop the action */ }
+}
+
+const isNav = (e: unknown, kind: string) => typeof (e as { digest?: unknown })?.digest === "string" && ((e as { digest: string }).digest).startsWith(kind);
+/** What an action's result says: { ok: false, message } = failed or refused. Anything else = done. */
+function outcomeOf(r: unknown): { ok: boolean; error: string | null } {
+  if (r && typeof r === "object" && "ok" in r && typeof (r as { ok: unknown }).ok === "boolean") {
+    const x = r as { ok: boolean; message?: unknown };
+    return { ok: x.ok, error: x.ok ? null : String(x.message || "Refused") };
+  }
+  return { ok: true, error: null };
+}
+
+/** Runs a server action and logs it AFTER it finishes: who, what, and whether it worked (with the reason if it didn't). */
+export async function audited<T>(action: string, args: Record<string, unknown>, run: () => Promise<T>, who?: Who): Promise<T> {
+  if (isDemo()) return run();
+  let row: Prepared | null = null;
+  try { row = await prepare(action, args, who); } catch { /* still run the action */ }
+  try {
+    const r = await run();
+    if (row) { const o = outcomeOf(r); await write(row, o.ok, o.error).catch(() => {}); }
+    return r;
+  } catch (e) {
+    if (row) {
+      if (isNav(e, "NEXT_REDIRECT")) await write(row, true).catch(() => {});                 // redirect() = it worked and moved on
+      else await write(row, false, isNav(e, "NEXT_NOT_FOUND") ? "Not found" : (e as Error)?.message || "Error").catch(() => {});
+    }
+    throw e;
+  }
+}
+
+/** Something the app did by itself (HubSpot sync, crons, auto-invites). Never throws. */
+export async function auditSystem(action: string, detail: string, opts: { link?: string | null; ok?: boolean; error?: string | null } = {}) {
   if (isDemo()) return;
   try {
-    const v = who ? null : await getViewer();
-    const person = who || (v ? { name: v.name, role: v.role, userId: v.userId } : null);
-    const c = await context(args);
-    const email = v?.email || "";
-    const whoText = person?.name ? (email && !person.name.includes("@") && person.name.toLowerCase() !== email ? `${person.name} (${email})` : person.name) : "";
-    const special = await summarize(action, args).catch(() => null);
-    await serviceClient().from("audit_log").insert({
-      user_id: person?.userId || null, who: whoText || "Someone (not signed in)", role: person?.role || null,
-      action: LABEL[action] || action, detail: (special || [c.about, describe(args)].filter(Boolean).join(" · ")).slice(0, 1000) || null, link: special ? null : c.link
-    });
-  } catch { /* the log must never stop the action */ }
+    await write({ user_id: null, who: "System", role: "system", action, detail: detail.slice(0, 1000) || null, link: opts.link || null }, opts.ok ?? true, opts.error || null);
+  } catch { /* never stop the job */ }
 }
 
 // ── Plain-words summaries for the actions people most need to check ──

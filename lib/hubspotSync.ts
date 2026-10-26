@@ -9,6 +9,7 @@ import { endOfDay, expectedReports, BookingForReports, Kind } from "./reports";
 import { raiseIncident, resolveIncidents } from "./incidents";
 import { SyncMode, dealDateProps, hsDate, hubspotConfigured, readDeals, stageLabel, syncMode } from "./hubspot";
 import { PlanIn, planDeal } from "./hubspotDates";
+import { auditSystem } from "./audit";
 
 // HubSpot is the source of truth for booking dates. Runs on a Vercel cron (vercel.json) and right after a booking is made.
 //  dry   : reads HubSpot, writes nothing, returns what it would change (the default until HUBSPOT_SYNC is set)
@@ -75,7 +76,7 @@ export async function syncHubspotDates(opts: { mode?: SyncMode; dealIds?: string
         if (write && await raiseIncident({
           kind: "booking_cancelled", title: label(list), office: true, ref: `deal:${dealId}`, chatId: chatOf.get(dealId), bookingId: list[0].id, link: dealUrl(dealId),
           detail: `The HubSpot deal for ${label(list)} moved to "${stage}" but the booking is still live in the app (${list.map((b) => `${b.dog_name || "dog"} ${short(b.start_date)} to ${short(b.end_date)}`).join(", ")}). Cancel or fix the booking, and the trainer's pay.`
-        }, sb)) out.incidents.push(`Training cancelled: ${label(list)}`);
+        }, sb)) { out.incidents.push(`Training cancelled: ${label(list)}`); await auditSystem("Flagged a deal that's no longer Closed Won", `${label(list)}: the HubSpot deal moved to "${stage}" but the booking is still live.`, { link: dealUrl(dealId), ok: false, error: "Needs a person: cancel or fix the booking and the trainer's pay" }); }
         continue;
       }
       const hsStart = hsDate(p[props.start.name]), hsEnd = props.end ? hsDate(p[props.end.name]) : null;
@@ -101,6 +102,7 @@ export async function syncHubspotDates(opts: { mode?: SyncMode; dealIds?: string
     const { error: e } = await sb.from("bookings").update({ start_date: a.start, end_date: a.end, extra_days: a.extra, hubspot_synced_at: now }).eq("id", a.row.id);
     if (e) { out.errors.push(`${a.row.dog_name || a.row.id}: ${e.message}`); continue; }
     done.push(a);
+    await auditSystem("Moved booking dates to match HubSpot", `${a.row.dog_name || "Dog"} (${a.row.client_name}, ${a.row.trainers?.name || "no trainer"}): ${short(a.row.start_date)} to ${short(a.row.end_date)} → ${short(a.start)} to ${short(a.end)}${a.oldDays !== a.newDays ? ` (${a.oldDays} → ${a.newDays} days)` : ""}.`, { link: `/a/dogs/${a.row.id}` });
     await moveReportDeadlines(sb, { ...a.row, start_date: a.start, end_date: a.end }).catch((err) => out.errors.push(`reports ${a.row.id}: ${(err as Error).message}`));
   }
   const untouched = checked.filter((id) => !applied.some((a) => a.row.id === id));

@@ -14,7 +14,7 @@ export default async function PayRuns() {
   return (
     <>
       <Link prefetch={false} href="/a/trainers?view=pay" className="mb-3 inline-flex items-center gap-1 font-semibold"><ChevronLeft size={18} />Current payslips</Link>
-      <h1 className="text-[30px] font-extrabold">Past pay runs</h1>
+      <h1 className="text-h1 font-extrabold">Past pay runs</h1>
       <p className="mb-5 mt-1 text-ink-soft">A pay run moves here once every payslip in it is approved.</p>
       {runs.length ? (
         <ul className="panel divide-y divide-line">
@@ -23,7 +23,7 @@ export default async function PayRuns() {
               <Link prefetch={false} href={`/a/trainers?view=pay&run=${r.submit_date}`} className="flex items-center gap-3 p-4 hover:bg-mint-wash">
                 <div className="min-w-0 flex-1">
                   <p className="font-bold">{periodLabel(r.period_start, r.period_end)}</p>
-                  <p className="text-[13px] text-ink-soft">Paid {usDate(r.paid_date)}, {r.approved} of {r.count} approved</p>
+                  <p className="text-small text-ink-soft">Paid {usDate(r.paid_date)}, {r.approved} of {r.count} approved</p>
                 </div>
                 <p className="font-extrabold">{money(r.total)}</p>
                 <ChevronRight size={18} className="text-ink-faint" />

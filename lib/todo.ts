@@ -5,6 +5,7 @@ import { etParts, INCIDENT_LABEL, IncidentKind } from "./chatRules";
 import { BookingForReports, Kind, RowLike, Todo, kindName, todos } from "./reports";
 import { trainerSignins } from "./trainerSignin";
 import { dealKey } from "./chatTypes";
+import { cronProblems } from "./cronHealth";
 
 // The admin "To do" list: everything that needs a person, in one place, most urgent first.
 // Sources: open incidents (chats, forms, bookings, HubSpot, before training), forms sent in for review,
@@ -16,7 +17,7 @@ export type TodoIcon = "chat" | "vaccine" | "form" | "money" | "alert" | "dog" |
 export type TodoItem = {
   key: string; group: TodoGroup; tone: "heart" | "biscuit" | "line"; icon?: TodoIcon; text: string; detail?: string; since?: string;
   primary?: { label: string; href: string; external?: boolean };
-  dogHref?: string; hubspot?: string; incidentId?: string;
+  dogHref?: string; hubspot?: string; incidentId?: string; doneLabel?: string;
 };
 export type TodoData = { items: TodoItem[]; late: (Todo & { trainerName: string })[] };
 
@@ -24,7 +25,7 @@ export const hubspotDeal = (id: string | null | undefined) => (id && /^\d+$/.tes
 export const dogPage = (bookingId: string, tab?: string, hash?: string) => `/a/dogs/${bookingId}${tab ? `?tab=${tab}` : ""}${hash ? `#${hash}` : ""}`;
 
 type Inc = {
-  id: string; kind: IncidentKind; status: string; detail: string | null; opened_at: string; chat_id: string | null; booking_id: string | null; report_id: string | null;
+  id: string; kind: IncidentKind; status: string; detail: string | null; opened_at: string; chat_id: string | null; booking_id: string | null; report_id: string | null; ref: string | null;
   chat: { id: string; title: string | null; client_name: string | null; trainer_name: string | null; deal_key: string } | null;
   booking: { id: string; dog_name: string | null; client_name: string; start_date: string; hubspot_deal_id: string | null; trainer_id: string; trainers: { name: string } | null } | null;
 };
@@ -36,7 +37,7 @@ export async function buildTodo(): Promise<TodoData> {
   if (isDemo()) return { items: [], late: [] };
   const sb = serviceClient(), today = etParts(new Date()).date;
   const [{ data: incs }, { data: reps }, { data: msgs }, { data: trainers }, signins, { data: bks }] = await Promise.all([
-    sb.from("chat_incidents").select("id, kind, status, detail, opened_at, chat_id, booking_id, report_id, chat:chats(id, title, client_name, trainer_name, deal_key), booking:bookings!booking_id(id, dog_name, client_name, start_date, hubspot_deal_id, trainer_id, trainers(name))").neq("status", "resolved").order("opened_at"),
+    sb.from("chat_incidents").select("id, kind, status, detail, opened_at, chat_id, booking_id, report_id, ref, chat:chats(id, title, client_name, trainer_name, deal_key), booking:bookings!booking_id(id, dog_name, client_name, start_date, hubspot_deal_id, trainer_id, trainers(name))").neq("status", "resolved").order("opened_at"),
     sb.from("reports").select("id, kind, week_number, booking_id, submitted_at, trainers(name), booking:bookings!booking_id(dog_name, client_name, hubspot_deal_id)").eq("status", "submitted").order("submitted_at"),
     sb.from("messages").select("trainer_id, created_at, body").eq("sender_role", "trainer").is("read_at", null).order("created_at"),
     sb.from("trainers").select("id, name, data_flags, active, probation"),
@@ -78,6 +79,12 @@ export async function buildTodo(): Promise<TodoData> {
       case "hubspot_problem": add({ group: "week", tone: "biscuit", text: `Check ${dog}'s HubSpot deal`, primary: deal ? { label: "HubSpot deal", href: deal, external: true } : dogHref ? { label: "Open dog", href: dogHref } : undefined }); break;
       case "not_ready": add({ group: startsSoon ? "now" : "week", tone: "heart", detail: (i.detail || "").replace(/^.*?isn't ready:\s*/, "Missing: ").replace(/\.$/, "") || undefined, text: `${dog} starts ${i.booking ? short(i.booking.start_date) : "soon"} and isn't ready`, primary: bookingId ? { label: "See what's missing", href: dogPage(bookingId, "before") } : chat }); break;
       case "trainer_report": add({ group: "now", tone: "heart", text: `${trainer} reported an incident with ${dog}`, primary: bookingId ? { label: "Read the report", href: dogPage(bookingId, undefined, "incident-reports") } : chat }); break;
+      case "deal_not_booked": {
+        const dealId = (i.ref || "").replace(/^deal:/, "");
+        add({ group: "now", tone: "biscuit", text: "Closed Won in HubSpot, not booked yet", detail: (i.detail || "").replace(/: Closed Won.*$/, "") || undefined,
+          hubspot: hubspotDeal(dealId), primary: /^\d+$/.test(dealId) ? { label: "Book now", href: `/a/bookings/new?deal=${dealId}` } : undefined, doneLabel: "Not a booking" });
+        break;
+      }
       case "check_vaccines": add({ group: "now", tone: "biscuit", text: `${dog}'s vaccine records came in`, primary: bookingId ? { label: "Check vaccines", href: dogPage(bookingId, "before", "vaccines") } : chat }); break;
       default: add({ group: NOW_KINDS.includes(i.kind) ? "now" : "week", tone: "biscuit", text: `${INCIDENT_LABEL[i.kind] || i.kind}: ${dog}`, primary: chat || (dogHref ? { label: "Open dog", href: dogHref } : undefined) });
     }
@@ -118,6 +125,13 @@ export async function buildTodo(): Promise<TodoData> {
   if (notIn.length) items.push({
     key: "signin", group: "later", tone: "line", icon: "people", text: `${notIn.length} trainer${notIn.length > 1 ? "s haven't" : " hasn't"} signed in yet`,
     detail: notIn.slice(0, 6).map((s) => s.name).join(", ") + (notIn.length > 6 ? "…" : ""), primary: { label: "Email them", href: "/a/trainers#signin" }
+  });
+
+  // ── Background jobs that stopped running (alerts, emails and syncs depend on them) ──
+  for (const c of await cronProblems().catch(() => [])) items.push({
+    key: `cron:${c.name}`, group: "now", tone: "heart", icon: "alert",
+    text: c.lastAt ? `Background job stopped: ${c.label}` : `Background job hasn't run yet: ${c.label}`,
+    detail: `${c.lastAt ? `Last ran ${new Date(c.lastAt).toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })} ET.` : ""}${c.error ? ` Error: ${c.error}` : ""} Check Vercel → Crons and the function logs.`.trim()
   });
 
   // ── Late forms (shown as one group on the page) ──

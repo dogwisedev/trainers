@@ -6,7 +6,7 @@ import { money, periodLabel, usDate } from "./payroll";
 
 // US Letter payslip in the Dogwise style (navy + violet, lavender panels). Same content as the email.
 const hex = (h: string) => rgb(parseInt(h.slice(1, 3), 16) / 255, parseInt(h.slice(3, 5), 16) / 255, parseInt(h.slice(5, 7), 16) / 255);
-const NAVY = hex("#2A1971"), VIOLET = hex("#6B4FE0"), LAVENDER = hex("#F4F1FF"), LINE = hex("#E7E3F3"), MUTED = hex("#6B6880"), ROSE = hex("#C2415D"), INK = hex("#1C1734"), ROSEWASH = hex("#FCE8EC"), FOOT = hex("#FAF9FD"), SOFT = hex("#CFC6FF");
+const NAVY = hex("#281870"), VIOLET = hex("#6E4FE0"), LAVENDER = hex("#F4F1FF"), LINE = hex("#E7E3F3"), MUTED = hex("#6B6880"), ROSE = hex("#C2415D"), INK = hex("#1C1734"), ROSEWASH = hex("#FCE8EC"), FOOT = hex("#FAF9FD"), SOFT = hex("#CFC6FF");
 
 function roundRect(page: PDFPage, x: number, y: number, w: number, h: number, r: number, color: ReturnType<typeof rgb>) {
   const k = 0.5523 * r;

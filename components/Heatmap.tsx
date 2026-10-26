@@ -14,7 +14,7 @@ export function Heatmap({ rows, weeks }: { rows: { t: Trainer; use: WeekUse[] }[
   return (
     <div className="panel overflow-hidden">
       <div className="max-h-[70dvh] overflow-auto">
-        <table className="w-full border-separate border-spacing-0 text-[13px]">
+        <table className="w-full border-separate border-spacing-0 text-small">
           <thead className="sticky top-0 z-10 bg-white">
             <tr>
               <th className="sticky left-0 z-10 bg-white px-3 py-2.5 text-left font-semibold">Trainer</th>
@@ -26,7 +26,7 @@ export function Heatmap({ rows, weeks }: { rows: { t: Trainer; use: WeekUse[] }[
               <tr key={t.id}>
                 <th scope="row" className="sticky left-0 z-[1] max-w-[150px] border-t border-line bg-white px-3 py-1.5 text-left font-medium">
                   <Link prefetch={false} href={`/a/trainers/${t.id}`} className="block truncate hover:underline">{t.name}</Link>
-                  <span className="block text-[11px] font-normal text-ink-faint">{t.state}, {t.capacity} dogs</span>
+                  <span className="block text-micro font-normal text-ink-faint">{t.state}, {t.capacity} dogs</span>
                 </th>
                 {use.map((w) => (
                   <td key={w.week} className="border-t border-line p-[3px]">
@@ -40,7 +40,7 @@ export function Heatmap({ rows, weeks }: { rows: { t: Trainer; use: WeekUse[] }[
           </tbody>
         </table>
       </div>
-      <div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-line px-3 py-2.5 text-[12px] text-ink-soft">
+      <div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-line px-3 py-2.5 text-caption text-ink-soft">
         <span className="inline-flex items-center gap-1.5"><span className="h-3 w-3 rounded bg-mint" />Plenty free</span>
         <span className="inline-flex items-center gap-1.5"><span className="h-3 w-3 rounded bg-mint-deep" />Nearly full</span>
         <span className="inline-flex items-center gap-1.5"><span className="h-3 w-3 rounded bg-ink" />Full</span>

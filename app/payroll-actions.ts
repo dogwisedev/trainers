@@ -1,5 +1,5 @@
 "use server";
-import { auditCall } from "@/lib/audit";
+import { audited } from "@/lib/audit";
 import { revalidatePath } from "next/cache";
 import { getViewer } from "@/lib/data";
 import { isDemo, serverClient, serviceClient } from "@/lib/supabase";
@@ -61,11 +61,12 @@ async function saveDraft(id: string, edit: { lines: EditLine[]; adjustments: num
 }
 
 export async function savePayslipAction(id: string, edit: { lines: EditLine[]; adjustments: number; notes: string }): Promise<Result> {
-  await auditCall("savePayslipAction", { id, edit });
+  return audited("savePayslipAction", { id, edit }, async () => {
   if (isDemo()) return DEMO;
   await admin();
   try { await saveDraft(id, edit); revalidatePath(`/a/payroll/${id}`); return { ok: true, message: "Draft saved." }; }
   catch (e) { return { ok: false, message: (e as Error).message }; }
+});
 }
 
 async function email(id: string, opts: { correctedFrom?: string | null } = {}): Promise<Result> {
@@ -100,7 +101,7 @@ async function email(id: string, opts: { correctedFrom?: string | null } = {}): 
 }
 
 export async function approveAndSendAction(id: string, edit: { lines: EditLine[]; adjustments: number; notes: string }): Promise<Result> {
-  await auditCall("approveAndSendAction", { id, edit });
+  return audited("approveAndSendAction", { id, edit }, async () => {
   if (isDemo()) return DEMO;
   const v = await admin();
   try {
@@ -113,11 +114,12 @@ export async function approveAndSendAction(id: string, edit: { lines: EditLine[]
   const r = await email(id);
   revalidatePath("/a/payroll"); revalidatePath(`/a/payroll/${id}`);
   return r;
+});
 }
 
 /** Approve the saved draft as it is (from the list) and email it. */
 export async function approveAction(id: string): Promise<Result> {
-  await auditCall("approveAction", { id });
+  return audited("approveAction", { id }, async () => {
   if (isDemo()) return DEMO;
   const v = await admin();
   const sb = serverClient();
@@ -131,6 +133,7 @@ export async function approveAction(id: string): Promise<Result> {
   const r = await email(id);
   revalidatePath("/a/trainers");
   return r;
+});
 }
 
 export async function approveManyAction(ids: string[]): Promise<{ ok: boolean; message: string; results: Record<string, Result> }> {
@@ -144,7 +147,7 @@ export async function approveManyAction(ids: string[]): Promise<{ ok: boolean; m
 
 /** Fix an approved payslip and email the corrected version. It stays approved, so the trainer always sees a payslip. */
 export async function correctAndResendAction(id: string, edit: { lines: EditLine[]; adjustments: number; notes: string }): Promise<Result> {
-  await auditCall("correctAndResendAction", { id, edit });
+  return audited("correctAndResendAction", { id, edit }, async () => {
   if (isDemo()) return DEMO;
   const v = await admin();
   const sb = serverClient();
@@ -157,28 +160,31 @@ export async function correctAndResendAction(id: string, edit: { lines: EditLine
   const r = await email(id, { correctedFrom: before.sent_at });
   revalidatePath("/a/trainers"); revalidatePath(`/a/payroll/${id}`);
   return r;
+});
 }
 
 export async function resendAction(id: string): Promise<Result> {
-  await auditCall("resendAction", { id });
+  return audited("resendAction", { id }, async () => {
   if (isDemo()) return DEMO;
   await admin();
   const r = await email(id);
   revalidatePath(`/a/payroll/${id}`);
   return r.ok ? { ok: true, message: r.message.replace("Approved and sent", "Sent again") } : r;
+});
 }
 
 export async function reopenAction(id: string): Promise<Result> {
-  await auditCall("reopenAction", { id });
+  return audited("reopenAction", { id }, async () => {
   if (isDemo()) return DEMO;
   await admin();
   const { error } = await serverClient().from("payslips").update({ status: "draft" }).eq("id", id);
   revalidatePath(`/a/payroll/${id}`); revalidatePath("/a/payroll");
   return error ? { ok: false, message: error.message } : { ok: true, message: "Reopened. The trainer can't see it until you approve it again." };
+});
 }
 
 export async function saveRatesAction(_: Result | null, f: FormData): Promise<Result> {
-  await auditCall("saveRatesAction", { f });
+  return audited("saveRatesAction", { f }, async () => {
   if (isDemo()) return DEMO;
   await admin();
   const trainer_id = String(f.get("trainer_id") || "");
@@ -197,11 +203,12 @@ export async function saveRatesAction(_: Result | null, f: FormData): Promise<Re
   const { error } = await serverClient().from("trainer_rates").upsert(row, { onConflict: "trainer_id" });
   revalidatePath(`/a/trainers/${trainer_id}`);
   return error ? { ok: false, message: error.message } : { ok: true, message: "Pay rates saved. Rebuild drafts to apply them." };
+});
 }
 
 /** Approve WITHOUT emailing the trainer (e.g. a past pay run that was already sent another way). Saves the editor's changes first if given. */
 export async function approveQuietAction(id: string, edit?: { lines: EditLine[]; adjustments: number; notes: string }): Promise<Result> {
-  await auditCall("approveQuietAction", { id });
+  return audited("approveQuietAction", { id }, async () => {
   if (isDemo()) return DEMO;
   const v = await admin();
   const sb = serverClient();
@@ -213,6 +220,7 @@ export async function approveQuietAction(id: string, edit?: { lines: EditLine[];
   const { error } = await sb.from("payslips").update({ status: "approved", approved_by: v.userId, approved_by_name: v.name, approved_at: new Date().toISOString(), trainer_name: t?.name, trainer_address: t?.address, hand_edited: true, send_error: null }).eq("id", id);
   revalidatePath("/a/trainers");
   return error ? { ok: false, message: error.message } : { ok: true, message: "Approved and archived. Not emailed to the trainer." };
+});
 }
 export async function approveManyQuietAction(ids: string[]): Promise<Result> {
   let n = 0; const bad: string[] = [];
@@ -222,27 +230,29 @@ export async function approveManyQuietAction(ids: string[]): Promise<Result> {
 
 /** Admin: the pay run was entered and submitted in Gusto. */
 export async function markGustoPaidAction(submitDate: string): Promise<Result> {
-  await auditCall("markGustoPaidAction", { run: submitDate });
+  return audited("markGustoPaidAction", { run: submitDate }, async () => {
   if (isDemo()) return DEMO;
   const v = await admin();
   const { error } = await serviceClient().from("pay_runs").update({ gusto_paid_at: new Date().toISOString(), gusto_paid_by: v.name }).eq("submit_date", submitDate);
   revalidatePath("/a/trainers");
   return error ? { ok: false, message: error.message } : { ok: true, message: "Marked as paid in Gusto." };
+});
 }
 
 /** Admin: remember each trainer's Gusto worker code (from the Gusto template), so next time it fills in by itself. */
 export async function saveGustoCodesAction(codes: { trainerId: string; code: string }[]): Promise<Result> {
-  await auditCall("saveGustoCodesAction", { count: codes.length });
+  return audited("saveGustoCodesAction", { count: codes.length }, async () => {
   if (isDemo()) return DEMO;
   await admin();
   const sb = serviceClient();
   for (const c of codes.slice(0, 300)) if (/^[A-Za-z0-9]{3,20}$/.test(c.code)) await sb.from("trainers").update({ gusto_code: c.code }).eq("id", c.trainerId);
   return { ok: true, message: "Saved." };
+});
 }
 
 /** Admin: save Gusto's people (from the contractor pay template). Names and worker codes only: SSN/EIN digits are never sent here. */
 export async function saveGustoPayeesAction(rows: { code: string; first: string; last: string; business: string }[]): Promise<Result> {
-  await auditCall("saveGustoPayeesAction", { count: rows.length });
+  return audited("saveGustoPayeesAction", { count: rows.length }, async () => {
   if (isDemo()) return DEMO;
   await admin();
   const clean = rows.filter((r) => /^[A-Za-z0-9]{3,20}$/.test(r.code)).slice(0, 1000)
@@ -251,13 +261,15 @@ export async function saveGustoPayeesAction(rows: { code: string; first: string;
   const { error } = await serviceClient().from("gusto_payees").upsert(clean);
   revalidatePath("/a/payroll/gusto");
   return error ? { ok: false, message: error.message } : { ok: true, message: `Saved ${clean.length} Gusto people.` };
+});
 }
 /** Admin: link one trainer to a Gusto person (or unlink with ""). Saved straight away. */
 export async function setGustoCodeAction(trainerId: string, code: string): Promise<Result> {
-  await auditCall("setGustoCodeAction", { trainerId, code });
+  return audited("setGustoCodeAction", { trainerId, code }, async () => {
   if (isDemo()) return DEMO;
   await admin();
   if (code && !/^[A-Za-z0-9]{3,20}$/.test(code)) return { ok: false, message: "That's not a Gusto worker code." };
   const { error } = await serviceClient().from("trainers").update({ gusto_code: code || null }).eq("id", trainerId);
   return error ? { ok: false, message: error.message } : { ok: true, message: "Saved." };
+});
 }

@@ -19,9 +19,9 @@ export function FollowupDates({ bookingId, dates, rate }: { bookingId: string; d
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-3">
         <button type="button" className="btn-ink" disabled={pending} onClick={() => start(async () => { const r = await setFollowupsAction(bookingId, v); setMsg({ ok: r.ok, text: r.message }); if (r.ok) router.refresh(); })}>{pending ? "Saving…" : "Save dates"}</button>
-        {rate !== undefined && <span className="text-[13px] text-ink-soft">Trainer is paid ${rate} per session.</span>}
+        {rate !== undefined && <span className="text-small text-ink-soft">Trainer is paid ${rate} per session.</span>}
       </div>
-      {msg && <p role="status" className={`mt-2 text-[13px] font-semibold ${msg.ok ? "text-fern" : "text-heart"}`}>{msg.text}</p>}
+      {msg && <p role="status" className={`mt-2 text-small font-semibold ${msg.ok ? "text-fern" : "text-heart"}`}>{msg.text}</p>}
     </div>
   );
 }

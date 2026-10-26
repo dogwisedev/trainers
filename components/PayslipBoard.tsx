@@ -68,10 +68,10 @@ export function PayslipBoard({ slips: initial, submit, label, paid, demo }: { sl
     <div>
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <p className="text-[19px] font-extrabold">{label}</p>
-          <p className="text-[13px] text-ink-soft">Paid Fri {paid}. {money(total)} across {slips.length} trainers.</p>
+          <p className="text-h3 font-extrabold">{label}</p>
+          <p className="text-small text-ink-soft">Paid Fri {paid}. {money(total)} across {slips.length} trainers.</p>
         </div>
-        <span className="flex gap-4"><Link prefetch={false} href="/a/payroll" className="text-[14px] font-semibold underline">Past pay runs</Link><Link prefetch={false} href={`/a/payroll/gusto?run=${submit}`} className="text-[14px] font-semibold underline">Gusto list</Link></span>
+        <span className="flex gap-4"><Link prefetch={false} href="/a/payroll" className="text-body font-semibold underline">Past pay runs</Link><Link prefetch={false} href={`/a/payroll/gusto?run=${submit}`} className="text-body font-semibold underline">Gusto list</Link></span>
       </div>
       {slips.length > 0 && (
         <div className="mt-3 h-2 overflow-hidden rounded-full bg-paper" aria-label={`${counts.approved} of ${counts.all} approved`}>
@@ -80,30 +80,30 @@ export function PayslipBoard({ slips: initial, submit, label, paid, demo }: { sl
       )}
       <div className="mt-3 flex flex-wrap items-center gap-2">
         {(["pending", "approved", "all"] as Filter[]).map((f) => (
-          <button key={f} onClick={() => setFilter(f)} className={`rounded-full px-3.5 py-1.5 text-[13px] font-semibold ${filter === f ? "bg-ink text-white" : "border border-line bg-white"}`}>
+          <button key={f} onClick={() => setFilter(f)} className={`rounded-full px-3.5 py-1.5 text-small font-semibold ${filter === f ? "bg-ink text-white" : "border border-line bg-white"}`}>
             {f === "pending" ? "Pending" : f === "approved" ? "Approved" : "All"} <span className="opacity-70">{counts[f]}</span>
           </button>
         ))}
         <button
           onClick={refreshDrafts}
           disabled={pending || demo || !slips.some((s) => s.status === "draft")}
-          className="btn-mint ml-auto h-9 min-h-0 px-3 text-[13px]"
+          className="btn-mint ml-auto h-9 min-h-0 px-3 text-small"
         >
           {pending ? "Refreshing…" : "Refresh drafts"}
         </button>
         {ready.length > 1 && filter !== "approved" && (
-          <button onClick={approveAll} disabled={pending || demo} className="btn-ink h-9 min-h-0 px-3 text-[13px]"><Check size={15} />Approve all pending ({ready.length})</button>
+          <button onClick={approveAll} disabled={pending || demo} className="btn-ink h-9 min-h-0 px-3 text-small"><Check size={15} />Approve all pending ({ready.length})</button>
         )}
         {ready.length > 0 && filter !== "approved" && (
-          <button onClick={approveAllQuiet} disabled={pending || demo} className="btn-ghost h-9 min-h-0 px-3 text-[13px]" title="For a pay run already sent another way">Approve all, no email ({ready.length})</button>
+          <button onClick={approveAllQuiet} disabled={pending || demo} className="btn-ghost h-9 min-h-0 px-3 text-small" title="For a pay run already sent another way">Approve all, no email ({ready.length})</button>
         )}
       </div>
-      {msg && <p role="status" className={`mt-3 rounded-xl px-3 py-2 text-[14px] ${msg.ok ? "bg-mint-wash text-fern" : "bg-heart-wash text-heart"}`}>{msg.message}</p>}
-      {demo && <p className="mt-3 rounded-xl bg-biscuit-wash px-3 py-2 text-[13px] text-[#8A5A00]">Demo: example rates, approving is switched off.</p>}
+      {msg && <p role="status" className={`mt-3 rounded-xl px-3 py-2 text-body ${msg.ok ? "bg-mint-wash text-fern" : "bg-heart-wash text-heart"}`}>{msg.message}</p>}
+      {demo && <p className="mt-3 rounded-xl bg-biscuit-wash px-3 py-2 text-small text-warn">Demo: example rates, approving is switched off.</p>}
       {!slips.length && (
         <div className="mt-4 rounded-[22px] border border-dashed border-line bg-white/60 p-6 text-center">
           <p className="font-semibold">No payslips for this run yet.</p>
-          <p className="mt-1 text-[14px] text-ink-soft">They build themselves on pay Mondays, or build them now.</p>
+          <p className="mt-1 text-body text-ink-soft">They build themselves on pay Mondays, or build them now.</p>
           <button className="btn-mint mt-4" disabled={pending} onClick={() => start(async () => { const r = await buildDraftsAction(submit); setMsg(r); if (r.ok) location.reload(); })}>Build drafts now</button>
         </div>
       )}
@@ -115,9 +115,9 @@ export function PayslipBoard({ slips: initial, submit, label, paid, demo }: { sl
             <li key={s.id} className={`rounded-[18px] border p-3.5 ${tone}`}>
               <div className="flex items-start justify-between gap-2">
                 <p className="truncate font-bold">{s.name}</p>
-                <p className="shrink-0 text-[17px] font-extrabold">{money(s.total)}</p>
+                <p className="shrink-0 text-lead font-extrabold">{money(s.total)}</p>
               </div>
-              <ul className="mt-2 space-y-1 text-[13px]">
+              <ul className="mt-2 space-y-1 text-small">
                 {visible.map((l, i) => (
                   <li key={i} className={`flex justify-between gap-2 ${l.kind === "deduction" ? "text-heart" : ""}`}>
                     <span className="min-w-0 truncate">
@@ -131,25 +131,25 @@ export function PayslipBoard({ slips: initial, submit, label, paid, demo }: { sl
                 {s.lines.length > visible.length && <li className="text-ink-faint">+{s.lines.length - visible.length} more</li>}
                 {!s.lines.length && <li className="text-ink-faint">No lines</li>}
               </ul>
-              {s.notes && <p className="mt-2 line-clamp-2 text-[12px] italic text-ink-soft">{s.notes}</p>}
-              {s.missing > 0 && <p className="mt-2 text-[12px] font-semibold text-heart">{s.missing} line{s.missing > 1 ? "s" : ""} without a pay rate</p>}
+              {s.notes && <p className="mt-2 line-clamp-2 text-caption italic text-ink-soft">{s.notes}</p>}
+              {s.missing > 0 && <p className="mt-2 text-caption font-semibold text-heart">{s.missing} line{s.missing > 1 ? "s" : ""} without a pay rate</p>}
               <div className="mt-3 flex items-center gap-2">
                 {s.status === "approved" ? (
-                  <span className={`text-[13px] font-semibold ${s.send_error ? "text-heart" : "text-fern"}`}>{s.send_error ? "Approved, email failed" : (s.sent_at ? `Approved and sent ${new Date(s.sent_at).toLocaleDateString("en-US")}` : "Approved, not emailed")}</span>
+                  <span className={`text-small font-semibold ${s.send_error ? "text-heart" : "text-fern"}`}>{s.send_error ? "Approved, email failed" : (s.sent_at ? `Approved and sent ${new Date(s.sent_at).toLocaleDateString("en-US")}` : "Approved, not emailed")}</span>
                 ) : (
                   <button onClick={() => approveOne(s)} disabled={busy[s.id] || !!s.missing || demo}
-                    className={`btn h-9 min-h-0 px-3 text-[13px] ${armed === s.id ? "bg-fern text-white" : "bg-ink text-white"}`}>
+                    className={`btn h-9 min-h-0 px-3 text-small ${armed === s.id ? "bg-fern text-white" : "bg-ink text-white"}`}>
                     <Check size={15} />{busy[s.id] ? "Sending…" : armed === s.id ? `Send to ${s.name.replace(/".*?"\s*/, "").split(" ")[0]}?` : "Approve"}
                   </button>
                 )}
-                {s.status === "approved" && <Link prefetch={false} href={`/a/payroll/${s.id}?edit=1`} className="ml-auto text-[13px] font-semibold text-ink underline">Edit</Link>}
-                <Link prefetch={false} href={`/a/payroll/${s.id}`} className={`${s.status === "approved" ? "" : "ml-auto "}inline-flex items-center text-[13px] font-semibold text-ink-soft hover:text-ink`}>Open<ChevronRight size={15} /></Link>
+                {s.status === "approved" && <Link prefetch={false} href={`/a/payroll/${s.id}?edit=1`} className="ml-auto text-small font-semibold text-ink underline">Edit</Link>}
+                <Link prefetch={false} href={`/a/payroll/${s.id}`} className={`${s.status === "approved" ? "" : "ml-auto "}inline-flex items-center text-small font-semibold text-ink-soft hover:text-ink`}>Open<ChevronRight size={15} /></Link>
               </div>
             </li>
           );
         })}
       </ul>
-      {slips.length > 0 && !shown.length && <p className="mt-4 text-[14px] text-ink-soft">{filter === "pending" ? "All approved. Nothing left to do for this run." : "None yet."}</p>}
+      {slips.length > 0 && !shown.length && <p className="mt-4 text-body text-ink-soft">{filter === "pending" ? "All approved. Nothing left to do for this run." : "None yet."}</p>}
     </div>
   );
 }

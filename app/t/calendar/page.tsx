@@ -13,7 +13,7 @@ export default async function TrainerCalendar() {
   const use = weekUsage(t, bookings, off, weeksFrom(today, 16));
   return (
     <>
-      <h1 className="text-[30px] font-extrabold">Your calendar</h1>
+      <h1 className="text-h1 font-extrabold">Your calendar</h1>
       <p className="mt-1 text-ink-soft">You can take {t.capacity} dog{t.capacity === 1 ? "" : "s"} at a time. Bookings are added by the Dogwise team.</p>
 
       <ol className="mt-5 space-y-2.5">
@@ -27,13 +27,13 @@ export default async function TrainerCalendar() {
                 ))}
               </div>
             </div>
-            <p className="mt-1 text-[14px] text-ink-soft">
+            <p className="mt-1 text-body text-ink-soft">
               {w.dogs.length} in, {w.free} free{w.blocked ? `, ${w.blocked >= w.cap ? "away" : `${w.blocked} blocked`}` : ""}
             </p>
             {w.dogs.length > 0 && (
               <ul className="mt-2 flex flex-wrap gap-1.5">{w.dogs.map((d) => <li key={d.id}><Pill tone="line">{d.dog_name || "Dog"} ({d.client_name})</Pill></li>)}</ul>
             )}
-            {w.offNote && <p className="mt-2 text-[13px] text-heart">{w.offNote}</p>}
+            {w.offNote && <p className="mt-2 text-small text-heart">{w.offNote}</p>}
           </li>
         ))}
       </ol>
@@ -47,12 +47,12 @@ export default async function TrainerCalendar() {
           <ul className="panel divide-y divide-line">
             {off.map((o) => (
               <li key={o.id} className="flex items-center justify-between gap-3 py-2 pl-4 pr-2">
-                <div><p className="font-semibold">{range(o.start_date, o.end_date)}</p><p className="text-[13px] text-ink-soft">{o.reason}{o.slots_blocked ? `, ${o.slots_blocked} kennel${o.slots_blocked > 1 ? "s" : ""}` : ", whole calendar"}{o.note ? `. ${o.note}` : ""}</p></div>
+                <div><p className="font-semibold">{range(o.start_date, o.end_date)}</p><p className="text-small text-ink-soft">{o.reason}{o.slots_blocked ? `, ${o.slots_blocked} kennel${o.slots_blocked > 1 ? "s" : ""}` : ", whole calendar"}{o.note ? `. ${o.note}` : ""}</p></div>
                 <DeleteTimeOff id={o.id} />
               </li>
             ))}
           </ul>
-        ) : <p className="text-[14px] text-ink-soft">Nothing blocked.</p>}
+        ) : <p className="text-body text-ink-soft">Nothing blocked.</p>}
       </Section>
     </>
   );

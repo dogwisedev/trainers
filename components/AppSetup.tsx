@@ -77,17 +77,17 @@ export function AppSetup({ always = false }: { always?: boolean }) {
     } finally { setBusy(false); }
   };
   const Step = ({ n, children }: { n: number; children: React.ReactNode }) => (
-    <li className="flex gap-3"><span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-ink text-[13px] font-bold text-white">{n}</span><span className="pt-0.5 text-[15px] leading-snug">{children}</span></li>
+    <li className="flex gap-3"><span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-ink text-small font-bold text-white">{n}</span><span className="pt-0.5 text-body leading-snug">{children}</span></li>
   );
-  const Key = ({ children }: { children: React.ReactNode }) => <span className="mx-0.5 inline-flex items-center gap-1 rounded-md border border-line bg-white px-1.5 py-0.5 align-middle text-[13px] font-semibold">{children}</span>;
+  const Key = ({ children }: { children: React.ReactNode }) => <span className="mx-0.5 inline-flex items-center gap-1 rounded-md border border-line bg-white px-1.5 py-0.5 align-middle text-small font-semibold">{children}</span>;
 
   return (
     <section className="panel relative mb-5 border-lav/40 p-4 md:p-5" aria-labelledby="setup-title">
       {!always && <button type="button" onClick={hide} className="absolute right-2 top-2 grid h-9 w-9 place-items-center rounded-full text-ink-faint hover:bg-paper" aria-label="Not now"><X size={18} /></button>}
       {needInstall ? (
         <>
-          <h2 id="setup-title" className="pr-8 text-[19px] font-extrabold">{computer ? "Install the Dogwise app on this computer" : "Get the Dogwise app on your phone"}</h2>
-          <p className="mt-1 text-[14px] text-ink-soft">{computer ? "It opens in its own window, with its own icon in your dock or taskbar. No browser tabs to lose." : `It takes 30 seconds, once. Then open Dogwise from its icon, like any app${env.ios ? ", and you can turn on notifications" : ""}.`}</p>
+          <h2 id="setup-title" className="pr-8 text-h3 font-extrabold">{computer ? "Install the Dogwise app on this computer" : "Get the Dogwise app on your phone"}</h2>
+          <p className="mt-1 text-body text-ink-soft">{computer ? "It opens in its own window, with its own icon in your dock or taskbar. No browser tabs to lose." : `It takes 30 seconds, once. Then open Dogwise from its icon, like any app${env.ios ? ", and you can turn on notifications" : ""}.`}</p>
           {env.macSafari && !bip ? (
             <ol className="mt-4 space-y-3">
               <Step n={1}>In the menu bar at the top, click <Key>File</Key>, then <Key>Add to Dock</Key>.</Step>
@@ -111,22 +111,22 @@ export function AppSetup({ always = false }: { always?: boolean }) {
         </>
       ) : needPush || always ? (
         <>
-          <h2 id="setup-title" className="pr-8 text-[19px] font-extrabold">{perm === "granted" && subscribed ? "Notifications are on" : "Turn on notifications"}</h2>
-          <p className="mt-1 text-[14px] text-ink-soft">{perm === "granted" && subscribed ? `You'll get new messages, bookings and forms on this ${env.mobile ? "phone" : "computer"} straight away.` : "So you see new messages, bookings and forms straight away, not just by email."}</p>
+          <h2 id="setup-title" className="pr-8 text-h3 font-extrabold">{perm === "granted" && subscribed ? "Notifications are on" : "Turn on notifications"}</h2>
+          <p className="mt-1 text-body text-ink-soft">{perm === "granted" && subscribed ? `You'll get new messages, bookings and forms on this ${env.mobile ? "phone" : "computer"} straight away.` : "So you see new messages, bookings and forms straight away, not just by email."}</p>
           {!canPush ? (
-            <p className="mt-3 text-[14px] font-semibold">{env.ios ? "Add the app to your Home Screen first (Share, then Add to Home Screen), and open it from there." : "This browser can't show notifications. Try Chrome."}</p>
+            <p className="mt-3 text-body font-semibold">{env.ios ? "Add the app to your Home Screen first (Share, then Add to Home Screen), and open it from there." : "This browser can't show notifications. Try Chrome."}</p>
           ) : perm === "denied" ? (
-            <div className="mt-3 rounded-xl bg-biscuit-wash p-3 text-[14px]"><p className="flex items-center gap-2 font-bold"><BellOff size={16} />Notifications are blocked {env.mobile ? "on this phone" : "in this browser"}</p>
+            <div className="mt-3 rounded-xl bg-biscuit-wash p-3 text-body"><p className="flex items-center gap-2 font-bold"><BellOff size={16} />Notifications are blocked {env.mobile ? "on this phone" : "in this browser"}</p>
               <p className="mt-1">{env.ios ? "Open Settings, tap Notifications, find Dogwise and turn on Allow Notifications." : env.mobile ? "In Chrome, tap the icon to the left of the web address, then Permissions, and allow Notifications. In the installed app: long-press its icon, App info, Notifications." : "Click the icon to the left of the web address, then Site settings, and set Notifications to Allow. Private or Incognito windows can't show notifications: use a normal window or the installed app."}</p></div>
           ) : !(perm === "granted" && subscribed) ? (
             <button type="button" onClick={turnOn} disabled={busy} className="btn-ink mt-4 w-full sm:w-auto"><Bell size={18} />{busy ? "Turning on…" : "Turn on notifications"}</button>
           ) : (
             <button type="button" onClick={() => fetch("/api/push", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ test: true }) }).then(() => setMsg("Test sent."))} className="btn-ghost mt-3">Send a test notification</button>
           )}
-          {needPush && !always && <p className="mt-2 text-[12px] text-ink-faint">{env.mobile ? "Your phone will ask: tap Allow." : "Your browser will ask: click Allow."}</p>}
+          {needPush && !always && <p className="mt-2 text-caption text-ink-faint">{env.mobile ? "Your phone will ask: tap Allow." : "Your browser will ask: click Allow."}</p>}
         </>
       ) : null}
-      {msg && <p role="status" className="mt-3 text-[14px] font-semibold">{msg}</p>}
+      {msg && <p role="status" className="mt-3 text-body font-semibold">{msg}</p>}
       {always && <PushTroubleshoot />}
     </section>
   );

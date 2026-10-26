@@ -1,5 +1,6 @@
 import { programFor } from "./programs";
 import "server-only";
+import { cache } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isDemo, serverClient } from "./supabase";
 import { listBookings } from "./data";
@@ -28,7 +29,10 @@ export const prefill = (kind: Kind, b: Booking, trainerName: string, week: numbe
 });
 
 /** Reports a trainer (or everyone, for admins) still owes: from bookings plus the reports that exist. */
-export async function listTodos(opts: { trainerId?: string } = {}): Promise<(Todo & { trainerName: string })[]> {
+/** Forms open, due or late. Looked up once per page load (the menu badge and the page share it). */
+export function listTodos(opts: { trainerId?: string } = {}): Promise<(Todo & { trainerName: string })[]> { return todosFor(opts.trainerId || null); }
+const todosFor = cache((trainerId: string | null) => listTodosUncached(trainerId ? { trainerId } : {}));
+async function listTodosUncached(opts: { trainerId?: string } = {}): Promise<(Todo & { trainerName: string })[]> {
   const from = addDays(todayIso(), -75);
   const bookings = (await listBookings({ trainerId: opts.trainerId, from })).map((b) => (isDemo() ? asDemoBooking(b) : b));
   let rows: RowLike[] = [];

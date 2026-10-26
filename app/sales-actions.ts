@@ -1,5 +1,5 @@
 "use server";
-import { auditCall } from "@/lib/audit";
+import { audited } from "@/lib/audit";
 import { revalidatePath } from "next/cache";
 import { getViewer } from "@/lib/data";
 import { serviceClient, isDemo } from "@/lib/supabase";
@@ -13,7 +13,7 @@ async function admin() { const v = await getViewer(); return v?.role === "admin"
 
 /** Admin: give a HubSpot sales-team member a login (they only see their own sales). */
 export async function inviteSalesAction(ownerId: string): Promise<R> {
-  await auditCall("inviteSalesAction", { ownerId });
+  return audited("inviteSalesAction", { ownerId }, async () => {
   if (isDemo() || !(await admin())) return { ok: false, message: "Admins only." };
   const o = (await salesTeam()).find((x) => x.id === ownerId);
   if (!o?.email) return { ok: false, message: "Not found in the HubSpot sales team." };
@@ -32,11 +32,12 @@ export async function inviteSalesAction(ownerId: string): Promise<R> {
   try { await sendSignInLink(o.email); } catch (e) { return { ok: false, message: `Login made, but the email failed: ${(e as Error).message}` }; }
   revalidatePath("/a/sales");
   return { ok: true, message: `Sign-in link sent to ${o.email}.` };
+});
 }
 
 /** Admin: paste a month's rows from the Monies sheet (replaces that month's pasted rows). */
 export async function importSalesAction(_: R | null, f: FormData): Promise<R> {
-  await auditCall("importSalesAction", { f });
+  return audited("importSalesAction", { f }, async () => {
   if (isDemo() || !(await admin())) return { ok: false, message: "Admins only." };
   const month = String(f.get("month") || ""), through = String(f.get("through") || "");
   if (!/^\d{4}-\d{2}$/.test(month)) return { ok: false, message: "Pick the month." };
@@ -55,4 +56,5 @@ export async function importSalesAction(_: R | null, f: FormData): Promise<R> {
   revalidatePath("/a/sales");
   const unmatched = [...new Set(rows.filter((r) => !match(r.seller)).map((r) => r.seller))];
   return { ok: true, message: `Imported ${rows.length} sales. Deals won after ${through} come from the app.${unmatched.length ? ` Not matched to a HubSpot owner: ${unmatched.join(", ")}.` : ""}` };
+});
 }

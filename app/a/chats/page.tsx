@@ -1,8 +1,7 @@
 import Link from "next/link";
 import { ResendInvites } from "@/components/ResendInvites";
 import { isDemo, serviceClient } from "@/lib/supabase";
-import { Users } from "lucide-react";
-import { IconTile } from "@/components/ui";
+import { ChatsSwitch } from "@/components/ChatsSwitch";
 import { requireRole, unreadForAdmin } from "@/lib/data";
 import { chatSpans, listChats, searchChatMessages } from "@/lib/chatData";
 import { chatUnread } from "@/lib/chatTypes";
@@ -30,22 +29,18 @@ export default async function AdminChats({ searchParams }: { searchParams: { f?:
   const tab = (k: string) => { const p = new URLSearchParams(); if (k) p.set("f", k); if (t) p.set("t", t); if (q) p.set("q", q); const s = p.toString(); return s ? `/a/chats?${s}` : "/a/chats"; };
   return (
     <>
-      <h1 className="text-[30px] font-extrabold">Chats</h1>
-      <p className="mb-4 mt-1 text-ink-soft">One chat per dog, with the owner, the trainer and the team.</p>
-      <Link prefetch={false} href="/a/messages" className="panel mb-4 flex items-center gap-3 px-3.5 py-3 hover:bg-paper/60">
-        <IconTile tone="ink"><Users size={19} /></IconTile>
-        <span className="min-w-0 flex-1"><span className="block font-bold">Trainer messages</span><span className="block text-[13px] text-ink-soft">Direct messages with trainers</span></span>
-        {teamUnread > 0 && <span className="grid h-[22px] min-w-[22px] place-items-center rounded-full bg-heart px-1.5 text-[12px] font-bold text-white">{teamUnread}</span>}
-      </Link>
+      <h1 className="mb-3 text-h1 font-extrabold">Chats</h1>
+      <ChatsSwitch on="clients" clientUnread={all.filter((c) => c.status === "open" && chatUnread(c, "admin")).length} trainerUnread={teamUnread} />
+      <p className="mb-4 text-ink-soft">One chat per dog, with the owner, the trainer and the team.</p>
       <ChatFilters base="/a/chats" q={q} t={t} f={closed ? "closed" : undefined} trainers={trainers} />
       <div className="mb-4 flex flex-wrap gap-2">
         {[["", "Open", scoped.filter((c) => c.status === "open").length], ["closed", "Closed", scoped.filter((c) => c.status === "closed").length]].map(([k, l, n]) => (
-          <Link key={String(k)} prefetch={false} href={tab(String(k))} className={`rounded-full px-3.5 py-1.5 text-[13px] font-semibold ${(k === "closed") === closed ? "bg-ink text-white" : "border border-line bg-white"}`}>{l} <span className="opacity-70">{n}</span></Link>
+          <Link key={String(k)} prefetch={false} href={tab(String(k))} className={`rounded-full px-3.5 py-1.5 text-small font-semibold ${(k === "closed") === closed ? "bg-ink text-white" : "border border-line bg-white"}`}>{l} <span className="opacity-70">{n}</span></Link>
         ))}
         {!closed && ([["yes", "Client joined"], ["no", "Not joined yet"]] as const).map(([k, l]) => {
           const n = scoped.filter((c) => c.status === "open" && (k === "yes" ? joined(c) : !joined(c))).length;
           const p = new URLSearchParams(); if (t) p.set("t", t); if (q) p.set("q", q); if (who2 !== k) p.set("j", k);
-          return <Link prefetch={false} key={k} href={`/a/chats${p.toString() ? `?${p}` : ""}`} className={`rounded-full px-3.5 py-1.5 text-[13px] font-semibold ${who2 === k ? "bg-lav text-white" : "border border-line bg-white"}`}>{l} <span className="opacity-70">{n}</span></Link>;
+          return <Link prefetch={false} key={k} href={`/a/chats${p.toString() ? `?${p}` : ""}`} className={`rounded-full px-3.5 py-1.5 text-small font-semibold ${who2 === k ? "bg-lav-deep text-white" : "border border-line bg-white"}`}>{l} <span className="opacity-70">{n}</span></Link>;
         })}
       </div>
       {!closed && who2 === "no" && <ResendInvites chatIds={chats.filter((c) => c.client_email).map((c) => c.id)} />}

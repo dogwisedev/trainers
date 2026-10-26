@@ -12,6 +12,7 @@ import { isDemo } from "@/lib/supabase";
 import { trainerSignins } from "@/lib/trainerSignin";
 import { SigninHello } from "@/components/SigninHello";
 import { KennelOverview } from "@/components/KennelOverview";
+import { auditCall } from "@/lib/audit";
 
 export default async function Trainers({ searchParams }: { searchParams: { view?: string; run?: string } }) {
   await requireRole("admin");
@@ -25,21 +26,24 @@ export default async function Trainers({ searchParams }: { searchParams: { view?
   // The current run refreshes itself whenever the Payslips view opens: every booked day in its two weeks,
   // trained yet or not. Approved payslips and hand edits are left alone; archived runs are never touched.
   if (payView && !isDemo() && submit === current) {
-    try { await buildDrafts(serverClient(), submit); } catch { /* shows what's there; Refresh drafts can retry */ }
+    try {
+      const b = await buildDrafts(serverClient(), submit);
+      if (b.changedNames.length) await auditCall("payslipDraftsRefreshed", { period: periodLabel(b.run.period_start, b.run.period_end), updated: b.changedNames }, undefined, { ok: true });
+    } catch { /* shows what's there; Refresh drafts can retry */ }
   }
   const pay = await getRun(submit);
   const pendingCount = pay.slips.filter((s) => s.status === "draft").length;
   const header = (
     <div className="mb-4 space-y-3">
       <div className="flex items-center justify-between gap-3">
-        <h1 className="text-[32px] font-extrabold leading-tight">Trainers</h1>
-        {!payView && !kennels && <Link prefetch={false} href="/a/trainers/new" className="btn-ink h-10 min-h-0 shrink-0 px-3.5 text-[14px]"><UserPlus size={17} />Add trainer</Link>}
+        <h1 className="text-h1 font-extrabold leading-tight">Trainers</h1>
+        {!payView && !kennels && <Link prefetch={false} href="/a/trainers/new" className="btn-ink h-10 min-h-0 shrink-0 px-3.5 text-body"><UserPlus size={17} />Add trainer</Link>}
       </div>
-      <nav className="grid grid-cols-3 rounded-2xl border border-line bg-white p-1 text-[14px] font-semibold shadow-card sm:inline-grid sm:w-auto" aria-label="Trainers views">
+      <nav className="grid grid-cols-3 rounded-2xl border border-line bg-white p-1 text-body font-semibold shadow-card sm:inline-grid sm:w-auto" aria-label="Trainers views">
         <Link prefetch={false} href="/a/trainers" aria-current={!payView && !kennels ? "page" : undefined} className={`rounded-xl px-3.5 py-2 text-center ${!payView && !kennels ? "bg-ink text-white" : "text-ink-soft hover:text-ink"}`}>Trainers</Link>
         <Link prefetch={false} href="/a/trainers?view=kennels" aria-current={kennels ? "page" : undefined} className={`rounded-xl px-3.5 py-2 text-center ${kennels ? "bg-ink text-white" : "text-ink-soft hover:text-ink"}`}>Kennels</Link>
         <Link prefetch={false} href={`/a/trainers?view=pay${searchParams.run ? `&run=${submit}` : ""}`} aria-current={payView ? "page" : undefined} className={`rounded-xl px-3.5 py-2 text-center ${payView ? "bg-ink text-white" : "text-ink-soft hover:text-ink"}`}>
-          Payslips{pendingCount > 0 && <span className="ml-1.5 rounded-full bg-biscuit px-1.5 text-[12px] text-ink">{pendingCount}</span>}
+          Payslips{pendingCount > 0 && <span className="ml-1.5 rounded-full bg-biscuit px-1.5 text-caption text-ink">{pendingCount}</span>}
         </Link>
       </nav>
     </div>

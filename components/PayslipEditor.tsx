@@ -39,13 +39,13 @@ export function PayslipEditor(props: {
   return (
     <div className="space-y-4">
       {props.approved && editing && (
-        <div className="rounded-[18px] bg-biscuit-wash p-4 text-[14px] text-[#8A5A00]">
+        <div className="rounded-[18px] bg-biscuit-wash p-4 text-body text-warn">
           <p className="font-bold">Correcting an approved payslip.</p>
           <p>The trainer keeps seeing the current version until you send the corrected one. They&apos;ll get an email saying it replaces the earlier payslip.</p>
         </div>
       )}
       {locked && (
-        <div className={`rounded-[18px] p-4 text-[14px] ${props.status.error ? "bg-heart-wash text-heart" : "bg-mint-wash text-fern"}`}>
+        <div className={`rounded-[18px] p-4 text-body ${props.status.error ? "bg-heart-wash text-heart" : "bg-mint-wash text-fern"}`}>
           <p className="font-bold">Approved{props.status.approvedBy ? ` by ${props.status.approvedBy}` : ""}{props.status.approvedAt ? ` on ${new Date(props.status.approvedAt).toLocaleDateString("en-US")}` : ""}.</p>
           <p>{props.status.error ? `Email not sent: ${props.status.error}` : props.status.sentTo ? `Emailed to ${props.status.sentTo}${props.status.sentAt ? ` on ${new Date(props.status.sentAt).toLocaleString("en-US", { dateStyle: "short", timeStyle: "short" })}` : ""}.` : "Not emailed yet."}</p>
         </div>
@@ -55,7 +55,7 @@ export function PayslipEditor(props: {
         {lines.map((l) => (
           <li key={l.key} className={`panel p-3.5 ${l.kind === "deduction" ? "border-heart/30" : ""}`}>
             <div className="mb-2 flex items-center justify-between gap-2">
-              <span className="text-[12px] font-bold uppercase tracking-wide text-ink-faint">{{ training: "Training", route: "Route", deduction: "Deduction", other: "Other" }[l.kind]}{l.auto ? " · from bookings" : ""}</span>
+              <span className="text-caption font-bold uppercase tracking-wide text-ink-faint">{{ training: "Training", route: "Route", deduction: "Deduction", other: "Other" }[l.kind]}{l.auto ? " · from bookings" : ""}</span>
               {!locked && <button type="button" onClick={() => setLines((ls) => ls.filter((x) => x.key !== l.key))} className="grid h-9 w-9 place-items-center rounded-full text-ink-faint hover:bg-heart-wash hover:text-heart" aria-label="Remove line"><Trash2 size={16} /></button>}
             </div>
             {l.kind === "training" && (
@@ -99,33 +99,33 @@ export function PayslipEditor(props: {
                 <Money disabled={locked} value={l.amount} onChange={(v) => set(l.key, { amount: v })} />
               </div>
             )}
-            {l.kind === "training" && l.description?.startsWith("No pay rate") && <p className="mt-2 text-[13px] text-heart">{l.description}. Set it on the trainer&apos;s profile and rebuild, or type the amount.</p>}
+            {l.kind === "training" && l.description?.startsWith("No pay rate") && <p className="mt-2 text-small text-heart">{l.description}. Set it on the trainer&apos;s profile and rebuild, or type the amount.</p>}
           </li>
         ))}
       </ul>
 
       {!locked && (
         <div className="flex flex-wrap gap-2">
-          <button type="button" className="btn-ghost h-10 min-h-0 px-3 text-[14px]" onClick={() => { const b = props.bookings[0]; add({ kind: "route", client: b?.client || "", dog: b?.dog || "", amount: 0 }); }}><Plus size={16} />Route</button>
-          <button type="button" className="btn-ghost h-10 min-h-0 px-3 text-[14px]" onClick={() => add({ kind: "deduction", description: DEDUCTIONS[0], pct: 100, amount: deductionAmount(props.rates, 100) })}><Plus size={16} />Deduction</button>
-          <button type="button" className="btn-ghost h-10 min-h-0 px-3 text-[14px]" onClick={() => add({ kind: "training", days: 7, weeks_completed: 1, client: "", dog: "", program: "", amount: 0 })}><Plus size={16} />Training</button>
-          <button type="button" className="btn-ghost h-10 min-h-0 px-3 text-[14px]" onClick={() => add({ kind: "other", description: "", amount: 0 })}><Plus size={16} />Other</button>
+          <button type="button" className="btn-ghost h-10 min-h-0 px-3 text-body" onClick={() => { const b = props.bookings[0]; add({ kind: "route", client: b?.client || "", dog: b?.dog || "", amount: 0 }); }}><Plus size={16} />Route</button>
+          <button type="button" className="btn-ghost h-10 min-h-0 px-3 text-body" onClick={() => add({ kind: "deduction", description: DEDUCTIONS[0], pct: 100, amount: deductionAmount(props.rates, 100) })}><Plus size={16} />Deduction</button>
+          <button type="button" className="btn-ghost h-10 min-h-0 px-3 text-body" onClick={() => add({ kind: "training", days: 7, weeks_completed: 1, client: "", dog: "", program: "", amount: 0 })}><Plus size={16} />Training</button>
+          <button type="button" className="btn-ghost h-10 min-h-0 px-3 text-body" onClick={() => add({ kind: "other", description: "", amount: 0 })}><Plus size={16} />Other</button>
         </div>
       )}
 
       <div className="panel space-y-3 p-4">
-        <div className="flex justify-between text-[15px]"><span className="text-ink-soft">Subtotal</span><b>{money(subtotal)}</b></div>
-        <div className="flex items-center justify-between gap-3 text-[15px]">
+        <div className="flex justify-between text-body"><span className="text-ink-soft">Subtotal</span><b>{money(subtotal)}</b></div>
+        <div className="flex items-center justify-between gap-3 text-body">
           <span className="text-ink-soft">Adjustments</span>
           <span className="relative w-36"><span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-faint">$</span>
             <input disabled={locked} inputMode="decimal" value={adj} onChange={(e) => setAdj(e.target.value)} className="field py-2 pl-6 text-right" /></span>
         </div>
-        <div className="flex items-end justify-between border-t border-line pt-3"><span className="font-semibold">Total</span><span className="text-[28px] font-extrabold text-[#6B4FE0]">{money(total)}</span></div>
+        <div className="flex items-end justify-between border-t border-line pt-3"><span className="font-semibold">Total</span><span className="text-h1 font-extrabold text-lav-deep">{money(total)}</span></div>
         <label className="block"><span className="label">Notes on the payslip (the trainer sees these)</span>
           <textarea disabled={locked} rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} className="field" placeholder="e.g. Weekly report for Oct 18 was late, 50% deducted." /></label>
       </div>
 
-      <div className="flex gap-4 text-[14px] font-semibold">
+      <div className="flex gap-4 text-body font-semibold">
         <button type="button" className="underline" onClick={() => setPreview((p) => !p)}>{preview ? "Hide preview" : "Preview payslip"}</button>
         <a href={`/api/payslips/${props.id}/pdf`} target="_blank" className="underline">Open PDF</a>
       </div>
@@ -145,7 +145,7 @@ export function PayslipEditor(props: {
               onClick={() => { if (window.confirm(`Approve ${money(total)} and email this payslip to the trainer?`)) run(() => approveAndSendAction(props.id, edit())); }}>
               {pending ? "Working…" : "Approve and send"}
             </button>
-            <button type="button" disabled={pending} className="btn-ghost flex-1 whitespace-nowrap px-3 text-[13px]" title="Approve and archive, without emailing the trainer"
+            <button type="button" disabled={pending} className="btn-ghost flex-1 whitespace-nowrap px-3 text-small" title="Approve and archive, without emailing the trainer"
               onClick={() => { if (window.confirm(`Approve ${money(total)} WITHOUT emailing the trainer? Use this for payslips already sent another way. It's kept in the app.`)) run(() => approveQuietAction(props.id, edit())); }}>
               Approve, no email
             </button>
@@ -157,7 +157,7 @@ export function PayslipEditor(props: {
           </>
         )}
       </div>
-      {msg && <p role="status" className={`rounded-xl px-3 py-2 text-[14px] ${msg.ok ? "bg-mint-wash text-fern" : "bg-heart-wash text-heart"}`}>{msg.message}</p>}
+      {msg && <p role="status" className={`rounded-xl px-3 py-2 text-body ${msg.ok ? "bg-mint-wash text-fern" : "bg-heart-wash text-heart"}`}>{msg.message}</p>}
       {preview && <div className="overflow-x-auto rounded-[18px] border border-line bg-white p-2"><div className="min-w-[560px]" dangerouslySetInnerHTML={{ __html: html }} /></div>}
     </div>
   );

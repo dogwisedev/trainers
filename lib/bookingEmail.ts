@@ -53,11 +53,11 @@ export function bookingEmailHtml(b: B, trainerName: string, kind: BookingMailKin
     changed: `Hi ${esc(first)}, one of your bookings has changed. Here are the latest details.`,
     cancelled: `Hi ${esc(first)}, this booking has been cancelled. The kennel is free again.`
   }[kind];
-  const color = kind === "cancelled" ? "#C2415D" : "#2A1971";
+  const color = kind === "cancelled" ? "#C2415D" : "#281870";
   const row = (k: string, v: string) => `<tr><td style="padding:8px 0;color:#6B6880;font-size:13px;width:110px;vertical-align:top">${k}</td><td style="padding:8px 0;font-size:15px;color:#1C1734">${v}</td></tr>`;
   return `<div style="background:#f4f5f8;padding:24px 12px;font-family:Inter,Segoe UI,Roboto,Helvetica,Arial,sans-serif">
   <div style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:18px;overflow:hidden;border:1px solid #E7E3F3">
-    <div style="height:6px;background:${kind === "cancelled" ? "#C2415D" : "linear-gradient(90deg,#2A1971,#6B4FE0)"}"></div>
+    <div style="height:6px;background:${kind === "cancelled" ? "#C2415D" : "linear-gradient(90deg,#281870,#6E4FE0)"}"></div>
     <div style="padding:24px 26px">
       <img src="cid:dogwise-logo" alt="Dogwise Academy" width="140" style="display:block;height:auto">
       <div style="font-size:22px;font-weight:800;color:${color};margin-top:18px">${head}</div>
@@ -72,7 +72,7 @@ export function bookingEmailHtml(b: B, trainerName: string, kind: BookingMailKin
         </table>
       </td></tr></table>
       ${kind === "cancelled" ? "" : `<p style="font-size:13px;color:#6B6880;margin:14px 0 0">The calendar invite is attached: accept it to add the dates to your calendar, with a reminder the day before.</p>`}
-      <a href="${site}/t" style="display:inline-block;margin-top:18px;background:#2A1971;color:#ffffff;text-decoration:none;font-weight:700;padding:12px 20px;border-radius:10px">Open my bookings</a>
+      <a href="${site}/t" style="display:inline-block;margin-top:18px;background:#281870;color:#ffffff;text-decoration:none;font-weight:700;padding:12px 20px;border-radius:10px">Open my bookings</a>
     </div>
     <div style="padding:12px 26px;background:#FAF9FD;border-top:1px solid #E7E3F3;font-size:12px;color:#6B6880">Questions? Reply to this email or message the team in the app.</div>
   </div></div>`;

@@ -15,7 +15,7 @@ export default async function ClientHome() {
   const reads = await chatReads(v.userId);
   return (
     <>
-      <h1 className="text-[28px] font-extrabold">Your chats</h1>
+      <h1 className="text-h1 font-extrabold">Your chats</h1>
       {chats.length ? (
         <ul className="panel mt-4 divide-y divide-line">
           {chats.map((c) => <ChatListRow key={c.id} chat={c} href={`/c/${c.id}`} unread={chatUnread(c, "client", reads[c.id])} who={c.trainer_name || ""} />)}
@@ -24,7 +24,7 @@ export default async function ClientHome() {
       {open.length === 0 && closed.length > 0 && (
         <div className="panel mt-4 space-y-3 p-5">
           <p className="font-bold">Need us again?</p>
-          <p className="text-[14px] text-ink-soft">Your earlier chat is closed and saved. Start a new one any time, and the Dogwise team will pick it up.</p>
+          <p className="text-body text-ink-soft">Your earlier chat is closed and saved. Start a new one any time, and the Dogwise team will pick it up.</p>
           <ReopenChat chatId={closed[0].id} base="/c" />
         </div>
       )}

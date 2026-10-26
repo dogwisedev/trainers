@@ -15,7 +15,7 @@ export default async function AdminThread({ params }: { params: { id: string } }
       <div className="mb-5 flex items-center gap-3">
         <Link prefetch={false} href="/a/messages" className="grid h-10 w-10 place-items-center rounded-full hover:bg-mint-wash" aria-label="All messages"><ChevronLeft /></Link>
         <Avatar name={t.name} size={40} />
-        <div><Link prefetch={false} href={`/a/trainers/${t.id}`} className="font-bold hover:underline">{t.name}</Link><p className="text-[13px] text-ink-soft">{[t.city, t.state].filter(Boolean).join(", ")}</p></div>
+        <div><Link prefetch={false} href={`/a/trainers/${t.id}`} className="font-bold hover:underline">{t.name}</Link><p className="text-small text-ink-soft">{[t.city, t.state].filter(Boolean).join(", ")}</p></div>
       </div>
       <MessageThread trainerId={t.id} initial={msgs} me="admin" otherName={t.name.split(" ")[0]} />
     </>

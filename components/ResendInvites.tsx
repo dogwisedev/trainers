@@ -12,12 +12,12 @@ export function ResendInvites({ chatIds }: { chatIds: string[] }) {
   if (!chatIds.length) return null;
   return (
     <div className="panel mb-4 flex flex-wrap items-center gap-3 p-3.5">
-      <p className="min-w-0 flex-1 text-[14px]"><b>{chatIds.length} client{chatIds.length > 1 ? "s haven't" : " hasn't"} opened their chat.</b> Send them the welcome email again, with the sign-in button and their password.</p>
-      <button type="button" className="btn-ink h-9 min-h-0 px-3 text-[13px]" disabled={pending}
+      <p className="min-w-0 flex-1 text-body"><b>{chatIds.length} client{chatIds.length > 1 ? "s haven't" : " hasn't"} opened their chat.</b> Send them the welcome email again, with the sign-in button and their password.</p>
+      <button type="button" className="btn-ink h-9 min-h-0 px-3 text-small" disabled={pending}
         onClick={() => { if (window.confirm(`Send the welcome email again to ${chatIds.length} client${chatIds.length > 1 ? "s" : ""}?`)) start(async () => { const r = await resendInvitesAction(chatIds); setMsg(r.message); router.refresh(); }); }}>
         <Mail size={15} />{pending ? "Sending…" : "Send again"}
       </button>
-      {msg && <p role="status" className="w-full text-[13px] font-semibold">{msg}</p>}
+      {msg && <p role="status" className="w-full text-small font-semibold">{msg}</p>}
     </div>
   );
 }

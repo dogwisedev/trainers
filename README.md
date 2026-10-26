@@ -23,7 +23,7 @@ npm run dev     # http://localhost:3000
    select id, 'admin', 'Dogwise team' from auth.users where email = 'you@dogwiseacademy.com';
    ```
 4. **Vercel**: import the repo, set the variables from `.env.example`, deploy.
-5. **Invite trainers**: open a trainer → "Send login". They get an email, land on their profile and set a password. Do this after you've checked their profile.
+5. **Invite trainers**: open a trainer → "Send login". They get an email, land on their profile and set a password. Do this after you've checked their profile. In the installed app they can also sign in with "Email me a code".
 
 ## Rules the database enforces (row level security)
 - A trainer can only read their own profile, bookings, time off and messages.
@@ -55,3 +55,21 @@ The client's answers to the two HubSpot forms, per dog, plus the checklist: form
 - Vaccines: admin checks the records, which writes `vaccines_in_order_` and `missing_vaccines` on the deal. Clients upload records to the chat's Drive folder.
 - The app ticks `forms` on the deal once every answer is in, and fills `pre_training_missing` if you create that deal property (single-line text).
 - HubSpot token scopes: `crm.objects.deals.read/write`, `crm.objects.contacts.read/write`, `crm.schemas.deals.read`, `crm.schemas.contacts.read`.
+
+## October 2026 update (run once)
+1. Supabase → SQL editor: run `supabase/migrations/032_audit_outcomes_and_integrity.sql`, then `033_server_notifications_and_direct_edit_log.sql` (in that order; don't re-run 032 after 033).
+2. Vercel variables (optional, defaults shown):
+   - `CHAT_AUTO_INVITE` (on). Clients get their chat link 7 days before training, or straight away if the booking is later than that. `off` stops it.
+   - `UNBOOKED_FROM` = `2026-10-11`. Closed Won deals from this date with no booking show on To do.
+3. Each admin: Your account → Your name, so the activity log shows who did what.
+
+What changed:
+- Sign in: "Email me a code" sends a 6-digit code, typed into the app (works in the installed iPhone app). Sign out asks first.
+- Chats: messages can't double-send or get lost on weak signal (ids made on the phone, unsent messages kept and resent). PDFs allowed. Uploads use small pieces, wait for signal and resume. Photos, videos and PDFs open in the app. Failed uploads are in the activity log.
+- Book a dog: the HubSpot deal is required and fills the form. Same checks as the extension (no dog booked twice, free kennel or "Book anyway").
+- To do: "Closed Won, not booked" (from Oct 11) with Book now / Not a booking; a warning if a background job stops running.
+- Activity log: logged after each action with whether it worked, each admin's name and email (chat messages too), System entries (HubSpot date moves, invites, archives, payroll drafts, client emails), Problems filter, error screens.
+- Trainers: 4 tabs (Today, Chats, Forms, Me), ⋯ menu in each chat. Loading and error screens everywhere. One type scale, AA contrast.
+- Security: chat message times stamped by the database, team messages can only be marked read, chat messages can't be deleted from a browser.
+- Chat notifications are sent by the server, once per message: the database calls `/api/chat/notify` the moment a message is saved (pg_net), the sender's app asks too, and the 10-minute check sends anything both missed (logged as "Sent missed chat notifications"). The app registers its own address on its first chat check after deploying; nothing to set by hand.
+- Changes made outside the app: any change to bookings, trainers, time off, profiles, pay, reports, chats or incidents made with someone's login but not through the app (browser console, scripts) is logged by the database as "Changed data directly, not through the app", with who and what changed, and emailed to `LOG_VIEWERS` (alma@) within 10 minutes. Nothing is blocked.

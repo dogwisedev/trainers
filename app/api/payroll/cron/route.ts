@@ -3,15 +3,21 @@ import { serviceClient, isDemo } from "@/lib/supabase";
 import { buildDrafts } from "@/lib/payrollData";
 import { isPayMonday, money, periodLabel, usDate } from "@/lib/payroll";
 import { sendMail, mailConfigured } from "@/lib/mail";
+import { cronRan } from "@/lib/cronHealth";
+import { auditSystem } from "@/lib/audit";
 
 // Mondays 7am Eastern (vercel.json). On pay Mondays: builds the drafts and tells payroll they're ready.
 export async function GET(req: Request) {
   if (!process.env.CRON_SECRET || req.headers.get("authorization") !== `Bearer ${process.env.CRON_SECRET}`) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (isDemo()) return NextResponse.json({ skipped: "demo" });
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date()); // YYYY-MM-DD
-  if (!isPayMonday(today)) return NextResponse.json({ skipped: `${today} isn't a pay Monday` });
+  if (!isPayMonday(today)) { await cronRan("payroll", true); return NextResponse.json({ skipped: `${today} isn't a pay Monday` }); }
   const sb = serviceClient();
-  const r = await buildDrafts(sb, today);
+  let r;
+  try { r = await buildDrafts(sb, today); }
+  catch (e) { await cronRan("payroll", false, (e as Error).message); throw e; }
+  await cronRan("payroll", true);
+  await auditSystem("Built the payslip drafts", `${periodLabel(r.run.period_start, r.run.period_end)}: ${r.built} payslip${r.built === 1 ? "" : "s"} built or updated from bookings${r.missingRates ? `, ${r.missingRates} lines need a pay rate` : ""}.`, { link: `/a/trainers?view=pay&run=${today}` });
   const notify = process.env.PAYROLL_NOTIFY_EMAIL;
   if (notify && mailConfigured()) {
     const { data } = await sb.from("payslips").select("total").eq("pay_run_id", r.run.id);

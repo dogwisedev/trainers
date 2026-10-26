@@ -22,7 +22,7 @@ function Chips({ name, options, value, multi, onChange }: { name: string; option
       {options.map((o) => {
         const on = value.includes(o);
         return (
-          <label key={o} className={`inline-flex min-h-[44px] cursor-pointer items-center rounded-full border px-4 text-[14px] font-semibold focus-within:ring-2 focus-within:ring-ink focus-within:ring-offset-2 ${on ? "border-ink bg-ink text-white" : "border-line bg-white"}`}>
+          <label key={o} className={`inline-flex min-h-[44px] cursor-pointer items-center rounded-full border px-4 text-body font-semibold focus-within:ring-2 focus-within:ring-ink focus-within:ring-offset-2 ${on ? "border-ink bg-ink text-white" : "border-line bg-white"}`}>
             <input type={multi ? "checkbox" : "radio"} name={name} className="sr-only" checked={on} onChange={() => onChange(multi ? (on ? value.filter((x) => x !== o) : [...value, o]) : [o])} />{o}
           </label>
         );
@@ -38,13 +38,13 @@ function ItemList({ title, value, onChange, hint }: { title: string; value: Item
     <div className="space-y-3">
       {list.map((it, i) => (
         <div key={i} className="rounded-2xl border border-line bg-white p-3">
-          <div className="flex items-center justify-between"><span className="text-[13px] font-bold text-ink-soft">{title} {i + 1}</span>
-            {list.length > 1 && <button type="button" className="text-[12px] font-semibold text-heart underline" onClick={() => onChange(list.filter((_, j) => j !== i))}>Remove</button>}</div>
+          <div className="flex items-center justify-between"><span className="text-small font-bold text-ink-soft">{title} {i + 1}</span>
+            {list.length > 1 && <button type="button" className="text-caption font-semibold text-heart underline" onClick={() => onChange(list.filter((_, j) => j !== i))}>Remove</button>}</div>
           <input className="field mt-2" placeholder="Short name" value={it.title} onChange={(e) => set(i, { title: e.target.value })} />
           <textarea className="field mt-2" rows={3} placeholder={hint} value={it.text} onChange={(e) => set(i, { text: e.target.value })} />
         </div>
       ))}
-      <button type="button" className="btn-ghost h-10 min-h-0 px-3 text-[14px]" onClick={() => onChange([...list, { title: "", text: "" }])}><Plus size={16} />Add another</button>
+      <button type="button" className="btn-ghost h-10 min-h-0 px-3 text-body" onClick={() => onChange([...list, { title: "", text: "" }])}><Plus size={16} />Add another</button>
     </div>
   );
 }
@@ -95,14 +95,14 @@ export function ReportForm(p: Props) {
     return (
       <div key={k} className="mt-5 first:mt-0">
         {f.type !== "confirm" && label(f)}
-        {"hint" in f && f.hint && <p className="-mt-1 mb-1.5 text-[12px] text-ink-faint">{f.hint}</p>}
+        {"hint" in f && f.hint && <p className="-mt-1 mb-1.5 text-caption text-ink-faint">{f.hint}</p>}
         {f.type === "text" && <input className="field" value={raw(answers[k])} onChange={(e) => set(k, e.target.value)} />}
         {f.type === "textarea" && <textarea className="field" rows={4} value={raw(answers[k])} onChange={(e) => set(k, e.target.value)} />}
         {f.type === "date" && <input type="date" className="field" value={raw(answers[k])} onChange={(e) => set(k, e.target.value)} />}
         {f.type === "number" && <input className="field" inputMode="decimal" value={raw(answers[k])} onChange={(e) => set(k, e.target.value)} />}
         {f.type === "confirm" && (
-          <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-line bg-white p-3.5 text-[15px]">
-            <input type="checkbox" className="mt-0.5 h-5 w-5 shrink-0 accent-[#2A1971]" checked={answers[k] === true} onChange={(e) => set(k, e.target.checked)} />
+          <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-line bg-white p-3.5 text-body">
+            <input type="checkbox" className="mt-0.5 h-5 w-5 shrink-0 accent-[#281870]" checked={answers[k] === true} onChange={(e) => set(k, e.target.checked)} />
             <span>{f.label}<span className="text-heart"> *</span></span>
           </label>
         )}
@@ -122,29 +122,29 @@ export function ReportForm(p: Props) {
       </div>
     );
   };
-  const card = (title: string, children: React.ReactNode) => <section className="panel p-4 md:p-5"><h2 className="mb-4 text-[17px] font-bold">{title}</h2>{children}</section>;
+  const card = (title: string, children: React.ReactNode) => <section className="panel p-4 md:p-5"><h2 className="mb-4 text-lead font-bold">{title}</h2>{children}</section>;
 
   const emailMissing = !s(answers.clientEmail);
   const chatHref = p.chatId ? `${p.mode === "admin" ? "/a/chats/" : "/t/chats/"}${p.chatId}` : null;
   return (
     <div className="space-y-4">
-      {waived && <div className="rounded-[18px] bg-paper p-4 text-[14px] text-ink-soft"><p className="font-bold text-ink">Not needed</p><p>{p.mode === "admin" ? `Marked not needed${p.meta.waivedBy ? ` by ${p.meta.waivedBy}` : ""}${p.meta.waivedAt ? ` on ${new Date(p.meta.waivedAt).toLocaleDateString("en-US")}` : ""}. It's off the trainer's list and doesn't count as late.` : "The team marked this form as not needed. Nothing to do."}</p></div>}
+      {waived && <div className="rounded-[18px] bg-paper p-4 text-body text-ink-soft"><p className="font-bold text-ink">Not needed</p><p>{p.mode === "admin" ? `Marked not needed${p.meta.waivedBy ? ` by ${p.meta.waivedBy}` : ""}${p.meta.waivedAt ? ` on ${new Date(p.meta.waivedAt).toLocaleDateString("en-US")}` : ""}. It's off the trainer's list and doesn't count as late.` : "The team marked this form as not needed. Nothing to do."}</p></div>}
       {p.status === "changes_requested" && p.reviewNote && (
-        <div className="rounded-[18px] border border-biscuit bg-biscuit-wash p-4 text-[14px] text-[#8A5A00]"><p className="font-bold">The team sent this back</p><p className="mt-1 whitespace-pre-wrap">{p.reviewNote}</p></div>
+        <div className="rounded-[18px] border border-biscuit bg-biscuit-wash p-4 text-body text-warn"><p className="font-bold">The team sent this back</p><p className="mt-1 whitespace-pre-wrap">{p.reviewNote}</p></div>
       )}
-      {p.mode === "trainer" && p.status === "submitted" && <div className="rounded-[18px] bg-mint-wash p-4 text-[14px] text-fern"><p className="font-bold">Submitted. Waiting for the team to review it.</p><p>You&apos;ll get an email if anything needs changing.</p></div>}
+      {p.mode === "trainer" && p.status === "submitted" && <div className="rounded-[18px] bg-mint-wash p-4 text-body text-fern"><p className="font-bold">Submitted. Waiting for the team to review it.</p><p>You&apos;ll get an email if anything needs changing.</p></div>}
       {p.status === "approved" && (
-        <div className={`rounded-[18px] p-4 text-[14px] ${p.kind === "handover" && p.meta.error ? "bg-heart-wash text-heart" : "bg-mint-wash text-fern"}`}>
+        <div className={`rounded-[18px] p-4 text-body ${p.kind === "handover" && p.meta.error ? "bg-heart-wash text-heart" : "bg-mint-wash text-fern"}`}>
           <p className="font-bold">{p.kind === "handover" ? "Approved" : "Reviewed"}{p.meta.approvedBy ? ` by ${p.meta.approvedBy}` : ""}{p.meta.approvedAt ? ` on ${new Date(p.meta.approvedAt).toLocaleDateString("en-US")}` : ""}.</p>
           {p.kind === "handover" && <p>{p.meta.error ? `Email not sent: ${p.meta.error}` : p.meta.sentTo ? `Sent to ${p.meta.sentTo}.` : "Not emailed yet."}</p>}
         </div>
       )}
-      {p.mode === "admin" && p.status === "submitted" && p.late > 0 && <div className="rounded-[18px] bg-heart-wash p-3 text-[14px] text-heart">Submitted {p.late} day{p.late > 1 ? "s" : ""} after the deadline.</div>}
-      {p.mode === "admin" && p.meta.byAdmin && p.status !== "approved" && <div className="rounded-[18px] bg-paper p-3 text-[13px] text-ink-soft">Started by an admin for the trainer.</div>}
-      {p.mode === "admin" && editing && <div className="rounded-[18px] bg-biscuit-wash p-4 text-[14px] text-[#8A5A00]"><p className="font-bold">{p.kind === "handover" ? "Correcting an approved report." : "Editing a reviewed form."}</p>{p.kind === "handover" && <p>The client keeps the version they have until you send the corrected one.</p>}</div>}
+      {p.mode === "admin" && p.status === "submitted" && p.late > 0 && <div className="rounded-[18px] bg-heart-wash p-3 text-body text-heart">Submitted {p.late} day{p.late > 1 ? "s" : ""} after the deadline.</div>}
+      {p.mode === "admin" && p.meta.byAdmin && p.status !== "approved" && <div className="rounded-[18px] bg-paper p-3 text-small text-ink-soft">Started by an admin for the trainer.</div>}
+      {p.mode === "admin" && editing && <div className="rounded-[18px] bg-biscuit-wash p-4 text-body text-warn"><p className="font-bold">{p.kind === "handover" ? "Correcting an approved report." : "Editing a reviewed form."}</p>{p.kind === "handover" && <p>The client keeps the version they have until you send the corrected one.</p>}</div>}
 
       {showMissing && (missing.length > 0 || res?.missing?.length) && (
-        <div role="alert" className="rounded-[18px] bg-heart-wash p-4 text-[14px] text-heart"><p className="font-bold">Still needed:</p><ul className="mt-1 list-disc pl-5">{(res?.missing?.length ? res.missing : missing).map((m) => <li key={m}>{m}</li>)}</ul></div>
+        <div role="alert" className="rounded-[18px] bg-heart-wash p-4 text-body text-heart"><p className="font-bold">Still needed:</p><ul className="mt-1 list-disc pl-5">{(res?.missing?.length ? res.missing : missing).map((m) => <li key={m}>{m}</li>)}</ul></div>
       )}
 
       {ro ? (
@@ -152,17 +152,17 @@ export function ReportForm(p: Props) {
       ) : (
         <>
           {card("About this report", (
-            <div className="space-y-3 text-[15px]">
+            <div className="space-y-3 text-body">
               <p><b>{s(answers.dogName) || "Dog"}</b> <span className="text-ink-soft">with {s(answers.clientName)}. Trainer {s(answers.trainerName)}.</span></p>
               <p className="text-ink-soft">{deadlineHint(p.kind)}{p.due ? ` Due ${new Date(p.due).toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric", timeZone: "America/New_York" })}.` : ""}</p>
               {p.kind !== "handover" && (
-                <p className={`rounded-xl p-3 text-[14px] ${p.kind === "intake" ? "bg-biscuit-wash font-semibold text-[#8A5A00]" : "bg-paper"}`}>{MEDIA_ADVICE[p.kind]} {chatHref ? <Link prefetch={false} href={chatHref} className="underline">Open the chat</Link> : "This dog has no chat yet: ask the team to start one."}</p>
+                <p className={`rounded-xl p-3 text-body ${p.kind === "intake" ? "bg-biscuit-wash font-semibold text-warn" : "bg-paper"}`}>{MEDIA_ADVICE[p.kind]} {chatHref ? <Link prefetch={false} href={chatHref} className="underline">Open the chat</Link> : "This dog has no chat yet: ask the team to start one."}</p>
               )}
               {p.kind === "handover" && (
                 <>
                   <label className="block"><span className="label">Client&apos;s email (the report is sent here){emailMissing && <span className="text-heart"> *</span>}</span>
                     <input className="field" inputMode="email" value={raw(answers.clientEmail)} onChange={(e) => set("clientEmail", e.target.value)} disabled={p.mode === "trainer" && !emailMissing} /></label>
-                  {p.mode === "trainer" && !emailMissing && <p className="text-[12px] text-ink-faint">Taken from the booking. Ask the team if it&apos;s wrong.</p>}
+                  {p.mode === "trainer" && !emailMissing && <p className="text-caption text-ink-faint">Taken from the booking. Ask the team if it&apos;s wrong.</p>}
                 </>
               )}
             </div>
@@ -188,7 +188,7 @@ export function ReportForm(p: Props) {
               {card("Photo with the trainer", (
                 <>
                   <span className="label">Photo of the dog with the trainer</span>
-                  {!hasTrainerPhoto(media) && <p className="mb-2 rounded-xl bg-biscuit-wash p-3 text-[14px] font-semibold text-[#8A5A00]">{MEDIA_ADVICE.handover}{p.mode === "trainer" ? " You can still submit without it, but the team will be told." : ""}</p>}
+                  {!hasTrainerPhoto(media) && <p className="mb-2 rounded-xl bg-biscuit-wash p-3 text-body font-semibold text-warn">{MEDIA_ADVICE.handover}{p.mode === "trainer" ? " You can still submit without it, but the team will be told." : ""}</p>}
                   <MediaPicker bookingId={p.bookingId} slot="health" kind="photo" label="Pick a photo from the chat" items={media} onChange={setM} describe={false} chatHref={chatHref} />
                 </>
               ))}
@@ -197,7 +197,7 @@ export function ReportForm(p: Props) {
         </>
       )}
 
-      {res && !res.missing?.length && <p role="status" className={`rounded-xl px-3 py-2 text-[14px] ${res.ok ? "bg-mint-wash text-fern" : "bg-heart-wash text-heart"}`}>{res.message}</p>}
+      {res && !res.missing?.length && <p role="status" className={`rounded-xl px-3 py-2 text-body ${res.ok ? "bg-mint-wash text-fern" : "bg-heart-wash text-heart"}`}>{res.message}</p>}
 
       {sendBack && (
         <div className="panel p-4">
@@ -208,7 +208,7 @@ export function ReportForm(p: Props) {
       )}
 
       <div className="sticky bottom-[calc(76px+env(safe-area-inset-bottom))] z-10 rounded-[20px] border border-line bg-white/95 p-2 backdrop-blur md:bottom-4">
-        {editable && <p className="px-2 pb-1 text-[12px] text-ink-faint" aria-live="polite">{p.demo ? "Demo: nothing saves." : saved === "saving" ? "Saving…" : saved === "saved" ? "Saved" : saved === "error" ? "Couldn't save: check your signal" : "Your answers save as you go."}{missing.length > 0 ? ` ${missing.length} thing${missing.length > 1 ? "s" : ""} still needed.` : " Ready to send."}</p>}
+        {editable && <p className="px-2 pb-1 text-caption text-ink-faint" aria-live="polite">{p.demo ? "Demo: nothing saves." : saved === "saving" ? "Saving…" : saved === "saved" ? "Saved" : saved === "error" ? "Couldn't save: check your signal" : "Your answers save as you go."}{missing.length > 0 ? ` ${missing.length} thing${missing.length > 1 ? "s" : ""} still needed.` : " Ready to send."}</p>}
         <div className="flex gap-2">
           {p.mode === "trainer" && editable && <button type="button" className="btn-ink flex-1" disabled={pending} onClick={submit}>{pending ? "Submitting…" : "Submit for review"}</button>}
           {p.mode === "admin" && editable && (

@@ -42,15 +42,15 @@ export async function KennelOverview() {
               {unread.map((th) => (
                 <li key={th.trainer.id}><Link prefetch={false} href={`/a/messages/${th.trainer.id}`} className="flex items-center gap-3 p-3.5 hover:bg-mint-wash">
                   <Avatar name={th.trainer.name} size={38} />
-                  <div className="min-w-0 flex-1"><p className="font-semibold">{th.trainer.name}</p><p className="truncate text-[14px] text-ink-soft">{th.last.body}</p></div>
+                  <div className="min-w-0 flex-1"><p className="font-semibold">{th.trainer.name}</p><p className="truncate text-body text-ink-soft">{th.last.body}</p></div>
                   <Pill tone="heart">{th.unread}</Pill>
                 </Link></li>
               ))}
             </ul>
-          ) : <p className="text-[14px] text-ink-soft">All caught up.</p>}
+          ) : <p className="text-body text-ink-soft">All caught up.</p>}
         </Section>
         <Section title="Needs a look">
-          <ul className="panel divide-y divide-line text-[14px]">
+          <ul className="panel divide-y divide-line text-body">
             {fullUp.map((r) => <li key={r.t.id}><Link prefetch={false} className="flex justify-between gap-3 p-3.5 hover:bg-mint-wash" href={`/a/trainers/${r.t.id}`}><span className="shrink-0 font-semibold">{r.t.name}</span><span className="min-w-0 truncate text-ink-soft">No free kennels for 8 weeks</span></Link></li>)}
             {flagged.map((t) => <li key={t.id}><Link prefetch={false} className="flex justify-between gap-3 p-3.5 hover:bg-mint-wash" href={`/a/trainers/${t.id}`}><span className="shrink-0 font-semibold">{t.name}</span><span className="min-w-0 truncate text-ink-soft">{t.data_flags[0]}</span></Link></li>)}
             {!fullUp.length && !flagged.length && <li className="p-3.5 text-ink-soft">Nothing to check.</li>}
@@ -65,8 +65,8 @@ export async function KennelOverview() {
 function Stat({ big, small, tone }: { big: string; small: string; tone?: "ink" }) {
   return (
     <div className={`rounded-[22px] p-4 ${tone === "ink" ? "bg-ink text-white" : "border border-line bg-white"}`}>
-      <p className="text-[30px] font-extrabold leading-none">{big}</p>
-      <p className={`mt-2 text-[13px] leading-snug ${tone === "ink" ? "text-white/75" : "text-ink-soft"}`}>{small}</p>
+      <p className="text-h1 font-extrabold leading-none">{big}</p>
+      <p className={`mt-2 text-small leading-snug ${tone === "ink" ? "text-white/75" : "text-ink-soft"}`}>{small}</p>
     </div>
   );
 }

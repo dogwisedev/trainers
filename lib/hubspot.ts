@@ -164,3 +164,37 @@ export async function salesTeam(): Promise<Owner[]> {
   const want = (process.env.HUBSPOT_SALES_TEAM || "sales").toLowerCase();
   return (await listOwners()).filter((o) => o.teams.some((t) => t.toLowerCase().includes(want)));
 }
+
+// ── Closed Won deals since a date (the "Closed Won, not booked" check) ──
+type SearchPage = { results: { id: string; properties: DealProps }[]; paging?: { next?: { after: string } } };
+/** Midnight Eastern on a date, as epoch ms (HubSpot's closedate is a moment, the business runs on Eastern time). */
+function etMidnightMs(date: string): number {
+  for (const off of [4, 5]) {
+    const t = new Date(`${date}T0${off}:00:00Z`);
+    const h = Number(new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", hourCycle: "h23" }).format(t));
+    if (h === 0) return t.getTime();
+  }
+  return Date.parse(`${date}T05:00:00Z`);
+}
+/** Closed Won deals with a close date on or after `since` (YYYY-MM-DD, Eastern). Up to 3,000. */
+export async function closedWonSince(since: string, properties: string[]): Promise<{ id: string; properties: DealProps }[]> {
+  const from = String(etMidnightMs(since));
+  const props = [...new Set([...properties, "hs_is_closed_won", "closedate", "dealname"])];
+  const run = async (withWonFilter: boolean) => {
+    const out: { id: string; properties: DealProps }[] = [];
+    let after: string | undefined;
+    for (let page = 0; page < 30; page++) {
+      const filters = [{ propertyName: "closedate", operator: "GTE", value: from }, ...(withWonFilter ? [{ propertyName: "hs_is_closed_won", operator: "EQ", value: "true" }] : [])];
+      const res = await hs<SearchPage>("/crm/v3/objects/deals/search", {
+        method: "POST", body: JSON.stringify({ filterGroups: [{ filters }], properties: props, sorts: [{ propertyName: "closedate", direction: "ASCENDING" }], limit: 100, ...(after ? { after } : {}) })
+      });
+      out.push(...(res.results || []).map((r) => ({ id: String(r.id), properties: r.properties || {} })));
+      after = res.paging?.next?.after;
+      if (!after) break;
+    }
+    return out;
+  };
+  // Filtering on "is closed won" keeps the search small; if this portal won't filter on it, filter here instead
+  const all = await run(true).catch(() => run(false));
+  return all.filter((d) => d.properties.hs_is_closed_won === "true");
+}

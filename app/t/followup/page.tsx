@@ -15,7 +15,7 @@ export default async function Followup({ searchParams }: { searchParams: { b?: s
     <>
       <div className="mb-1 flex items-center gap-2">
         <Link prefetch={false} href="/t/past" className="grid h-10 w-10 place-items-center rounded-full hover:bg-mint-wash" aria-label="Back"><ChevronLeft /></Link>
-        <h1 className="text-[30px] font-extrabold">Follow-up session</h1>
+        <h1 className="text-h1 font-extrabold">Follow-up session</h1>
       </div>
       <p className="mb-4 text-ink-soft">Log each follow-up session: the miles are added to your next payslip, and the team can see what you worked on.</p>
       <FollowupForm dogs={dogs} dog={searchParams.b} today={today} />

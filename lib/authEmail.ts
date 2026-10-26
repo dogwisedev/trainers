@@ -1,5 +1,5 @@
 import { userIdByEmail } from "./userLookup";
-import { dealContacts, readContacts } from "./hubspot";
+import { dealContacts, readContacts, readDeals } from "./hubspot";
 import { welcomeLink } from "./trainerSignin";
 import "server-only";
 import { serviceClient } from "./supabase";
@@ -16,12 +16,12 @@ const findUserId = (email: string) => userIdByEmail(email);
 function emailHtml(title: string, intro: string, button: string, link: string, footnote: string) {
   return `<div style="background:#f4f5f8;padding:24px 12px;font-family:Inter,Segoe UI,Roboto,Helvetica,Arial,sans-serif">
   <div style="max-width:520px;margin:0 auto;background:#ffffff;border-radius:18px;overflow:hidden;border:1px solid #E7E3F3">
-    <div style="height:6px;background:linear-gradient(90deg,#2A1971,#6B4FE0)"></div>
+    <div style="height:6px;background:linear-gradient(90deg,#281870,#6E4FE0)"></div>
     <div style="padding:26px 26px 22px">
       <img src="cid:dogwise-logo" alt="Dogwise Academy" width="140" style="display:block;height:auto">
-      <div style="font-size:22px;font-weight:800;color:#2A1971;margin-top:18px">${title}</div>
+      <div style="font-size:22px;font-weight:800;color:#281870;margin-top:18px">${title}</div>
       <p style="font-size:15px;line-height:1.6;color:#41395E;margin:8px 0 20px">${intro}</p>
-      <a href="${link}" style="display:inline-block;background:#2A1971;color:#ffffff;text-decoration:none;font-weight:700;padding:12px 22px;border-radius:10px">${button}</a>
+      <a href="${link}" style="display:inline-block;background:#281870;color:#ffffff;text-decoration:none;font-weight:700;padding:12px 22px;border-radius:10px">${button}</a>
       <p style="font-size:13px;line-height:1.6;color:#6B6880;margin:20px 0 0">${footnote}</p>
     </div>
   </div></div>`;
@@ -53,17 +53,23 @@ export async function sendInvite(email: string, name: string): Promise<{ userId:
   return { userId: data.user.id };
 }
 
-/** Email a sign-in link to someone who already has an account. Silent if they don't (so emails can't be probed). */
+/** Email a sign-in code (and link) to someone who already has an account. Silent if they don't (so emails can't be probed).
+ *  The 6-digit code is typed into the app itself, so it works inside the installed Home Screen app on iPhone,
+ *  which never receives email links (they always open in the browser). */
 export async function sendSignInLink(email: string): Promise<void> {
   if (!(await findUserId(email))) return;
   const { data, error } = await serviceClient().auth.admin.generateLink({ type: "magiclink", email });
   if (error || !data?.properties?.hashed_token) throw new Error(error?.message || "Couldn't create the sign-in link.");
   const link = `${site()}/auth/confirm?token_hash=${encodeURIComponent(data.properties.hashed_token)}&type=magiclink`;
+  const code = String(data.properties.email_otp || "").trim();
+  const codeBlock = code
+    ? `<div style="margin:0 0 18px;padding:14px 16px;background:#F0E8F8;border-radius:12px;text-align:center"><div style="font-size:13px;color:#5D5880;margin-bottom:4px">Your sign-in code</div><div style="font-size:32px;font-weight:800;letter-spacing:6px;color:#281870">${code}</div><div style="font-size:12px;color:#5D5880;margin-top:4px">Type it into the Dogwise app</div></div>`
+    : "";
   await sendMail({
-    to: email, subject: "Your Dogwise Academy sign-in link",
-    html: emailHtml("Sign in to Dogwise Academy", "Tap the button to sign in. It works in any browser or on your phone.", "Sign me in", link,
-      "This link works once and expires in an hour. Forgotten your password? Sign in with this link, then set a new one from the Password link in the menu."),
-    text: `Sign in to Dogwise Academy: ${link}\nThis link works once and expires in an hour.`,
+    to: email, subject: code ? `${code} is your Dogwise Academy sign-in code` : "Your Dogwise Academy sign-in link",
+    html: emailHtml("Sign in to Dogwise Academy", `${codeBlock}Or tap the button to sign in on this device.`, "Sign me in", link,
+      "The code and the button work once and expire in an hour. Only the newest email works. Forgotten your password? Sign in with the code, then set a new one from your profile."),
+    text: `${code ? `Your Dogwise Academy sign-in code: ${code}\nType it into the app.\n\n` : ""}Or sign in here: ${link}\nThis works once and expires in an hour.`,
     attachments: [logo]
   });
 }
@@ -88,21 +94,24 @@ export async function clientLoginLink(email: string, next: string): Promise<stri
   return `${site()}/auth/confirm?token_hash=${encodeURIComponent(data.properties.hashed_token)}&type=magiclink&next=${encodeURIComponent(next)}`;
 }
 
-/** The client's phone, from HubSpot (the deal's contact). */
-async function clientPhone(chatId: string): Promise<string | null> {
+/** The client's phone and the deal's first dog, from HubSpot (the snapshot the app keeps, else HubSpot itself). */
+async function clientDetails(chatId: string): Promise<{ phone: string | null; dog1: string | null }> {
   const sb = serviceClient();
   const { data: chat } = await sb.from("chats").select("deal_key").eq("id", chatId).maybeSingle();
   const deal = chat?.deal_key && /^\d+$/.test(chat.deal_key) ? chat.deal_key : null;
-  if (!deal) return null;
-  const { data: snap } = await sb.from("pretraining_deals").select("contact").eq("deal_id", deal).maybeSingle();
+  if (!deal) return { phone: null, dog1: null };
+  const { data: snap } = await sb.from("pretraining_deals").select("contact, deal").eq("deal_id", deal).maybeSingle();
+  let dog1 = String((snap?.deal as Record<string, string> | undefined)?.k9___dog_name || "").trim() || null;
   const fromSnap = String((snap?.contact as Record<string, string> | undefined)?.phone || "");
-  if (fromSnap.replace(/\D/g, "").length >= 4) return fromSnap;
+  if (fromSnap.replace(/\D/g, "").length >= 4 && dog1) return { phone: fromSnap, dog1 };
   try {
+    if (!dog1) dog1 = String((await readDeals([deal], ["k9___dog_name"])).get(deal)?.k9___dog_name || "").trim() || null;
+    if (fromSnap.replace(/\D/g, "").length >= 4) return { phone: fromSnap, dog1 };
     const ids = (await dealContacts([deal])).get(deal) || [];
     const contacts = await readContacts(ids, ["phone", "mobilephone"]);
-    for (const c of contacts.values()) { const ph = String(c.phone || c.mobilephone || ""); if (ph.replace(/\D/g, "").length >= 4) return ph; }
+    for (const c of contacts.values()) { const ph = String(c.phone || c.mobilephone || ""); if (ph.replace(/\D/g, "").length >= 4) return { phone: ph, dog1 }; }
   } catch { /* HubSpot unreachable: fall back below */ }
-  return null;
+  return { phone: null, dog1 };
 }
 /** The client's password: dog name + last 4 digits of their phone, all lowercase (sign-in ignores capitals), e.g. "steven2357". */
 const clientPassword = (dog: string, phone: string | null) => `${(dog.replace(/[^A-Za-z]/g, "") || "dog").toLowerCase().slice(0, 14)}${phone ? phone.replace(/\D/g, "").slice(-4) : String(Math.floor(1000 + Math.random() * 9000))}`;
@@ -112,24 +121,26 @@ const esc = (x: string) => x.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&l
 export async function sendChatInvite(opts: { email: string; clientName: string; title: string; trainerName: string; chatId: string }) {
   const first = (opts.clientName || "").split(" ")[0] || "there", dog = opts.title || "your dog";
   const link = welcomeLink(opts.email, `/c/${opts.chatId}`, 30);
-  // Password = dog's name + last 4 digits of the client's phone (set on every invite, so it's always the one in the latest email)
-  let password: string | null = null, fromPhone = false;
+  // Password = the FIRST dog's name (dog 1 on the HubSpot deal) + last 4 digits of the client's phone.
+  // One chat per deal, so a client with several dogs has one chat and one password. Set on every invite: always the one in the latest email.
+  let password: string | null = null, fromPhone = false, pwDog = dog.split("&")[0].trim();
   const id = await userIdByEmail(opts.email);
   if (id) {
-    const phone = await clientPhone(opts.chatId);
-    const pw = clientPassword(dog.split("&")[0].trim(), phone);
+    const d = await clientDetails(opts.chatId);
+    pwDog = d.dog1 || pwDog;
+    const pw = clientPassword(pwDog, d.phone);
     const { error } = await serviceClient().auth.admin.updateUserById(id, { password: pw });
-    if (!error) { password = pw; fromPhone = !!phone; }
+    if (!error) { password = pw; fromPhone = !!d.phone; }
   }
   const login = `${site()}/login`;
   await sendMail({
     to: opts.email, subject: `Welcome to ${dog}'s training chat`,
     html: emailHtml(`Welcome to ${esc(dog)}'s chat`,
       `Hi ${esc(first)}, this is your private chat for ${esc(dog)}'s training. ${opts.trainerName ? `${esc(opts.trainerName)} and ` : ""}the Dogwise team will post updates, photos and videos of ${esc(dog)} here, and you can message us any time.<br><br>
-      <b>How to use it:</b><br>1. Tap the button below. You're signed straight in.<br>2. Read the updates, and type in the box at the bottom to message us.<br>3. Tap the paperclip to send a photo or video.<br>4. We'll email you whenever there's something new.`,
+      <b>How to use it:</b><br>1. Tap the button below. You're signed straight in.<br>2. Read the updates, and type in the box at the bottom to message us.<br>3. Tap the paperclip to send a photo, video or PDF.<br>4. We'll email you whenever there's something new.`,
       `Open ${esc(dog)}'s chat`, link,
       `The button works for 30 days. You can also sign in any time at <a href="${login}">${login.replace(/^https?:\/\//, "")}</a>:<br>
-      <b>Email:</b> ${esc(opts.email)}<br>${password ? `<b>Password:</b> <span style="font-size:17px;font-weight:700;color:#2A1971">${password}</span><br><span style="font-size:12px">${fromPhone ? `That's ${esc(dog.split("&")[0].trim())}'s name and the last 4 digits of your phone number. ` : ""}Capital letters don't matter.</span><br>` : "<b>Password:</b> leave it empty and we'll email you a sign-in link.<br>"}
+      <b>Email:</b> ${esc(opts.email)}<br>${password ? `<b>Password:</b> <span style="font-size:17px;font-weight:700;color:#281870">${password}</span><br><span style="font-size:12px">${fromPhone ? `That's ${esc(pwDog)}'s name and the last 4 digits of your phone number. ` : ""}Capital letters don't matter.</span><br>` : "<b>Password:</b> leave it empty and we'll email you a sign-in link.<br>"}
       Tip: on your phone, add the page to your Home Screen so ${esc(dog)}'s chat is one tap away.`),
     text: `Hi ${first}, welcome to ${dog}'s training chat.\nOpen it: ${link}\n(works for 30 days)\n\nOr sign in any time at ${login}\nEmail: ${opts.email}\n${password ? `Password: ${password}` : "Password: the one you set before"}\n`,
     attachments: [logo]

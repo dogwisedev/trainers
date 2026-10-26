@@ -10,7 +10,7 @@ import type { IncidentRow } from "@/lib/chatData";
 
 const TONE = {
   trainer_silent: "heart", client_waiting: "heart", client_pileup: "heart", reopened: "biscuit", ready_to_close: "line",
-  intake_media_missing: "biscuit", handover_photo_missing: "biscuit", overbooked: "heart", length_changed: "heart", booking_cancelled: "heart", hubspot_problem: "biscuit", not_ready: "heart", check_vaccines: "biscuit", trainer_report: "heart"
+  intake_media_missing: "biscuit", handover_photo_missing: "biscuit", overbooked: "heart", length_changed: "heart", booking_cancelled: "heart", hubspot_problem: "biscuit", not_ready: "heart", check_vaccines: "biscuit", trainer_report: "heart", deal_not_booked: "biscuit"
 } as const;
 /** Dog, client and trainer, from the chat or else the booking. */
 const who = (i: IncidentRow) => ({
@@ -46,9 +46,9 @@ export function IncidentList({ incidents, resolved }: { incidents: IncidentRow[]
     <div className="space-y-3">
       {!resolved && closable.length > 1 && (
         <div className="panel flex flex-wrap items-center justify-between gap-3 p-3.5">
-          <p className="text-[14px]"><b>{closable.length} chats</b> have been quiet for 2 months and have no dog in care.</p>
-          <button type="button" className="btn-ink h-10 min-h-0 px-3.5 text-[14px]" disabled={!!bulk && !bulk.error && bulk.done < bulk.total} onClick={closeAll}>{bulk && !bulk.error && bulk.done < bulk.total ? `Closing ${bulk.done + 1} of ${bulk.total}…` : `Close all ${closable.length}`}</button>
-          {bulk?.error && <p role="alert" className="w-full text-[13px] text-heart">Stopped after {bulk.done}: {bulk.error}</p>}
+          <p className="text-body"><b>{closable.length} chats</b> have been quiet for 2 months and have no dog in care.</p>
+          <button type="button" className="btn-ink h-10 min-h-0 px-3.5 text-body" disabled={!!bulk && !bulk.error && bulk.done < bulk.total} onClick={closeAll}>{bulk && !bulk.error && bulk.done < bulk.total ? `Closing ${bulk.done + 1} of ${bulk.total}…` : `Close all ${closable.length}`}</button>
+          {bulk?.error && <p role="alert" className="w-full text-small text-heart">Stopped after {bulk.done}: {bulk.error}</p>}
         </div>
       )}
       <ul className="space-y-2.5">
@@ -57,29 +57,29 @@ export function IncidentList({ incidents, resolved }: { incidents: IncidentRow[]
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
                 <p className="font-bold">{who(i).dog} <span className="font-normal text-ink-soft">{who(i).rest}</span></p>
-                <p className="mt-0.5 text-[14px]">{i.detail}</p>
+                <p className="mt-0.5 text-body">{i.detail}</p>
               </div>
-              <div className="flex shrink-0 flex-col items-end gap-1"><Pill tone={TONE[i.kind]}>{INCIDENT_LABEL[i.kind]}</Pill><span className="text-[12px] text-ink-faint">{timeAgo(i.opened_at)}</span></div>
+              <div className="flex shrink-0 flex-col items-end gap-1"><Pill tone={TONE[i.kind]}>{INCIDENT_LABEL[i.kind]}</Pill><span className="text-caption text-ink-faint">{timeAgo(i.opened_at)}</span></div>
             </div>
-            {i.status === "taken" && <p className="mt-1.5 text-[13px] font-semibold text-fern">{i.taken_by} is on it</p>}
-            {i.status === "resolved" && <p className="mt-1.5 text-[13px] text-ink-soft">Resolved {i.resolved_at ? timeAgo(i.resolved_at) : ""} by {i.resolved_by}{i.resolved_note ? `: ${i.resolved_note}` : ""}</p>}
-            {msg[i.id] && <p role="status" className="mt-2 rounded-xl bg-paper px-3 py-2 text-[13px]">{msg[i.id]}</p>}
+            {i.status === "taken" && <p className="mt-1.5 text-small font-semibold text-fern">{i.taken_by} is on it</p>}
+            {i.status === "resolved" && <p className="mt-1.5 text-small text-ink-soft">Resolved {i.resolved_at ? timeAgo(i.resolved_at) : ""} by {i.resolved_by}{i.resolved_note ? `: ${i.resolved_note}` : ""}</p>}
+            {msg[i.id] && <p role="status" className="mt-2 rounded-xl bg-paper px-3 py-2 text-small">{msg[i.id]}</p>}
             {i.status !== "resolved" && (
               <div className="mt-3 flex flex-wrap items-center gap-2">
-                {i.chat_id && (i.kind === "not_ready" || i.kind === "check_vaccines") && <Link prefetch={false} href={`/a/chats/${i.chat_id}/profile${i.booking_id ? `?dog=${i.booking_id}` : ""}${i.kind === "check_vaccines" ? "#vaccines" : ""}`} className="btn-ink h-9 min-h-0 px-3 text-[13px]">{i.kind === "check_vaccines" ? "Check vaccines" : "Open checklist"}</Link>}
-                {i.chat_id && <Link prefetch={false} href={`/a/chats/${i.chat_id}`} className={`${i.kind === "not_ready" || i.kind === "check_vaccines" ? "btn-ghost" : "btn-ink"} h-9 min-h-0 px-3 text-[13px]`}>Open chat</Link>}
-                {i.report_id && <Link prefetch={false} href={`/a/reports/${i.report_id}`} className={`${i.chat_id ? "btn-ghost" : "btn-ink"} h-9 min-h-0 px-3 text-[13px]`}>Open report</Link>}
-                {!i.report_id && i.booking?.trainer_id && <Link prefetch={false} href={`/a/trainers/${i.booking.trainer_id}`} className={`${i.chat_id ? "btn-ghost" : "btn-ink"} h-9 min-h-0 px-3 text-[13px]`}>Open booking</Link>}
-                {i.status === "open" && <button type="button" className="btn-ghost h-9 min-h-0 px-3 text-[13px]" disabled={pending} onClick={() => start(async () => { await takeIncidentAction(i.id); router.refresh(); })}>I&apos;ll take it</button>}
-                {i.kind === "ready_to_close" && <button type="button" className="btn-ghost h-9 min-h-0 px-3 text-[13px]" disabled={pending} onClick={() => closeOne(i)}>{pending ? "Closing…" : "Close chat"}</button>}
-                <button type="button" className="ml-auto text-[13px] font-semibold underline" onClick={() => setOpen(open === i.id ? null : i.id)}>Resolve</button>
+                {i.chat_id && (i.kind === "not_ready" || i.kind === "check_vaccines") && <Link prefetch={false} href={`/a/chats/${i.chat_id}/profile${i.booking_id ? `?dog=${i.booking_id}` : ""}${i.kind === "check_vaccines" ? "#vaccines" : ""}`} className="btn-ink h-9 min-h-0 px-3 text-small">{i.kind === "check_vaccines" ? "Check vaccines" : "Open checklist"}</Link>}
+                {i.chat_id && <Link prefetch={false} href={`/a/chats/${i.chat_id}`} className={`${i.kind === "not_ready" || i.kind === "check_vaccines" ? "btn-ghost" : "btn-ink"} h-9 min-h-0 px-3 text-small`}>Open chat</Link>}
+                {i.report_id && <Link prefetch={false} href={`/a/reports/${i.report_id}`} className={`${i.chat_id ? "btn-ghost" : "btn-ink"} h-9 min-h-0 px-3 text-small`}>Open report</Link>}
+                {!i.report_id && i.booking?.trainer_id && <Link prefetch={false} href={`/a/trainers/${i.booking.trainer_id}`} className={`${i.chat_id ? "btn-ghost" : "btn-ink"} h-9 min-h-0 px-3 text-small`}>Open booking</Link>}
+                {i.status === "open" && <button type="button" className="btn-ghost h-9 min-h-0 px-3 text-small" disabled={pending} onClick={() => start(async () => { await takeIncidentAction(i.id); router.refresh(); })}>I&apos;ll take it</button>}
+                {i.kind === "ready_to_close" && <button type="button" className="btn-ghost h-9 min-h-0 px-3 text-small" disabled={pending} onClick={() => closeOne(i)}>{pending ? "Closing…" : "Close chat"}</button>}
+                <button type="button" className="ml-auto text-small font-semibold underline" onClick={() => setOpen(open === i.id ? null : i.id)}>Resolve</button>
               </div>
             )}
             {open === i.id && (
               <div className="mt-2 flex gap-2">
                 <label className="sr-only" htmlFor={`note-${i.id}`}>Note (optional)</label>
                 <input id={`note-${i.id}`} className="field flex-1 py-2" placeholder="What was done? (optional)" value={note[i.id] || ""} onChange={(e) => setNote((n) => ({ ...n, [i.id]: e.target.value }))} />
-                <button type="button" className="btn-ink h-11 min-h-0 px-3.5 text-[14px]" disabled={pending} onClick={() => start(async () => { await resolveIncidentAction(i.id, note[i.id] || ""); setOpen(null); router.refresh(); })}>Done</button>
+                <button type="button" className="btn-ink h-11 min-h-0 px-3.5 text-body" disabled={pending} onClick={() => start(async () => { await resolveIncidentAction(i.id, note[i.id] || ""); setOpen(null); router.refresh(); })}>Done</button>
               </div>
             )}
           </li>

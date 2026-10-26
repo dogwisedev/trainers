@@ -18,19 +18,19 @@ export function BookingHistory({ rows, role, showTrainer = true, ready = {} }: {
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div className="min-w-0">
                 <p className="font-bold">{role === "admin" ? <Link prefetch={false} href={`/a/dogs/${b.id}`} className="hover:underline">{b.dog_name || "Dog"}</Link> : b.dog_name || "Dog"} <span className="font-normal text-ink-soft">{b.client_name}{showTrainer && b.trainers?.name ? `, ${b.trainers.name}` : ""}</span></p>
-                <p className="text-[13px] text-ink-soft">{range(b.start_date, b.end_date)}, {b.program || `${b.weeks}-week`}{b.extra_days ? ` + ${b.extra_days} day${b.extra_days > 1 ? "s" : ""}` : ""}{b.rehab ? ", rehab" : ""}</p>
+                <p className="text-small text-ink-soft">{range(b.start_date, b.end_date)}, {b.program || `${b.weeks}-week`}{b.extra_days ? ` + ${b.extra_days} day${b.extra_days > 1 ? "s" : ""}` : ""}{b.rehab ? ", rehab" : ""}</p>
               </div>
               <div className="flex items-center gap-1.5">
                 {ready[b.id] && <Pill tone={ready[b.id].missing ? "heart" : "mint"}>{ready[b.id].missing ? `${ready[b.id].missing} missing` : ready[b.id].cleared ? "OK to start" : "Ready"}</Pill>}
                 {b.status === "cancelled" && <Pill tone="heart">Cancelled</Pill>}
               </div>
             </div>
-            <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[13px]">
-              {role === "admin" && <Link prefetch={false} href={`/a/dogs/${b.id}`} className="btn-ink h-8 min-h-0 px-2.5 text-[13px]">Open</Link>}
-              {role === "trainer" && chatOk && <Link prefetch={false} href={`${base}/chats/${b.chat!.id}`} className="btn-ghost h-8 min-h-0 px-2.5 text-[13px]">Chat{b.chat!.status === "closed" ? " (closed)" : ""}</Link>}
-              {role === "trainer" && b.chat && b.hubspot_deal_id && <Link prefetch={false} href={`${base}/chats/${b.chat.id}/profile?dog=${b.id}`} className="btn-ghost h-8 min-h-0 px-2.5 text-[13px]">Dog profile</Link>}
-              {role === "trainer" && b.status !== "cancelled" && b.hubspot_deal_id && <Link prefetch={false} href={`/t/followups/${b.id}`} className="btn-ghost h-8 min-h-0 px-2.5 text-[13px]">Book follow-ups</Link>}
-              {role === "trainer" && b.status !== "cancelled" && <Link prefetch={false} href={`/t/followup?b=${b.id}`} className="btn-ghost h-8 min-h-0 px-2.5 text-[13px]">Log follow-up</Link>}
+            <div className="mt-2 flex flex-wrap items-center gap-1.5 text-small">
+              {role === "admin" && <Link prefetch={false} href={`/a/dogs/${b.id}`} className="btn-ink h-8 min-h-0 px-2.5 text-small">Open</Link>}
+              {role === "trainer" && chatOk && <Link prefetch={false} href={`${base}/chats/${b.chat!.id}`} className="btn-ghost h-8 min-h-0 px-2.5 text-small">Chat{b.chat!.status === "closed" ? " (closed)" : ""}</Link>}
+              {role === "trainer" && b.chat && b.hubspot_deal_id && <Link prefetch={false} href={`${base}/chats/${b.chat.id}/profile?dog=${b.id}`} className="btn-ghost h-8 min-h-0 px-2.5 text-small">Dog profile</Link>}
+              {role === "trainer" && b.status !== "cancelled" && b.hubspot_deal_id && <Link prefetch={false} href={`/t/followups/${b.id}`} className="btn-ghost h-8 min-h-0 px-2.5 text-small">Book follow-ups</Link>}
+              {role === "trainer" && b.status !== "cancelled" && <Link prefetch={false} href={`/t/followup?b=${b.id}`} className="btn-ghost h-8 min-h-0 px-2.5 text-small">Log follow-up</Link>}
               {role === "trainer" && b.reports.map((r) => <Link key={r.id} prefetch={false} href={`${base}/reports/${r.id}`} className="rounded-full border border-line bg-white px-2.5 py-1 font-semibold hover:bg-mint-wash">{repLabel(r)}</Link>)}
               {role === "admin" && b.hubspot_deal_id && <a href={`https://app.hubspot.com/contacts/21869370/record/0-3/${b.hubspot_deal_id}`} target="_blank" rel="noopener" className="px-1 text-ink-soft underline">HubSpot</a>}
             </div>

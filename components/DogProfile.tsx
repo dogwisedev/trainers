@@ -44,29 +44,29 @@ export function DogProfile({ chatId, role, edit, open, profile, dogId, base, dog
       {many && (
         <nav className="flex flex-wrap gap-2" aria-label="Dogs">
           {profile.dogs.map((d) => (
-            <Link key={d.booking.id} prefetch={false} href={dogLink ? dogLink.replace("{id}", d.booking.id) : `${base}?dog=${d.booking.id}`} className={`rounded-full px-3.5 py-1.5 text-[14px] font-semibold ${d.booking.id === dog.booking.id ? "bg-ink text-white" : "border border-line bg-white"}`}>
-              {d.name} {!d.ready.ready && <span className="ml-1 rounded-full bg-heart px-1.5 text-[11px] text-white">{d.ready.missing.filter((i) => role !== "client" || i.who === "client").length}</span>}
+            <Link key={d.booking.id} prefetch={false} href={dogLink ? dogLink.replace("{id}", d.booking.id) : `${base}?dog=${d.booking.id}`} className={`rounded-full px-3.5 py-1.5 text-body font-semibold ${d.booking.id === dog.booking.id ? "bg-ink text-white" : "border border-line bg-white"}`}>
+              {d.name} {!d.ready.ready && <span className="ml-1 rounded-full bg-heart px-1.5 text-micro text-white">{d.ready.missing.filter((i) => role !== "client" || i.who === "client").length}</span>}
             </Link>
           ))}
         </nav>
       )}
 
       <section className={`panel p-4 ${left.length ? "" : "border-fern bg-mint-wash"}`} aria-labelledby="ready-title">
-        <h2 id="ready-title" className="text-[18px] font-extrabold">{left.length ? `${left.length} thing${left.length > 1 ? "s" : ""} left before training` : `${dog.name} is ready for training`}</h2>
-        {dog.cleared && role !== "client" && <p className="text-[13px] font-semibold text-fern">Marked OK to start by {dog.cleared.by}{dog.cleared.at ? `, ${when(dog.cleared.at)}` : ""}. The client isn&apos;t asked for anything more.</p>}
-        <p className="mb-3 text-[13px] text-ink-soft">{dog.name} starts {new Date(`${dog.booking.start_date}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" })}{role !== "client" && dog.booking.trainers?.name ? ` with ${dog.booking.trainers.name}` : ""}.</p>
+        <h2 id="ready-title" className="text-lead font-extrabold">{left.length ? `${left.length} thing${left.length > 1 ? "s" : ""} left before training` : `${dog.name} is ready for training`}</h2>
+        {dog.cleared && role !== "client" && <p className="text-small font-semibold text-fern">Marked OK to start by {dog.cleared.by}{dog.cleared.at ? `, ${when(dog.cleared.at)}` : ""}. The client isn&apos;t asked for anything more.</p>}
+        <p className="mb-3 text-small text-ink-soft">{dog.name} starts {new Date(`${dog.booking.start_date}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" })}{role !== "client" && dog.booking.trainers?.name ? ` with ${dog.booking.trainers.name}` : ""}.</p>
         <ul className="space-y-1.5">
           {items.map((i) => (
-            <li key={i.key} className="flex items-start gap-2 text-[15px]">
+            <li key={i.key} className="flex items-start gap-2 text-body">
               {i.done ? <Check size={18} className="mt-0.5 shrink-0 text-fern" aria-label="Done" /> : <Circle size={18} className={`mt-0.5 shrink-0 ${dog.cleared ? "text-ink-faint" : "text-heart"}`} aria-label={dog.cleared ? "Not needed" : "To do"} />}
-              <span>{i.section && !i.done ? <a href={`#${i.section}`} className="font-semibold underline">{i.label}</a> : <span className={i.done ? "text-ink-soft" : "font-semibold"}>{i.label}</span>}{i.detail && <span className="text-ink-soft">: {i.detail}</span>}{role !== "client" && i.who === "admin" && <span className="text-[12px] text-ink-faint"> (team)</span>}</span>
+              <span>{i.section && !i.done ? <a href={`#${i.section}`} className="font-semibold underline">{i.label}</a> : <span className={i.done ? "text-ink-soft" : "font-semibold"}>{i.label}</span>}{i.detail && <span className="text-ink-soft">: {i.detail}</span>}{role !== "client" && i.who === "admin" && <span className="text-caption text-ink-faint"> (team)</span>}</span>
             </li>
           ))}
         </ul>
         {profile.balanceLink && (role === "client"
           ? <a href={profile.balanceLink} target="_blank" rel="noopener" className="btn-ink mt-4 w-full"><CreditCard size={18} />Pay the remaining balance</a>
-          : <p className="mt-3 text-[13px] text-ink-soft">Balance link: <a href={profile.balanceLink} target="_blank" rel="noopener" className="underline">open</a> (clears when the link is removed in HubSpot)</p>)}
-        {role === "trainer" && dog.changedSinceStart && <p className="mt-3 rounded-xl bg-biscuit-wash p-2.5 text-[13px] font-semibold text-[#8A5A00]">The client changed some answers after pickup: look for &ldquo;updated&rdquo; below.</p>}
+          : <p className="mt-3 text-small text-ink-soft">Balance link: <a href={profile.balanceLink} target="_blank" rel="noopener" className="underline">open</a> (clears when the link is removed in HubSpot)</p>)}
+        {role === "trainer" && dog.changedSinceStart && <p className="mt-3 rounded-xl bg-biscuit-wash p-2.5 text-small font-semibold text-warn">The client changed some answers after pickup: look for &ldquo;updated&rdquo; below.</p>}
       </section>
 
       {role === "admin" && <AdminBits chatId={chatId} profile={profile} dog={dog} />}
@@ -77,7 +77,7 @@ export function DogProfile({ chatId, role, edit, open, profile, dogId, base, dog
       {SECTIONS.map((s) => (
         <SectionCard key={s.id} chatId={chatId} bookingId={dog.booking.id} section={s} answers={answersFor(s)} defs={profile.defs} edit={edit && open} changes={dog.changes} shared={many && s.scope === "client"} role={role} />
       ))}
-      {role === "client" && <p className="text-center text-[13px] text-ink-faint">Questions? Ask in the chat, or email info@dogwiseacademy.com.</p>}
+      {role === "client" && <p className="text-center text-small text-ink-faint">Questions? Ask in the chat, or email info@dogwiseacademy.com.</p>}
     </div>
   );
 }
@@ -93,7 +93,7 @@ function ClearButton({ chatId, bookingId, cleared }: { chatId: string; bookingId
   return (
     <div className="flex flex-wrap items-center gap-2">
       <button type="button" className={cleared ? "btn-ghost" : "btn-ink"} disabled={pending} onClick={click}>{cleared ? "Undo OK to start" : "OK to start: stop asking the client"}</button>
-      {msg && <span role="status" className="text-[13px] font-semibold">{msg}</span>}
+      {msg && <span role="status" className="text-small font-semibold">{msg}</span>}
     </div>
   );
 }
@@ -107,17 +107,17 @@ function AdminBits({ chatId, profile, dog }: { chatId: string; profile: Profile;
   const all = { ...dog.answers, ...profile.client };
   const intakeLost = contacts.length <= 1 && MANAGER_QS().some((q) => !blank(dog.answers[q.key])) && INTAKE_QS().filter((q) => q.key !== "phone").every((q) => blank(all[q.key]));
   return (
-    <section className="panel space-y-2 p-4 text-[13px] text-ink-soft">
+    <section className="panel space-y-2 p-4 text-small text-ink-soft">
       <p>
         {profile.syncedAt ? `From HubSpot, checked ${new Date(profile.syncedAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}.` : "Not read from HubSpot yet."}
         {" "}<a className="underline" href={`https://app.hubspot.com/contacts/21869370/record/0-3/${profile.dealId}`} target="_blank" rel="noopener">Deal</a>
         {profile.contactId && <> · <a className="underline" href={`https://app.hubspot.com/contacts/21869370/record/0-1/${profile.contactId}`} target="_blank" rel="noopener">Contact</a></>}
       </p>
       {contacts.length > 1 && (
-        <p className="font-semibold text-[#8A5A00]">This deal has {contacts.length} contacts in HubSpot ({contacts.map((id, i) => <span key={id}>{i ? ", " : ""}<a className="underline" href={`https://app.hubspot.com/contacts/21869370/record/0-1/${id}`} target="_blank" rel="noopener">{id}</a></span>)}). The app fills gaps from all of them, but please merge them in HubSpot.</p>
+        <p className="font-semibold text-warn">This deal has {contacts.length} contacts in HubSpot ({contacts.map((id, i) => <span key={id}>{i ? ", " : ""}<a className="underline" href={`https://app.hubspot.com/contacts/21869370/record/0-1/${id}`} target="_blank" rel="noopener">{id}</a></span>)}). The app fills gaps from all of them, but please merge them in HubSpot.</p>
       )}
       {intakeLost && (
-        <p className="font-semibold text-[#8A5A00]">The Client manager answers are here but none of the intake answers. The intake form was probably submitted without the client&apos;s email, so HubSpot made a second contact. Search HubSpot for {dog.booking.client_name} and merge that contact into this one: the answers then show here within 30 minutes.</p>
+        <p className="font-semibold text-warn">The Client manager answers are here but none of the intake answers. The intake form was probably submitted without the client&apos;s email, so HubSpot made a second contact. Search HubSpot for {dog.booking.client_name} and merge that contact into this one: the answers then show here within 30 minutes.</p>
       )}
       {profile.syncError && <p className="font-semibold text-heart">{profile.syncError}{profile.pendingCount ? ` (${profile.pendingCount} answer${profile.pendingCount > 1 ? "s" : ""} waiting)` : ""}</p>}
       {profile.dogs.length > 1 && (
@@ -158,14 +158,14 @@ function Vaccines({ chatId, role, edit, dog, dealYes }: { chatId: string; role: 
   return (
     <section id="vaccines" className="panel p-4">
       <div className="mb-2 flex items-center justify-between gap-2">
-        <h2 className="text-[17px] font-extrabold">Vaccines</h2>
+        <h2 className="text-lead font-extrabold">Vaccines</h2>
         <Pill tone={dog.vaccine.ok ? "mint" : "heart"}>{dog.vaccine.ok ? "Approved" : "Not approved yet"}</Pill>
       </div>
-      <p className="text-[14px] text-ink-soft">{dog.vaccine.label}{dog.vaccines.reviewedBy && role === "admin" ? ` (checked by ${dog.vaccines.reviewedBy}${dog.vaccines.reviewedAt ? `, ${when(dog.vaccines.reviewedAt)}` : ""})` : ""}{dog.vaccine.ok && /^(yes|true)$/i.test(String(dealYes || "")) && !dog.vaccines.status && role === "admin" ? " (ticked in HubSpot)" : ""}</p>
+      <p className="text-body text-ink-soft">{dog.vaccine.label}{dog.vaccines.reviewedBy && role === "admin" ? ` (checked by ${dog.vaccines.reviewedBy}${dog.vaccines.reviewedAt ? `, ${when(dog.vaccines.reviewedAt)}` : ""})` : ""}{dog.vaccine.ok && /^(yes|true)$/i.test(String(dealYes || "")) && !dog.vaccines.status && role === "admin" ? " (ticked in HubSpot)" : ""}</p>
       {dog.files.length > 0 && (
         <ul className="mt-2 space-y-1">
           {dog.files.map((f) => (
-            <li key={f.id}><a href={f.source === "hubspot" ? f.id : driveView(f.id)} target="_blank" rel="noopener" className="inline-flex items-center gap-1.5 text-[14px] font-semibold underline"><FileText size={15} />{f.name}</a>{f.at && <span className="text-[12px] text-ink-faint"> {when(f.at)}{role !== "client" ? `, ${f.by}` : ""}</span>}</li>
+            <li key={f.id}><a href={f.source === "hubspot" ? f.id : driveView(f.id)} target="_blank" rel="noopener" className="inline-flex items-center gap-1.5 text-body font-semibold underline"><FileText size={15} />{f.name}</a>{f.at && <span className="text-caption text-ink-faint"> {when(f.at)}{role !== "client" ? `, ${f.by}` : ""}</span>}</li>
           ))}
         </ul>
       )}
@@ -173,25 +173,25 @@ function Vaccines({ chatId, role, edit, dog, dealYes }: { chatId: string; role: 
         <div className="mt-3">
           <input ref={file} type="file" accept="image/*,application/pdf" className="sr-only" onChange={(e) => { const f = e.target.files?.[0]; if (f) upload(f); e.target.value = ""; }} />
           <button type="button" className="btn-ghost" disabled={!!busy} onClick={() => file.current?.click()}><Upload size={16} />{busy || (dog.files.length ? "Upload another record" : "Upload the vaccine record")}</button>
-          {role === "client" && !dog.vaccine.ok && <p className="mt-1.5 text-[12px] text-ink-faint">A photo or PDF from your vet showing DHLPP, Bordetella and Rabies.</p>}
+          {role === "client" && !dog.vaccine.ok && <p className="mt-1.5 text-caption text-ink-faint">A photo or PDF from your vet showing DHLPP, Bordetella and Rabies.</p>}
         </div>
       )}
       {role === "admin" && (
         <div className="mt-4 rounded-xl bg-paper p-3">
-          <p className="mb-2 text-[13px] font-semibold">Check the records</p>
+          <p className="mb-2 text-small font-semibold">Check the records</p>
           <div className="mb-3 flex flex-wrap gap-3">
             {VACCINES.map((v) => (
-              <label key={v} className="flex items-center gap-1.5 text-[14px]"><input type="checkbox" checked={miss.includes(v)} onChange={(e) => setMiss((m) => (e.target.checked ? [...m, v] : m.filter((x) => x !== v)))} />{v} missing</label>
+              <label key={v} className="flex items-center gap-1.5 text-body"><input type="checkbox" checked={miss.includes(v)} onChange={(e) => setMiss((m) => (e.target.checked ? [...m, v] : m.filter((x) => x !== v)))} />{v} missing</label>
             ))}
           </div>
           <div className="flex flex-wrap gap-2">
             <button type="button" className="btn-ink" disabled={pending} onClick={() => review(true)}>All OK</button>
             <button type="button" className="btn-ghost" disabled={pending || !miss.length} onClick={() => review(false)}>Save as missing</button>
           </div>
-          <p className="mt-2 text-[12px] text-ink-faint">Updates &ldquo;Vaccines in order?&rdquo; and &ldquo;Missing vaccines&rdquo; on the HubSpot deal. A trainer allowing no rabies: just press All OK.</p>
+          <p className="mt-2 text-caption text-ink-faint">Updates &ldquo;Vaccines in order?&rdquo; and &ldquo;Missing vaccines&rdquo; on the HubSpot deal. A trainer allowing no rabies: just press All OK.</p>
         </div>
       )}
-      {msg && <p role="status" className="mt-2 text-[13px] font-semibold">{msg}</p>}
+      {msg && <p role="status" className="mt-2 text-small font-semibold">{msg}</p>}
     </section>
   );
 }
@@ -216,10 +216,10 @@ function SectionCard({ chatId, bookingId, section, answers, defs, edit, changes,
   return (
     <section id={section.id} className="panel p-4" aria-labelledby={`${section.id}-title`}>
       <div className="mb-3 flex items-center justify-between gap-2">
-        <h2 id={`${section.id}-title`} className="text-[17px] font-extrabold">{section.title}{shared && <span className="ml-1.5 text-[12px] font-normal text-ink-faint">{role === "client" ? "(for all your dogs)" : "(same for every dog on the deal)"}</span>}</h2>
+        <h2 id={`${section.id}-title`} className="text-lead font-extrabold">{section.title}{shared && <span className="ml-1.5 text-caption font-normal text-ink-faint">{role === "client" ? "(for all your dogs)" : "(same for every dog on the deal)"}</span>}</h2>
         <div className="flex items-center gap-2">
           {left > 0 && <Pill tone="heart">{left} to answer</Pill>}
-          {edit && !editing && <button type="button" className="btn-ghost h-9 min-h-0 px-3 text-[13px]" onClick={() => { setVals(answers); setEditing(true); setMsg(""); }}><Pencil size={14} />{left ? "Answer" : "Edit"}</button>}
+          {edit && !editing && <button type="button" className="btn-ghost h-9 min-h-0 px-3 text-small" onClick={() => { setVals(answers); setEditing(true); setMsg(""); }}><Pencil size={14} />{left ? "Answer" : "Edit"}</button>}
         </div>
       </div>
       {editing ? (
@@ -236,14 +236,14 @@ function SectionCard({ chatId, bookingId, section, answers, defs, edit, changes,
             const v = shown(q, defs[q.key], answers[q.key] || ""), c = changes[q.key];
             return (
               <div key={q.key}>
-                <dt className="text-[13px] text-ink-soft">{q.label}{q.required && !v && <span className="text-heart"> *</span>}</dt>
-                <dd className={`whitespace-pre-wrap text-[15px] ${v ? "" : "text-ink-faint"}`}>{v || "Not answered"}{c && role !== "client" && <span className="ml-1.5 text-[11px] font-semibold text-[#8A5A00]">updated by {c.by}, {when(c.at)}</span>}</dd>
+                <dt className="text-small text-ink-soft">{q.label}{q.required && !v && <span className="text-heart"> *</span>}</dt>
+                <dd className={`whitespace-pre-wrap text-body ${v ? "" : "text-ink-faint"}`}>{v || "Not answered"}{c && role !== "client" && <span className="ml-1.5 text-micro font-semibold text-warn">updated by {c.by}, {when(c.at)}</span>}</dd>
               </div>
             );
           })}
         </dl>
       )}
-      {msg && <p role="status" className="mt-2 text-[13px] font-semibold">{msg}</p>}
+      {msg && <p role="status" className="mt-2 text-small font-semibold">{msg}</p>}
     </section>
   );
 }
@@ -251,7 +251,7 @@ function SectionCard({ chatId, bookingId, section, answers, defs, edit, changes,
 function Field({ q, d, value, onChange }: { q: Q; d: Def; value: string; onChange: (v: string) => void }) {
   const id = `f-${q.key}`;
   if (q.key === "signature" && d?.type === "bool") q = { ...q, label: "I agree to the Terms & Conditions", input: "yesno" }; // HubSpot may store it as a tick box
-  const label = <label htmlFor={id} className="label">{q.label}{q.required && <span className="text-heart"> *</span>}{q.hint && <span className="block text-[12px] font-normal text-ink-faint">{q.hint}</span>}</label>;
+  const label = <label htmlFor={id} className="label">{q.label}{q.required && <span className="text-heart"> *</span>}{q.hint && <span className="block text-caption font-normal text-ink-faint">{q.hint}</span>}</label>;
   if (isMulti(q, d)) {
     const chosen = value ? value.split(";").filter(Boolean) : [], max = q.key.startsWith("what_are_the_most_important") ? 4 : 99;
     return (
@@ -260,10 +260,10 @@ function Field({ q, d, value, onChange }: { q: Q; d: Def; value: string; onChang
         <div className="flex flex-wrap gap-2">
           {optionsOf(q, d).map((o) => {
             const on = chosen.includes(o.value), full = !on && chosen.length >= max;
-            return <label key={o.value} className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[14px] ${on ? "border-ink bg-mint" : "border-line bg-white"} ${full ? "opacity-40" : ""}`}><input type="checkbox" className="sr-only" checked={on} disabled={full} onChange={() => onChange((on ? chosen.filter((x) => x !== o.value) : [...chosen, o.value]).join(";"))} />{o.label}</label>;
+            return <label key={o.value} className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-body ${on ? "border-ink bg-mint" : "border-line bg-white"} ${full ? "opacity-40" : ""}`}><input type="checkbox" className="sr-only" checked={on} disabled={full} onChange={() => onChange((on ? chosen.filter((x) => x !== o.value) : [...chosen, o.value]).join(";"))} />{o.label}</label>;
           })}
         </div>
-        {max < 99 && <p className="mt-1 text-[12px] text-ink-faint">Pick up to {max}.</p>}
+        {max < 99 && <p className="mt-1 text-caption text-ink-faint">Pick up to {max}.</p>}
       </fieldset>
     );
   }
@@ -274,7 +274,7 @@ function Field({ q, d, value, onChange }: { q: Q; d: Def; value: string; onChang
         <fieldset>
           <legend className="label">{q.label}{q.required && <span className="text-heart"> *</span>}</legend>
           <div className="flex flex-wrap gap-2">
-            {opts.map((o) => <label key={o.value} className={`rounded-full border px-3.5 py-1.5 text-[14px] ${value === o.value ? "border-ink bg-mint font-semibold" : "border-line bg-white"}`}><input type="radio" className="sr-only" name={id} checked={value === o.value} onChange={() => onChange(o.value)} />{o.label}</label>)}
+            {opts.map((o) => <label key={o.value} className={`rounded-full border px-3.5 py-1.5 text-body ${value === o.value ? "border-ink bg-mint font-semibold" : "border-line bg-white"}`}><input type="radio" className="sr-only" name={id} checked={value === o.value} onChange={() => onChange(o.value)} />{o.label}</label>)}
           </div>
         </fieldset>
       );

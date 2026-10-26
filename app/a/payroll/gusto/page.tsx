@@ -31,7 +31,7 @@ export default async function Gusto({ searchParams }: { searchParams: { run?: st
     <>
       <div className="mb-1 flex items-center gap-2">
         <Link prefetch={false} href="/a/trainers?view=pay" className="grid h-10 w-10 place-items-center rounded-full hover:bg-mint-wash" aria-label="Back"><ChevronLeft /></Link>
-        <h1 className="text-[28px] font-extrabold leading-tight">Gusto list</h1>
+        <h1 className="text-h1 font-extrabold leading-tight">Gusto list</h1>
       </div>
       <p className="mb-4 text-ink-soft">{periodLabel(run.period_start, run.period_end)}, paid Fri {usDate(run.paid_date)}. Approved payslips only, sorted by surname like Gusto.</p>
       <GustoFill run={run.submit_date} pay={approved.map((x) => ({ trainerId: x.trainerId, name: x.name, amount: x.total, code: x.code }))} others={others} payees={((payees || []) as { code: string; first_name: string | null; last_name: string | null; business_name: string | null }[]).map((p) => ({ code: p.code, first: p.first_name || "", last: p.last_name || "", business: p.business_name || "" }))} paidAt={run.gusto_paid_at} paidBy={run.gusto_paid_by} pending={pending} />

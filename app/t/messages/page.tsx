@@ -7,7 +7,7 @@ export default async function TrainerMessages() {
   const msgs = await listMessages(v.trainerId);
   return (
     <>
-      <h1 className="text-[30px] font-extrabold">Dogwise team</h1>
+      <h1 className="text-h1 font-extrabold">Dogwise team</h1>
       <p className="mb-5 mt-1 text-ink-soft">Questions about a dog, pickups or your calendar. The team sees this straight away.</p>
       <MessageThread trainerId={v.trainerId} initial={msgs} me="trainer" otherName="the Dogwise team" />
     </>

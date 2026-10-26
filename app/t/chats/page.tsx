@@ -18,7 +18,7 @@ export default async function TrainerChats({ searchParams }: { searchParams: { q
   const placed = orderChats(shown, await chatSpans(shown.map((c) => c.deal_key)), etParts(new Date()).date);
   return (
     <>
-      <h1 className="text-[30px] font-extrabold">Chats</h1>
+      <h1 className="text-h1 font-extrabold">Chats</h1>
       <p className="mb-4 mt-1 text-ink-soft">Message each client about their dog. Share a photo or video update at least once a day.</p>
       <ul className="panel mb-4 divide-y divide-line">
         <li>
@@ -27,7 +27,7 @@ export default async function TrainerChats({ searchParams }: { searchParams: { q
               <Image src="/icons/mark.png" alt="" width={24} height={24} className="brightness-0 invert" />
               {team > 0 && <span className="absolute -right-0.5 -top-0.5 h-3 w-3 rounded-full border-2 border-white bg-heart" />}
             </span>
-            <div className="min-w-0 flex-1"><p className="font-bold">Dogwise team</p><p className="text-[13px] text-ink-soft">Questions about a dog, pickups or your calendar</p></div>
+            <div className="min-w-0 flex-1"><p className="font-bold">Dogwise team</p><p className="text-small text-ink-soft">Questions about a dog, pickups or your calendar</p></div>
           </Link>
         </li>
       </ul>

@@ -53,12 +53,12 @@ export function PushTroubleshoot() {
     <details className="panel mt-4 p-4" onToggle={(e) => { if ((e.target as HTMLDetailsElement).open && !log.length) status(); }}>
       <summary className="cursor-pointer font-bold">Notifications not arriving? Troubleshoot</summary>
       <div className="mt-3 flex flex-wrap gap-2">
-        <button type="button" className="btn-ghost h-9 min-h-0 px-3 text-[13px]" disabled={busy} onClick={() => run(async () => { await status(); })}>Check status</button>
-        <button type="button" className="btn-ghost h-9 min-h-0 px-3 text-[13px]" disabled={busy} onClick={local}>1. Show a notification here</button>
-        <button type="button" className="btn-ghost h-9 min-h-0 px-3 text-[13px]" disabled={busy} onClick={server}>2. Send one from the server</button>
-        <button type="button" className="btn-ghost h-9 min-h-0 px-3 text-[13px]" disabled={busy} onClick={reset}>3. Reset notifications on this phone</button>
+        <button type="button" className="btn-ghost h-9 min-h-0 px-3 text-small" disabled={busy} onClick={() => run(async () => { await status(); })}>Check status</button>
+        <button type="button" className="btn-ghost h-9 min-h-0 px-3 text-small" disabled={busy} onClick={local}>1. Show a notification here</button>
+        <button type="button" className="btn-ghost h-9 min-h-0 px-3 text-small" disabled={busy} onClick={server}>2. Send one from the server</button>
+        <button type="button" className="btn-ghost h-9 min-h-0 px-3 text-small" disabled={busy} onClick={reset}>3. Reset notifications on this phone</button>
       </div>
-      {log.length > 0 && <pre className="mt-3 whitespace-pre-wrap rounded-xl bg-paper p-3 text-[12px] leading-relaxed text-ink">{log.join("\n")}</pre>}
+      {log.length > 0 && <pre className="mt-3 whitespace-pre-wrap rounded-xl bg-paper p-3 text-caption leading-relaxed text-ink">{log.join("\n")}</pre>}
     </details>
   );
 }

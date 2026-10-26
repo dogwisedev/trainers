@@ -21,7 +21,7 @@ export function ChatFilters({ base, q, t, f, trainers, placeholder = "Search dog
       {trainers && (
         <>
           <label htmlFor="chat-trainer" className="sr-only">Trainer</label>
-          <select id="chat-trainer" className="field h-11 w-auto min-w-[150px] flex-none py-0 text-[14px]" value={t || ""} onChange={(e) => go({ t: e.target.value })}>
+          <select id="chat-trainer" className="field h-11 w-auto min-w-[150px] flex-none py-0 text-body" value={t || ""} onChange={(e) => go({ t: e.target.value })}>
             <option value="">All trainers</option>
             {trainers.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
           </select>
@@ -32,7 +32,7 @@ export function ChatFilters({ base, q, t, f, trainers, placeholder = "Search dog
         <input id="chat-search" type="search" className="field pr-10" placeholder={placeholder} value={text} onChange={(e) => setText(e.target.value)} />
         <button type="submit" className="absolute right-1 top-1/2 grid h-9 w-9 -translate-y-1/2 place-items-center rounded-full text-ink-soft" aria-label="Search"><Search size={17} /></button>
       </div>
-      {(q || t) && <button type="button" className="btn-ghost h-11 min-h-0 px-3 text-[14px]" onClick={() => { setText(""); router.push(f ? `${base}?f=${f}` : base); }}><X size={16} />Clear</button>}
+      {(q || t) && <button type="button" className="btn-ghost h-11 min-h-0 px-3 text-body" onClick={() => { setText(""); router.push(f ? `${base}?f=${f}` : base); }}><X size={16} />Clear</button>}
     </form>
   );
 }

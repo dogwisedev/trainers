@@ -1,11 +1,11 @@
 "use server";
-import { auditCall } from "@/lib/audit";
+import { auditCall, audited } from "@/lib/audit";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { getViewer } from "@/lib/data";
 import { isDemo, serverClient, serviceClient } from "@/lib/supabase";
-import { addDays, dropOff, short, todayIso } from "@/lib/dates";
+import { addDays, daysBetween, dropOff, short, todayIso, weekStart, weeksFrom } from "@/lib/dates";
 import { notifyBookings, notifySummary } from "@/lib/bookingEmail";
 import { sendInvite, sendSignInLink } from "@/lib/authEmail";
 import { sendSigninHello } from "@/lib/trainerSignin";
@@ -14,11 +14,15 @@ import { validMiles } from "@/lib/trips";
 import { pushToAdmins, pushToTrainer } from "@/lib/push";
 import { currentRunDate, probationHeld } from "@/lib/payrollData";
 import { FOLLOWUP_PROPS, syncMoney } from "@/lib/money";
-import { readDeals, updateDeal } from "@/lib/hubspot";
+import { dealContacts, dealDateProps, hsDate, hubspotConfigured, readContacts, readDeals, stageLabel, updateDeal } from "@/lib/hubspot";
 import { ensureChatsForBookings } from "@/lib/chat";
 import { datesFromHubspot } from "@/lib/hubspot";
 import { syncHubspotDates } from "@/lib/hubspotSync";
 import { raiseIncident } from "@/lib/incidents";
+import { weekUsage } from "@/lib/capacity";
+import type { Booking, TimeOff, Trainer } from "@/lib/types";
+import { inviteWithBooking } from "@/lib/autoInvite";
+import { clearUnbooked } from "@/lib/unbookedDeals";
 
 export type Result = { ok: boolean; message: string };
 const DEMO: Result = { ok: false, message: "Demo mode: connect Supabase to save changes." };
@@ -32,7 +36,8 @@ async function viewerOrThrow() {
 }
 
 // ── Auth ──────────────────────────────────────────────────────────────────
-export async function signIn(_: Result | null, f: FormData): Promise<Result> {
+export type SignInResult = Result & { codeFor?: string };
+export async function signIn(_: SignInResult | null, f: FormData): Promise<SignInResult> {
   if (isDemo()) {
     cookies().set("demo_as", String(f.get("as") || "admin"), { path: "/", httpOnly: true, sameSite: "lax" });
     redirect("/");
@@ -42,16 +47,35 @@ export async function signIn(_: Result | null, f: FormData): Promise<Result> {
   if (!email) return { ok: false, message: "Enter your email." };
   const as = { name: email, role: "sign-in" };
   if (!password) {
-    await auditCall("signInLinkSent", { email }, as);
     try { await sendSignInLink(email); }
-    catch (e) { return { ok: false, message: `Couldn't send the link: ${(e as Error).message}` }; }
-    return { ok: true, message: "If that email has an account, a sign-in link is on its way from info@dogwiseacademy.com. It works in any browser." };
+    catch (e) { await auditCall("signInCodeSent", { email }, as, { ok: false, error: (e as Error).message }); return { ok: false, message: `Couldn't send the code: ${(e as Error).message}` }; }
+    await auditCall("signInCodeSent", { email }, as);
+    return { ok: true, codeFor: email, message: "If that email has an account, a 6-digit code is on its way from info@dogwiseacademy.com." };
   }
   const { error: err0 } = await sb.auth.signInWithPassword({ email, password });
   let error = err0;
   if (error && password !== password.toLowerCase()) ({ error } = await sb.auth.signInWithPassword({ email, password: password.toLowerCase() })); // capitals don't matter for client passwords
-  if (error) { await auditCall("signInFailed", { email }, as); return { ok: false, message: "That email and password don't match. Leave the password empty to get a sign-in link instead." }; }
-  await auditCall("signInPassword", { email }, as);
+  if (error) { await auditCall("signInFailed", { email }, as, { ok: false, error: error.message }); return { ok: false, message: "That email and password don't match. Leave the password empty to get a sign-in code instead." }; }
+  await auditCall("signInPassword", { email }, as, { ok: true });
+  redirect("/");
+}
+
+/** Second step of "email me a code": the 6-digit code typed into the app (works inside the installed iPhone app too). */
+export async function signInWithCode(_: SignInResult | null, f: FormData): Promise<SignInResult> {
+  if (isDemo()) return DEMO;
+  const email = String(f.get("email") || "").trim(), code = String(f.get("code") || "").replace(/\D/g, "");
+  const as = { name: email, role: "sign-in" };
+  if (!email) return { ok: false, message: "Enter your email first." };
+  if (code.length < 6) return { ok: false, codeFor: email, message: "Enter the 6-digit code from the email." };
+  const sb = serverClient();
+  let { error } = await sb.auth.verifyOtp({ email, token: code, type: "email" });
+  if (error) ({ error } = await sb.auth.verifyOtp({ email, token: code, type: "magiclink" })); // older Supabase versions name it "magiclink"
+  if (error) {
+    await auditCall("signInCodeFailed", { email }, as, { ok: false, error: error.message });
+    return { ok: false, codeFor: email, message: /expired/i.test(error.message) ? "That code has expired. Tap \"Send a new code\"." : "That code didn't work. Check it's from the newest email, or send a new code." };
+  }
+  const { data: { user } } = await sb.auth.getUser();
+  await auditCall("signInCode", { email }, { name: email, role: "sign-in", userId: user?.id || null }, { ok: true });
   redirect("/");
 }
 
@@ -61,7 +85,7 @@ export async function signOut() {
 }
 
 export async function setPassword(_: Result | null, f: FormData): Promise<Result> {
-  await auditCall("setPassword", { f });
+  return audited("setPassword", { f }, async () => {
   if (isDemo()) return DEMO;
   const p = String(f.get("password") || "");
   if (p.length < 8) return { ok: false, message: "Use at least 8 characters." };
@@ -72,6 +96,23 @@ export async function setPassword(_: Result | null, f: FormData): Promise<Result
   if (user) await serviceClient().from("profiles").update({ password_set: true }).eq("id", user.id);
   revalidatePath("/", "layout");
   return { ok: true, message: "Password saved. Next time, sign in with your email and this password." };
+});
+}
+
+/** Admins and sales: the name shown next to their email in the activity log (clients still see "Dogwise team"). */
+export async function setDisplayNameAction(_: Result | null, f: FormData): Promise<Result> {
+  return audited("setDisplayNameAction", { name: String(f.get("name") || "") }, async () => {
+    if (isDemo()) return DEMO;
+    const v = await viewerOrThrow();
+    if (v.role !== "admin" && v.role !== "sales") return { ok: false, message: "Only the Dogwise team can change this here." };
+    const name = String(f.get("name") || "").replace(/\s+/g, " ").trim().slice(0, 60);
+    if (name.length < 2) return { ok: false, message: "Enter your name." };
+    if (/^dogwise team$/i.test(name)) return { ok: false, message: "Use your own name, so the activity log shows who did what." };
+    const { error } = await serviceClient().from("profiles").update({ display_name: name }).eq("id", v.userId);
+    if (error) return { ok: false, message: error.message };
+    revalidatePath("/", "layout");
+    return { ok: true, message: "Saved." };
+  });
 }
 
 // ── Trainers ──────────────────────────────────────────────────────────────
@@ -79,7 +120,7 @@ const ADMIN_FIELDS = ["name", "email", "dogwise_email", "city", "state", "zip", 
 const SHARED_FIELDS = ["phone", "work_email", "address", "shirt_size", "second_location", "local_vet", "emergency_vet", "emergency_contact", "bio", "birthday"];
 
 export async function saveTrainer(_: Result | null, f: FormData): Promise<Result> {
-  await auditCall("saveTrainer", { f });
+  return audited("saveTrainer", { f }, async () => {
   if (isDemo()) return DEMO;
   const v = await viewerOrThrow();
   const id = str(f, "id");
@@ -116,20 +157,22 @@ export async function saveTrainer(_: Result | null, f: FormData): Promise<Result
     return { ok: true, message: `Profile saved. They now sign in with ${newEmail} (same password).` };
   }
   return { ok: true, message: "Profile saved." };
+});
 }
 
 export async function setTrainerActive(id: string, active: boolean): Promise<Result> {
-  await auditCall("setTrainerActive", { id, active });
+  return audited("setTrainerActive", { id, active }, async () => {
   if (isDemo()) return DEMO;
   const v = await viewerOrThrow();
   if (v.role !== "admin") return { ok: false, message: "Admins only." };
   const { error } = await serverClient().from("trainers").update({ active }).eq("id", id);
   revalidatePath("/", "layout");
   return error ? { ok: false, message: error.message } : { ok: true, message: active ? "Trainer is active again." : "Trainer moved to inactive. Their history is kept." };
+});
 }
 
 export async function clearFlag(id: string, flag: string): Promise<Result> {
-  await auditCall("clearFlag", { id, flag });
+  return audited("clearFlag", { id, flag }, async () => {
   if (isDemo()) return DEMO;
   const v = await viewerOrThrow();
   if (v.role !== "admin") return { ok: false, message: "Admins only." };
@@ -138,11 +181,12 @@ export async function clearFlag(id: string, flag: string): Promise<Result> {
   const { error } = await sb.from("trainers").update({ data_flags: (data?.data_flags || []).filter((x: string) => x !== flag) }).eq("id", id);
   revalidatePath(`/a/trainers/${id}`);
   return error ? { ok: false, message: error.message } : { ok: true, message: "Marked as checked." };
+});
 }
 
 /** Sends the trainer an email invite and links their login to their profile. */
 export async function inviteTrainer(id: string): Promise<Result> {
-  await auditCall("inviteTrainer", { id });
+  return audited("inviteTrainer", { id }, async () => {
   if (isDemo()) return DEMO;
   const v = await viewerOrThrow();
   if (v.role !== "admin") return { ok: false, message: "Admins only." };
@@ -157,11 +201,12 @@ export async function inviteTrainer(id: string): Promise<Result> {
   const { data: existing } = await admin.from("profiles").select("role").eq("id", userId).maybeSingle();
   if (existing?.role !== "admin") await admin.from("profiles").upsert({ id: userId, role: "trainer", trainer_id: id, display_name: t?.name });
   return { ok: true, message: `Login sent to ${email}.` };
+});
 }
 
 // ── Time off ──────────────────────────────────────────────────────────────
 export async function addTimeOff(_: Result | null, f: FormData): Promise<Result> {
-  await auditCall("addTimeOff", { f });
+  return audited("addTimeOff", { f }, async () => {
   if (isDemo()) return DEMO;
   const v = await viewerOrThrow();
   const trainer_id = v.role === "admin" ? str(f, "trainer_id") : v.trainerId;
@@ -176,47 +221,121 @@ export async function addTimeOff(_: Result | null, f: FormData): Promise<Result>
   });
   revalidatePath("/", "layout");
   return error ? { ok: false, message: error.message } : { ok: true, message: "Time off blocked." };
+});
 }
 
 export async function deleteTimeOff(id: string): Promise<Result> {
-  await auditCall("deleteTimeOff", { id });
+  return audited("deleteTimeOff", { id }, async () => {
   if (isDemo()) return DEMO;
   await viewerOrThrow();
   const { error } = await serverClient().from("time_off").delete().eq("id", id);
   revalidatePath("/", "layout");
   return error ? { ok: false, message: error.message } : { ok: true, message: "Time off removed." };
+});
 }
 
 // ── Bookings (admin) ──────────────────────────────────────────────────────
+// ── Booking a dog from the app (same rules as the HubSpot extension) ─────
+export type DealPrefill = {
+  ok: boolean; message: string;
+  deal?: { id: string; name: string; client: string; email: string; dogs: string[]; start: string | null; end: string | null; weeks: number | null; extra: number; stage: string; closedWon: boolean;
+    booked: { id: string; dog: string; trainer: string; dates: string }[] };
+};
+const DEAL_DOGS = ["k9___dog_name", "dog_2_name", "dog_3_name", "dog_4_name"];
+
+/** Admin pastes a HubSpot deal link: fills the booking form from the deal (client, email, dogs, dates) and says if it's already booked. */
+export async function dealPrefillAction(input: string): Promise<DealPrefill> {
+  if (isDemo()) return { ok: false, message: "Demo mode." };
+  const v = await viewerOrThrow();
+  if (v.role !== "admin") return { ok: false, message: "Admins only." };
+  const id = cleanDealId(input);
+  if (!id || !/^\d+$/.test(id)) return { ok: false, message: "Paste the deal's link from HubSpot (or its number)." };
+  const sb = serviceClient();
+  const { data: existing } = await sb.from("bookings").select("id, dog_name, start_date, end_date, trainers(name)").eq("hubspot_deal_id", id).neq("status", "cancelled");
+  const booked = ((existing || []) as unknown as { id: string; dog_name: string | null; start_date: string; end_date: string; trainers: { name: string } | null }[])
+    .map((b) => ({ id: b.id, dog: b.dog_name || "Dog", trainer: b.trainers?.name || "no trainer", dates: `${short(b.start_date)} to ${short(b.end_date)}` }));
+  if (!hubspotConfigured()) return { ok: true, message: "HubSpot isn't connected, so fill in the rest by hand.", deal: { id, name: `Deal ${id}`, client: "", email: "", dogs: [], start: null, end: null, weeks: null, extra: 0, stage: "", closedWon: true, booked } };
+  try {
+    const props = await dealDateProps();
+    const deals = await readDeals([id], ["dealname", "hs_is_closed_won", "dealstage", props.start.name, ...(props.end ? [props.end.name] : []), ...DEAL_DOGS]);
+    const d = deals.get(id);
+    if (!d) return { ok: false, message: `HubSpot has no deal ${id}. Check the link.` };
+    const contactIds = (await dealContacts([id])).get(id) || [];
+    const contacts = [...(await readContacts(contactIds, ["firstname", "lastname", "email"])).values()];
+    const c = contacts.find((x) => x.email) || contacts[0] || {};
+    const start = hsDate(d[props.start.name]), end = props.end ? hsDate(d[props.end.name]) : null;
+    let weeks: number | null = null, extra = 0;
+    if (start && end && end > start) { const days = daysBetween(start, end); weeks = Math.min(12, Math.max(1, Math.floor(days / 7))); extra = Math.min(13, Math.max(0, days - weeks * 7)); }
+    return { ok: true, message: "", deal: {
+      id, name: d.dealname || `Deal ${id}`, client: [c.firstname, c.lastname].filter(Boolean).join(" ").trim(), email: String(c.email || "").trim().toLowerCase(),
+      dogs: DEAL_DOGS.map((k) => String(d[k] || "").trim()).filter(Boolean), start, end, weeks, extra,
+      stage: await stageLabel(d.dealstage), closedWon: d.hs_is_closed_won === "true", booked
+    } };
+  } catch (e) { return { ok: false, message: `Couldn't read the deal from HubSpot: ${(e as Error).message}` }; }
+}
+
+/** Book one or more dogs from one HubSpot deal. The deal is required (bookings without one miss date sync, alerts, Sales and balance links).
+ *  Same checks as the extension: no dog booked twice on a deal, and a free kennel every week (unless "Book anyway" is ticked). */
 export async function saveBooking(_: Result | null, f: FormData): Promise<Result> {
-  await auditCall("saveBooking", { f });
+  return audited("saveBooking", { f }, async () => {
   if (isDemo()) return DEMO;
   const v = await viewerOrThrow();
   if (v.role !== "admin") return { ok: false, message: "Admins only." };
-  const start = str(f, "start_date"), weeks = num(f, "weeks") || 3, extra = Math.min(13, Math.max(0, num(f, "extra_days") || 0));
-  if (!start || !str(f, "trainer_id") || !str(f, "client_name")) return { ok: false, message: "Trainer, client and start date are required." };
-  const s = start; // exactly as entered: no rounding to Sunday
-  const row = {
-    trainer_id: str(f, "trainer_id"), client_name: str(f, "client_name"), dog_name: str(f, "dog_name"), ...(str(f, "client_email") ? { client_email: str(f, "client_email") } : {}),
-    program: str(f, "program") || `${weeks}-week`, start_date: s, end_date: dropOff(s, weeks, extra), weeks, extra_days: extra,
-    status: str(f, "status") || "confirmed", notes: str(f, "notes"), hubspot_deal_id: cleanDealId(str(f, "hubspot_deal_id")), created_by: v.userId,
-    rehab: f.get("rehab") === "on" || /rehab|\bRR\b/i.test(str(f, "program") || "")
-  };
-  const id = str(f, "id");
+  const dealId = cleanDealId(str(f, "hubspot_deal_id"));
+  if (!dealId || !/^\d+$/.test(dealId)) return { ok: false, message: "Add the HubSpot deal first: every booking needs one." };
+  const trainerId = str(f, "trainer_id"), client = str(f, "client_name"), start = str(f, "start_date");
+  if (!trainerId || !client || !start) return { ok: false, message: "Trainer, client and pickup date are required." };
+  const weeks = Math.min(12, Math.max(1, num(f, "weeks") || 3)), extra = Math.min(13, Math.max(0, num(f, "extra_days") || 0));
+  const dogs = [...new Set([...f.getAll("dog").map((x) => String(x).trim()), str(f, "dog_name") || ""].filter(Boolean))].slice(0, 6);
+  if (!dogs.length) return { ok: false, message: "Choose or type the dog's name." };
   const sb = serverClient();
-  const { data: saved, error } = id
-    ? await sb.from("bookings").update(row).eq("id", id).select("id").single()
-    : await sb.from("bookings").insert(row).select("id").single();
-  if (error) return { ok: false, message: error.message };
-  if (!id && row.hubspot_deal_id && datesFromHubspot()) await syncHubspotDates({ mode: "quiet", dealIds: [row.hubspot_deal_id as string] }).catch(() => null); // the deal's real dates, before emailing
-  const n = await notifyBookings(sb, [saved.id], id ? "changed" : "new");
-  if (!id) await ensureChatsForBookings([{ id: saved.id, trainer_id: row.trainer_id as string, client_name: row.client_name as string, dog_name: row.dog_name, hubspot_deal_id: row.hubspot_deal_id, client_email: (row as { client_email?: string }).client_email }], { invite: process.env.CHAT_INVITE_CLIENTS === "1" }).catch(() => []);
+
+  // Already booked? (one live booking per dog per deal)
+  const { data: live } = await sb.from("bookings").select("id, dog_name, trainer_id, trainers(name)").eq("hubspot_deal_id", dealId).neq("status", "cancelled");
+  const liveRows = (live || []) as unknown as { id: string; dog_name: string | null; trainer_id: string; trainers: { name: string } | null }[];
+  const twice = dogs.filter((d) => liveRows.some((b) => (b.dog_name || "").trim().toLowerCase() === d.toLowerCase()));
+  if (twice.length) return { ok: false, message: `${twice.join(" & ")} ${twice.length > 1 ? "are" : "is"} already booked on this deal (with ${liveRows[0]?.trainers?.name || "a trainer"}). Change that booking instead.` };
+
+  const { data: t } = await sb.from("trainers").select("*").eq("id", trainerId).maybeSingle();
+  if (!t || !t.active) return { ok: false, message: "That trainer isn't active in the app." };
+  const rows = dogs.map((dog) => ({
+    trainer_id: trainerId, client_name: client.slice(0, 120), dog_name: dog.slice(0, 80), ...(str(f, "client_email") ? { client_email: str(f, "client_email")!.toLowerCase() } : {}),
+    program: str(f, "program") || `${weeks}-week`, start_date: start, end_date: dropOff(start, weeks, extra), weeks, extra_days: extra,
+    status: str(f, "status") || "confirmed", notes: str(f, "notes"), hubspot_deal_id: dealId, created_by: v.userId, source: "app",
+    rehab: f.get("rehab") === "on" || /rehab|\bRR\b/i.test(str(f, "program") || "")
+  }));
+
+  // A free kennel every week (counting the dogs in this booking too)
+  if (f.get("force") !== "on") {
+    const to = rows[0].end_date;
+    const [bk, off] = await Promise.all([
+      sb.from("bookings").select("*").eq("trainer_id", trainerId).neq("status", "cancelled").lte("start_date", to).gte("end_date", start),
+      sb.from("time_off").select("*").eq("trainer_id", trainerId).lte("start_date", to).gte("end_date", start)
+    ]);
+    const taken = [...((bk.data || []) as Booking[])];
+    for (const [k, r] of rows.entries()) {
+      const use = weekUsage(t as Trainer, taken, (off.data || []) as TimeOff[], weeksFrom(r.start_date, Math.ceil((daysBetween(weekStart(r.start_date), r.end_date) + 1) / 7)));
+      const full = use.find((w) => w.free < 1);
+      if (full) return { ok: false, message: `${String(t.name).split(" ")[0]} has no free kennel for ${r.dog_name} the week of ${short(full.week)}${full.blocked >= full.cap ? " (time off)" : ""}. Pick another trainer, or tick "Book anyway".` };
+      taken.push({ ...(r as unknown as Booking), id: `new-${k}` });
+    }
+  }
+
+  const { data: saved, error } = await sb.from("bookings").insert(rows).select("id, trainer_id, client_name, client_email, dog_name, hubspot_deal_id, start_date, end_date");
+  if (error || !saved?.length) return { ok: false, message: error?.message || "Couldn't save the booking." };
+  if (datesFromHubspot()) await syncHubspotDates({ mode: "quiet", dealIds: [dealId] }).catch(() => null); // the deal's real dates, before emailing
+  const ids = saved.map((x) => x.id);
+  const fresh = ((await sb.from("bookings").select("id, trainer_id, client_name, client_email, dog_name, hubspot_deal_id, start_date, end_date").in("id", ids)).data || saved) as { id: string; trainer_id: string; client_name: string; client_email: string | null; dog_name: string | null; hubspot_deal_id: string | null; start_date: string; end_date: string }[];
+  const n = await notifyBookings(sb, ids, "new");
+  await ensureChatsForBookings(fresh, { invite: inviteWithBooking(fresh) }).catch(() => []);
+  await clearUnbooked(dealId);
   revalidatePath("/", "layout");
-  redirect(`/a/trainers/${row.trainer_id}?saved=booking${n.sent ? "&emailed=1" : n.skipped ? "&emailed=off" : n.errors.length ? "&emailed=failed" : ""}`);
+  redirect(`/a/trainers/${trainerId}?saved=booking${n.sent ? "&emailed=1" : n.skipped ? "&emailed=off" : n.errors.length ? "&emailed=failed" : ""}`);
+  });
 }
 
 export async function setExtraDays(id: string, extra: number): Promise<Result> {
-  await auditCall("setExtraDays", { id, extra });
+  return audited("setExtraDays", { id, extra }, async () => {
   if (isDemo()) return DEMO;
   const v = await viewerOrThrow();
   if (v.role !== "admin") return { ok: false, message: "Admins only." };
@@ -230,10 +349,11 @@ export async function setExtraDays(id: string, extra: number): Promise<Result> {
   if (error) return { ok: false, message: error.message };
   const sentNote = notifySummary(await notifyBookings(sb, [id], "changed"));
   return { ok: true, message: `Updated.${sentNote}` };
+});
 }
 
 export async function setBookingStatus(id: string, status: string): Promise<Result> {
-  await auditCall("setBookingStatus", { id, status });
+  return audited("setBookingStatus", { id, status }, async () => {
   if (isDemo()) return DEMO;
   const v = await viewerOrThrow();
   if (v.role !== "admin") return { ok: false, message: "Admins only." };
@@ -254,11 +374,12 @@ export async function setBookingStatus(id: string, status: string): Promise<Resu
   }
   const sentNote = notifySummary(await notifyBookings(sb, [id], status === "cancelled" ? "cancelled" : "changed"));
   return { ok: true, message: `${status === "cancelled" ? "Booking cancelled." : "Booking updated."}${sentNote}` };
+});
 }
 
 // ── Messages ──────────────────────────────────────────────────────────────
 export async function sendMessage(trainerId: string, body: string): Promise<Result> {
-  await auditCall("sendMessage", { trainerId, body });
+  return audited("sendMessage", { trainerId, body }, async () => {
   if (isDemo()) return DEMO;
   const v = await viewerOrThrow();
   const text = body.trim();
@@ -273,6 +394,7 @@ export async function sendMessage(trainerId: string, body: string): Promise<Resu
   if (v.role === "admin") await pushToTrainer(trainerId, { title: "Message from the Dogwise team", body: text, url: "/t/messages", tag: "team" });
   else await pushToAdmins({ title: `${v.name} sent you a message`, body: text, url: `/a/messages/${trainerId}`, tag: `team-${trainerId}` });
   return { ok: true, message: "Sent" };
+});
 }
 
 export async function markRead(trainerId: string): Promise<void> {
@@ -285,7 +407,7 @@ export async function markRead(trainerId: string): Promise<void> {
 
 /** Admin: email the trainer about this booking now (the "New booking" email, with the calendar invite). Shows the exact error if it fails. */
 export async function emailTrainerAboutBooking(id: string): Promise<Result> {
-  await auditCall("emailTrainerAboutBooking", { id });
+  return audited("emailTrainerAboutBooking", { id }, async () => {
   if (isDemo()) return DEMO;
   const v = await viewerOrThrow();
   if (v.role !== "admin") return { ok: false, message: "Admins only." };
@@ -294,11 +416,12 @@ export async function emailTrainerAboutBooking(id: string): Promise<Result> {
   if (n.skipped) return { ok: false, message: n.skipped };
   if (n.errors.length) return { ok: false, message: n.errors[0] };
   return n.sent ? { ok: true, message: "Emailed." } : { ok: false, message: "Nothing sent: booking not found." };
+});
 }
 
 /** Admin: the friendly "your app is ready, here's how to get in" email, to one trainer or to everyone who hasn't signed in. */
 export async function sendSigninHellos(ids: string[]): Promise<Result> {
-  await auditCall("sendSigninHellos", { ids });
+  return audited("sendSigninHellos", { ids }, async () => {
   if (isDemo()) return DEMO;
   const v = await viewerOrThrow();
   if (v.role !== "admin") return { ok: false, message: "Admins only." };
@@ -308,11 +431,12 @@ export async function sendSigninHellos(ids: string[]): Promise<Result> {
   const bad = results.filter((r) => !r.ok);
   const sent = results.length - bad.length;
   return bad.length ? { ok: sent > 0, message: `Sent ${sent}. Not sent: ${bad.map((r) => r.message).join("; ")}` } : { ok: true, message: `Sent to ${sent} trainer${sent === 1 ? "" : "s"}.` };
+});
 }
 
 /** Trainer: a follow-up session (date, miles driven, what was done). Becomes a trip for mileage pay, and shows on the dog's page for admins. */
 export async function logFollowupAction(_: Result | null, f: FormData): Promise<Result> {
-  await auditCall("logFollowupAction", { f });
+  return audited("logFollowupAction", { f }, async () => {
   if (isDemo()) return DEMO;
   const v = await viewerOrThrow();
   if (v.role !== "trainer" || !v.trainerId) return { ok: false, message: "Only trainers can log follow-up sessions." };
@@ -328,11 +452,12 @@ export async function logFollowupAction(_: Result | null, f: FormData): Promise<
   const { error } = await sb.from("trips").insert({ trainer_id: v.trainerId, booking_id: bookingId, kind: "followup", trip_date: date, miles, notes: notes.slice(0, 2000), created_by: v.name });
   revalidatePath("/", "layout");
   return error ? { ok: false, message: error.message } : { ok: true, message: `Saved: ${miles} miles on ${date}. It's added to your next payslip.` };
+});
 }
 
 /** Admin: approve or decline a trainer's probation. Approve: everything held so far (25% of program pay) is paid in the NEXT pay run. */
 export async function decideProbationAction(trainerId: string, approve: boolean): Promise<Result> {
-  await auditCall("decideProbationAction", { trainerId, approve });
+  return audited("decideProbationAction", { trainerId, approve }, async () => {
   if (isDemo()) return DEMO;
   const v = await viewerOrThrow();
   if (v.role !== "admin") return { ok: false, message: "Admins only." };
@@ -347,11 +472,12 @@ export async function decideProbationAction(trainerId: string, approve: boolean)
   const { error } = await sb.from("trainers").update({ probation: "approved", probation_decided_by: v.name, probation_decided_at: new Date().toISOString(), probation_release_run: run, probation_release_amount: held }).eq("id", trainerId);
   revalidatePath("/", "layout");
   return error ? { ok: false, message: error.message } : { ok: true, message: `Approved. $${held.toFixed(2)} held so far is paid in the pay run of ${run}. Pay is 100% from now on.` };
+});
 }
 
 /** Admin, or the dog's trainer: follow-up session dates, saved on the HubSpot deal (follow_up_session__1..3). Each date is paid in that pay period. */
 export async function setFollowupsAction(bookingId: string, dates: string[]): Promise<Result> {
-  await auditCall("setFollowupsAction", { bookingId, dates });
+  return audited("setFollowupsAction", { bookingId, dates }, async () => {
   if (isDemo()) return DEMO;
   const v = await viewerOrThrow();
   const sb = serviceClient();
@@ -364,6 +490,7 @@ export async function setFollowupsAction(bookingId: string, dates: string[]): Pr
   await syncMoney({ dealIds: [b.hubspot_deal_id], sb }).catch(() => null);
   revalidatePath("/", "layout");
   return { ok: true, message: "Saved on the deal. Each session is paid in the pay period of its date." };
+});
 }
 
 /**
@@ -371,7 +498,7 @@ export async function setFollowupsAction(bookingId: string, dates: string[]): Pr
  * with the same trainer around the same dates, and merges their chats into the deal's chat (every message kept).
  */
 export async function linkDealAction(bookingId: string, input: string): Promise<Result> {
-  await auditCall("linkDealAction", { bookingId, input });
+  return audited("linkDealAction", { bookingId, input }, async () => {
   if (isDemo()) return DEMO;
   const v = await viewerOrThrow();
   if (v.role !== "admin") return { ok: false, message: "Admins only." };
@@ -411,4 +538,5 @@ export async function linkDealAction(bookingId: string, input: string): Promise<
   revalidatePath("/", "layout");
   const names = moving.map((x) => x.dog_name || "dog").join(" & ");
   return { ok: true, message: `Linked ${names} to ${dealName || `deal ${deal}`}.${merged ? ` Merged ${merged} chat${merged > 1 ? "s" : ""} into one, every message kept.` : ""} HubSpot keeps the dates, checklist and payments in sync from now on.` };
+});
 }

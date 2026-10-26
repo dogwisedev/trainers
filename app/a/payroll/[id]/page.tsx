@@ -18,8 +18,8 @@ export default async function PayslipPage({ params, searchParams }: { params: { 
         <Link prefetch={false} href={`/a/trainers?view=pay&run=${p.run.submit_date}`} className="grid h-10 w-10 place-items-center rounded-full hover:bg-mint-wash" aria-label="Back to payslips"><ChevronLeft /></Link>
         <Avatar name={name} size={42} />
         <div className="min-w-0">
-          <Link prefetch={false} href={`/a/trainers/${p.slip.trainer_id}`} className="block truncate text-[20px] font-extrabold hover:underline">{name}</Link>
-          <p className="text-[13px] text-ink-soft">{periodLabel(p.run.period_start, p.run.period_end)}, paid {usDate(p.run.paid_date)}</p>
+          <Link prefetch={false} href={`/a/trainers/${p.slip.trainer_id}`} className="block truncate text-h3 font-extrabold hover:underline">{name}</Link>
+          <p className="text-small text-ink-soft">{periodLabel(p.run.period_start, p.run.period_end)}, paid {usDate(p.run.paid_date)}</p>
         </div>
       </div>
       <PayslipEditor

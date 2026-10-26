@@ -13,13 +13,11 @@ export default async function TrainerLayout({ children }: { children: React.Reac
   ]);
   const unread = teamUnread + chatsUnread;
   return (
-    <Shell who={v.name} demo={v.demo} accountHref="/t/profile#password" needsPassword={v.passwordSet === false} nav={[
-      { href: "/t", label: "Home", icon: "home" },
-      { href: "/t/calendar", label: "Calendar", icon: "calendar" },
+    <Shell who={v.name} demo={v.demo} accountHref="/t/profile#password" needsPassword={v.passwordSet === false} headerActions={false} nav={[
+      { href: "/t", label: "Today", icon: "home", also: ["/t/calendar"] },
       { href: "/t/chats", label: "Chats", icon: "messages", badge: unread, also: ["/t/messages"] },
-      { href: "/t/reports", label: "Reports", icon: "reports", badge: formsDue },
-      { href: "/t/pay", label: "Pay", icon: "pay" },
-      { href: "/t/profile", label: "Profile", icon: "profile" }
+      { href: "/t/reports", label: "Forms", icon: "reports", badge: formsDue },
+      { href: "/t/profile", label: "Me", icon: "profile", also: ["/t/pay", "/t/past", "/t/followup", "/t/followups"] }
     ]}><TrainerTour />{children}</Shell>
   );
 }

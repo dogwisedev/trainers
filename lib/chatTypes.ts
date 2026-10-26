@@ -13,7 +13,9 @@ export type ChatRow = {
 };
 export const driveView = (id: string) => `https://drive.google.com/file/d/${id}/view`;
 export const driveDownload = (id: string) => `https://drive.google.com/uc?export=download&id=${id}`;
-export const driveThumb = (id: string) => `https://drive.google.com/thumbnail?id=${id}&sz=w480`;
+export const driveThumb = (id: string, width = 480) => `https://drive.google.com/thumbnail?id=${id}&sz=w${width}`;
+/** Drive's own player/viewer, embeddable in the app (works for link-shared files, no Google account needed). */
+export const drivePreview = (id: string) => `https://drive.google.com/file/d/${id}/preview`;
 export const dealKey = (b: { hubspot_deal_id?: string | null; id: string }) => b.hubspot_deal_id || b.id;
 
 const ts = (v: string | null) => (v ? new Date(v).getTime() : 0);

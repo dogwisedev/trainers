@@ -5,12 +5,12 @@ import { createUploadSession, driveConfigured, ensureChatFolder } from "@/lib/dr
 
 const MAX = 5 * 1024 ** 3;
 
-// Starts a direct-to-Drive upload into the chat's folder (created on first use).
+// Starts a direct-to-Drive upload into the chat's folder (created on first use). Photos, videos and PDFs.
 export async function POST(req: Request) {
   if (isDemo() || !driveConfigured()) return NextResponse.json({ message: "Photo and video uploads aren't switched on yet." }, { status: 503 });
   const body = await req.json().catch(() => ({}));
   const name = String(body.name || "").trim().slice(0, 120), type = String(body.type || ""), size = Number(body.size);
-  if (!name || !/^(image|video)\//.test(type)) return NextResponse.json({ message: "Only photos and videos." }, { status: 400 });
+  if (!name || !(/^(image|video)\//.test(type) || type === "application/pdf")) return NextResponse.json({ message: "Only photos, videos and PDFs can be sent here." }, { status: 400 });
   if (!(size > 0) || size > MAX) return NextResponse.json({ message: "That file is too big (max 5 GB)." }, { status: 400 });
   const a = await accessibleChat(String(body.chatId || ""));
   if ("error" in a) return a.error;
