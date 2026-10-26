@@ -1,3 +1,4 @@
+import { PROGRAMS } from "./programs";
 // The three trainer forms, their deadlines and validation. Pure functions (no database), so they're easy to test.
 //
 //  Intake form          on the day of pickup (the booking's first day)
@@ -145,8 +146,8 @@ export const INTAKE_SECTIONS: Section[] = [
 
 // The handover report has repeatable parts (training items, homework items) and picks its videos from the chat.
 export const HANDOVER_SIMPLE: Field[] = [
-  { key: "program", label: "Training program", type: "text", required: true, hint: "One of: Adolescent Essentials, Anxiety Support, Big Puppy, Puppy Foundations, Reactivity & Aggression Reset, Rescue Restart, Strong Companion. It's on the client's certificate." },
-  { key: "clientLocation", label: "Client's location", type: "text" },
+  { key: "program", label: "Training program", type: "single", options: [...PROGRAMS], required: true, hint: "It goes on the client's certificate." },
+  { key: "clientLocation", label: "Client's location", type: "text", hint: "Filled in from the client's address. Change it if it's wrong." },
   { key: "goals", label: "What are the client's main goals and focus?", type: "textarea", required: true, hint: "The personal goal or behavior the client wants worked on. This was the main focus of the training." }
 ];
 export const HANDOVER_AFTER: Field[] = [

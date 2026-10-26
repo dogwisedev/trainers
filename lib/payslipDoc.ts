@@ -17,7 +17,7 @@ export const lineLead = (l: SlipLine) => (l.kind === "deduction" ? (l.pct != nul
 export const lineClient = (l: SlipLine) => (l.kind === "deduction" || l.kind === "other" ? l.description || "" : l.client || "");
 export const lineProgram = (l: SlipLine) => (l.kind === "route" ? l.program || "Route" : l.kind === "training" ? l.program || "" : "");
 export const splitAddress = (a: string | null) => String(a || "").split(/\s*,\s*(?=[^,]*,\s*[A-Z]{2}\b)|\n/).map((x) => x.trim()).filter(Boolean);
-const leadText = (l: SlipLine) => { const v = lineLead(l); return v === "" ? "" : typeof v === "number" ? `${v} wk${v === 1 ? "" : "s"}` : v; };
+export const leadText = (l: SlipLine) => { const v = lineLead(l); return v === "" ? "" : typeof v === "number" ? `${v} wk${v === 1 ? "" : "s"}` : v; };
 
 export function payslipHtml(d: SlipData, logoSrc: string) {
   const td = "padding:12px 10px;border-bottom:1px solid " + LINE + ";font-size:14px;vertical-align:top";

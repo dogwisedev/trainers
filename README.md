@@ -36,7 +36,7 @@ These were tested against Postgres with the seed data.
 - Bookings = "Client/Dog" cells from Aug 2026 onward, with their merged week spans. The sheet colours are kept in `sheet_color` until we know what each means.
 - Time off = red/unavailable cells, merged into ranges. Where only some slot rows were red, it's stored as "some kennels blocked".
 - Flags to check: Tressie (SC vs NY), Tracie (33315 vs 33021), Joseph Serrano (93635 vs 93265).
-- Re-generate `seed.sql` after editing `lib/demo-seed.json`: `npm run seed:sql`.
+- `lib/demo-seed.json` is made-up demo data (no real people). Never put real trainer or client details in the repo.
 
 ## HubSpot dates (source of truth)
 Booking dates follow the HubSpot deal (`/api/hubspot/sync`, every 30 minutes, and right after a booking is made).
@@ -73,3 +73,10 @@ What changed:
 - Security: chat message times stamped by the database, team messages can only be marked read, chat messages can't be deleted from a browser.
 - Chat notifications are sent by the server, once per message: the database calls `/api/chat/notify` the moment a message is saved (pg_net), the sender's app asks too, and the 10-minute check sends anything both missed (logged as "Sent missed chat notifications"). The app registers its own address on its first chat check after deploying; nothing to set by hand.
 - Changes made outside the app: any change to bookings, trainers, time off, profiles, pay, reports, chats or incidents made with someone's login but not through the app (browser console, scripts) is logged by the database as "Changed data directly, not through the app", with who and what changed, and emailed to `LOG_VIEWERS` (alma@) within 10 minutes. Nothing is blocked.
+
+## The app's own address (app.dogwiseacademy.com)
+1. Vercel → project → Settings → Domains: add `app.dogwiseacademy.com`, then add the DNS record Vercel shows at your DNS host.
+2. Vercel → Environment Variables (Production): `NEXT_PUBLIC_SITE_URL` = `https://app.dogwiseacademy.com`, `APP_HOST` = `app.dogwiseacademy.com`. Redeploy.
+3. Supabase → Authentication → URL Configuration: Site URL `https://app.dogwiseacademy.com`, and add `https://app.dogwiseacademy.com/**` to Redirect URLs (keep the vercel.app ones).
+Page visits to the vercel.app address then move to the new one. `/api` keeps working on both, so Stripe, the HubSpot extension, crons and the availability feed need no change.
+Everyone signs in once more on the new address (password or "Email me a code") and re-adds the app to their home screen; turning notifications on there stops them on the old install.

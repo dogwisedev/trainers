@@ -13,7 +13,10 @@ export default async function TrainerCalendar() {
   const use = weekUsage(t, bookings, off, weeksFrom(today, 16));
   return (
     <>
-      <h1 className="text-h1 font-extrabold">Your calendar</h1>
+      <div className="flex items-start justify-between gap-3">
+        <h1 className="text-h1 font-extrabold">Your calendar</h1>
+        <a href="#time-off" className="btn-ink h-11 min-h-0 shrink-0 px-4 text-body">Block dates</a>
+      </div>
       <p className="mt-1 text-ink-soft">You can take {t.capacity} dog{t.capacity === 1 ? "" : "s"} at a time. Bookings are added by the Dogwise team.</p>
 
       <ol className="mt-5 space-y-2.5">

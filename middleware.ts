@@ -5,6 +5,16 @@ import { createServerClient } from "@supabase/ssr";
 // Also catches sign-in links that land on the wrong page (e.g. "/?code=…" when Supabase falls back to the
 // Site URL) and forwards them to the right handler, so a link can never just bounce back to the login screen.
 export async function middleware(req: NextRequest) {
+  // The app's own address (APP_HOST, e.g. app.dogwiseacademy.com): page visits to the old vercel.app address move there.
+  // Only pages: /api stays on both addresses, so Stripe, the HubSpot extension, crons and the availability feed keep working.
+  // Production only, so preview deployments still work.
+  const canonical = (process.env.APP_HOST || "").trim().toLowerCase();
+  const host = req.nextUrl.hostname.toLowerCase();
+  if (canonical && process.env.VERCEL_ENV === "production" && host !== canonical && host.endsWith(".vercel.app")
+    && (req.method === "GET" || req.method === "HEAD") && !req.nextUrl.pathname.startsWith("/api/")) {
+    return NextResponse.redirect(new URL(`${req.nextUrl.pathname}${req.nextUrl.search}`, `https://${canonical}`), 308);
+  }
+
   const { pathname, searchParams } = req.nextUrl;
   if (!pathname.startsWith("/auth/")) {
     const code = searchParams.get("code"), tokenHash = searchParams.get("token_hash");

@@ -24,7 +24,7 @@ export default async function ClientChat({ params }: { params: { id: string } })
           <Avatar name={chat.title || "Dog"} size={56} />
           <div className="min-w-0 flex-1">
             <h1 className="truncate text-h1 font-extrabold leading-tight">{chat.title || "Your dog"}</h1>
-            {chat.trainer_name && <p className="flex items-center gap-1.5 truncate text-body text-ink-soft"><Avatar name={chat.trainer_name} size={20} />Training with <b className="font-semibold text-ink">{chat.trainer_name}</b></p>}
+            {chat.trainer_name && <p className="flex items-center gap-1.5 truncate text-body text-ink-soft"><Avatar name={chat.trainer_name} size={20} />{chat.status === "closed" ? "Trained with" : "Training with"} <b className="font-semibold text-ink">{chat.trainer_name}</b></p>}
           </div>
         </div>
         <nav className="flex border-t border-line text-body font-semibold">
@@ -32,7 +32,7 @@ export default async function ClientChat({ params }: { params: { id: string } })
           <Link prefetch={false} href="/c" className="flex flex-1 items-center justify-center gap-2 border-l border-line px-3 py-3 hover:bg-paper/60"><MessagesSquare size={16} />All chats</Link>
         </nav>
       </section>
-      {ready && (ready.left > 0 || ready.balanceLink) && <BeforeTrainingPopup href={`/c/${chat.id}/profile`} left={ready.left} balanceLink={ready.balanceLink} dog={chat.title || "your dog"} />}
+      {ready && (ready.left > 0 || ready.balanceLink) && <BeforeTrainingPopup href={`/c/${chat.id}/profile`} left={ready.left} balanceLink={ready.balanceLink} summary={ready.summary} dog={chat.title || "your dog"} />}
       {ready && (ready.left > 0 || ready.balanceLink) && (
         <div className="panel mb-4 divide-y divide-line overflow-hidden border-biscuit/60">
           {ready.left > 0 && (

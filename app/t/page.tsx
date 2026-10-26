@@ -7,7 +7,7 @@ import { addDays, daysBetween, range, short, todayIso, weekStart, weeksFrom } fr
 import { KennelLegend, KennelStrip } from "@/components/KennelStrip";
 import { Empty, Pill, Section } from "@/components/ui";
 import { listTodos } from "@/lib/reportData";
-import { TodoRow } from "@/components/ReportBits";
+import { TodoRowCompact } from "@/components/ReportBits";
 import { readinessFor } from "@/lib/pretraining";
 import { isDemo, serviceClient } from "@/lib/supabase";
 import type { Booking } from "@/lib/types";
@@ -60,9 +60,9 @@ export default async function TrainerHome() {
       </div>
 
       {todo.length > 0 && (
-        <Section tour="todo" title="To do" action={<Link prefetch={false} href="/t/reports" className="text-body font-semibold underline">All reports</Link>}>
-          <ul className="panel divide-y divide-line border-biscuit">{todo.slice(0, 5).map((x) => <TodoRow key={`${x.booking.id}${x.window.kind}${x.window.week}`} t={x} mode="trainer" />)}</ul>
-          {todo.length > 5 && <p className="mt-2 text-small text-ink-soft">And {todo.length - 5} more in <Link prefetch={false} href="/t/reports" className="underline">Reports</Link>.</p>}
+        <Section tour="todo" title="To do" action={<Link prefetch={false} href="/t/reports" className="text-body font-semibold underline">All forms</Link>}>
+          <ul className="panel divide-y divide-line overflow-hidden border-biscuit">{todo.slice(0, 5).map((x) => <TodoRowCompact key={`${x.booking.id}${x.window.kind}${x.window.week}`} t={x} />)}</ul>
+          {todo.length > 5 && <p className="mt-2 text-small text-ink-soft">And {todo.length - 5} more in <Link prefetch={false} href="/t/reports" className="underline">Forms</Link>.</p>}
         </Section>
       )}
 

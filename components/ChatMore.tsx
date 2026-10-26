@@ -27,7 +27,7 @@ export function ChatMore({ profileHref, left, incidentHref }: { profileHref?: st
           {profileHref && (
             <Link role="menuitem" href={profileHref} onClick={() => setOpen(false)} className="flex items-center gap-3 px-4 py-3.5 hover:bg-paper">
               <ClipboardList size={18} className="text-lav-deep" />
-              <span className="flex-1"><span className="block font-semibold">Dog profile</span><span className="text-small text-ink-soft">Vet, food, meds, behaviour, vaccines</span></span>
+              <span className="flex-1"><span className="block font-semibold">Dog profile</span><span className="text-small text-ink-soft">Vet, food, meds, behavior, vaccines</span></span>
               {left !== null && (left > 0 ? <span className="rounded-full bg-heart px-2 text-caption font-bold text-white">{left} to do</span> : <span className="text-caption font-bold text-fern">Ready</span>)}
             </Link>
           )}

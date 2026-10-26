@@ -151,6 +151,11 @@ export function ReportForm(p: Props) {
         <div className="overflow-x-auto rounded-[18px] border border-line bg-white p-2"><div className="min-w-[520px]" dangerouslySetInnerHTML={{ __html: html }} /></div>
       ) : (
         <>
+          {p.late > 0 && p.status !== "submitted" && p.status !== "approved" && (
+            <div role="status" className="flex items-center gap-2 rounded-[18px] bg-heart-wash px-4 py-3 text-body font-bold text-heart">
+              <span className="rounded-full bg-heart px-2.5 py-0.5 text-caption text-white">{p.late} day{p.late > 1 ? "s" : ""} late</span>Submit it as soon as you can.
+            </div>
+          )}
           {card("About this report", (
             <div className="space-y-3 text-body">
               <p><b>{s(answers.dogName) || "Dog"}</b> <span className="text-ink-soft">with {s(answers.clientName)}. Trainer {s(answers.trainerName)}.</span></p>

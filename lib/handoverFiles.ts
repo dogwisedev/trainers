@@ -28,7 +28,6 @@ export async function handoverFiles(b: Rep, to: string) {
     trainingVideos: videos("training"), homeworkVideos: videos("homework"),
     health: s(a.healthAtHandover), extra: s(a.extra), review: s(a.overall), photo: ph ? await photoBytes(ph.id) : null, chatUrl
   });
-  const [yy, mm, dd] = today.split("-");
-  const cert = await certificatePdf({ dog, program, trainer, date: `${mm}/${dd}/${yy}` });
+  const cert = await certificatePdf({ dog, program, trainer, date: long(today) });
   return { pdf, cert, dog, program, trainer, chatUrl, reportName: `Handover Report - ${dog}.pdf`, certName: `Certificate - ${dog} - ${program}.pdf` };
 }

@@ -10,6 +10,7 @@ import {
   Answers, CLIENT_KEYS, CONTACT_PROPS, DEAL_PROPS, DOG_KEYS, DOG_NAME_PROPS, QUESTIONS, Ready, VACCINE_FILE_PROP, VACCINES, VaccineFile, VaccineState,
   balanceOwed, blank, checklist, clearReady, isYes, matchSlots, vaccineStatus
 } from "./pretrainingFields";
+import type { Item } from "./pretrainingFields";
 
 // Before-training checklist. HubSpot is the source of truth:
 //  - the client's answers are CONTACT properties (dog 1 = k9___dog_name); dogs 2 to 4 are kept here, per dog
@@ -393,15 +394,26 @@ export async function setSlot(dealId: string, bookingId: string, slot: number, w
 }
 
 /** For the Dog profile button and the client's card: how many things are left on this chat's deal (null = nothing known yet). */
-export async function chatReadiness(dealKey: string, forClient: boolean): Promise<{ left: number; balanceLink: string } | null> {
+/** "your details (5 questions), training goals (19 questions), vaccine records and the balance", from the real checklist. */
+export function missingSummary(items: Item[]): string {
+  const q = (k: number) => (k ? ` (${k} question${k > 1 ? "s" : ""})` : "");
+  const sum = new Map<string, number>();
+  for (const i of items) sum.set(i.key, (sum.get(i.key) || 0) + (i.count || 0));
+  const NAME: Record<string, string> = { home: "your details", dog: "about your dog", goals: "training goals", food: "food", meds: "medication", vaccines: "vaccine records", balance: "the balance" };
+  const parts = [...sum.entries()].filter(([k]) => NAME[k]).map(([k, c]) => `${NAME[k]}${["home", "dog", "goals"].includes(k) ? q(c) : ""}`);
+  return parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}` : parts[0] || "";
+}
+
+export async function chatReadiness(dealKey: string, forClient: boolean): Promise<{ left: number; balanceLink: string; summary: string } | null> {
   if (isDemo() || !/^\d+$/.test(dealKey)) return null;
   const sb = serviceClient();
   const { data: bks } = await sb.from("bookings").select("id").eq("hubspot_deal_id", dealKey).neq("status", "cancelled");
   const r = await readinessFor(((bks || []) as { id: string }[]).map((b) => b.id));
   if (!r.size || [...r.values()].every((x) => x.dog.cleared)) return null; // admin said OK to start: no card, no pop-up
-  const left = [...r.values()].reduce((n, x) => n + x.ready.missing.filter((i) => !forClient || i.who === "client").length, 0);
+  const missing = [...r.values()].flatMap((x) => x.ready.missing.filter((i) => !forClient || i.who === "client"));
+  const left = missing.length;
   const { data: row } = await sb.from("pretraining_deals").select("deal").eq("deal_id", dealKey).maybeSingle();
-  return { left, balanceLink: balanceOwed((row?.deal as DealProps | undefined) || {}) };
+  return { left, balanceLink: balanceOwed((row?.deal as DealProps | undefined) || {}), summary: missingSummary(missing) };
 }
 
 /** Admin: "OK to start" (or undo). The client stops being asked, "Not ready" closes. HubSpot isn't changed. */

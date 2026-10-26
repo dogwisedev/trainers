@@ -2,7 +2,7 @@ import { programFor } from "./programs";
 import "server-only";
 import { cache } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { isDemo, serverClient } from "./supabase";
+import { isDemo, serverClient, serviceClient } from "./supabase";
 import { listBookings } from "./data";
 import seed from "./demo-seed.json";
 import { addDays, todayIso } from "./dates";
@@ -25,7 +25,7 @@ export const prefill = (kind: Kind, b: Booking, trainerName: string, week: numbe
   dogName: b.dog_name || "", trainerName, clientName: b.client_name,
   ...(kind === "weekly" ? { weekNumber: week } : {}),
   ...(kind === "intake" ? { pickupDate: b.start_date } : {}),
-  ...(kind === "handover" ? { clientEmail: b.client_email || "", program: programFor(b.program) || b.program || "" } : {})
+  ...(kind === "handover" ? { clientEmail: b.client_email || "", program: programFor(b.program) || "" } : {})
 });
 
 /** Reports a trainer (or everyone, for admins) still owes: from bookings plus the reports that exist. */
@@ -69,6 +69,15 @@ export async function getReport(id: string): Promise<ReportBundle | null> {
   return { report: { ...r, media: (r.media || []) as MediaItem[], answers: (r.answers || {}) as Answers } as ReportRow, booking: booking as Booking, trainer, late: lateDays(r.submitted_at, r.due_by), chat: chat ? { id: chat.id } : null };
 }
 
+/** "Austin, TX" from the client's before-training answers (the HubSpot contact the app keeps), or "" if not given. */
+async function clientCityState(dealId: string): Promise<string> {
+  try {
+    const { data } = await serviceClient().from("pretraining_deals").select("contact").eq("deal_id", dealId).maybeSingle();
+    const c = (data?.contact || {}) as Record<string, string | null>;
+    return [c.city, c.state].map((x) => String(x || "").trim()).filter(Boolean).join(", ");
+  } catch { return ""; }
+}
+
 /** Finds or starts the report for a booking/week. Trainers start their own; admins can start one for a trainer. */
 export async function ensureReport(sb: SupabaseClient, b: Booking, trainerName: string, kind: Kind, week: number, byAdmin: boolean): Promise<string> {
   const wk = kind === "weekly" ? week : 0;
@@ -77,8 +86,10 @@ export async function ensureReport(sb: SupabaseClient, b: Booking, trainerName: 
   if (have) return have;
   const win = expectedReports(b as BookingForReports).find((w) => w.kind === kind && w.week === wk);
   if (!win) throw new Error("That report isn't part of this booking.");
+  const answers = prefill(kind, b, trainerName, wk);
+  if (kind === "handover" && b.hubspot_deal_id) answers.clientLocation = await clientCityState(b.hubspot_deal_id);
   const { data, error } = await sb.from("reports").insert({
-    booking_id: b.id, trainer_id: b.trainer_id, kind, week_number: wk, status: "draft", answers: prefill(kind, b, trainerName, wk),
+    booking_id: b.id, trainer_id: b.trainer_id, kind, week_number: wk, status: "draft", answers,
     due_by: endOfDay(win.deadline).toISOString(), by_admin: byAdmin
   }).select("id").single();
   if (error) { const again = await found(); if (again) return again; throw new Error(error.message); }

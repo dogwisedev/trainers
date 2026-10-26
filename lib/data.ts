@@ -8,8 +8,8 @@ import { Booking, Message, TimeOff, Trainer, Viewer } from "./types";
 
 const demo = seed as unknown as { trainers: Trainer[]; bookings: Booking[]; time_off: TimeOff[] };
 const DEMO_MESSAGES: Message[] = [
-  { id: "m1", trainer_id: demo.trainers[27].id, sender_role: "trainer", sender_name: demo.trainers[27].name, body: "Hi team, I can take one more for the 3-week program starting Nov 1 if you have someone in Dallas.", created_at: new Date(Date.now() - 3 * 3600e3).toISOString(), read_at: null },
-  { id: "m2", trainer_id: demo.trainers[27].id, sender_role: "admin", sender_name: "Dogwise team", body: "Perfect, we have a lead in Euless. Will confirm by tonight.", created_at: new Date(Date.now() - 2 * 3600e3).toISOString(), read_at: null },
+  { id: "m1", trainer_id: demo.trainers[5].id, sender_role: "trainer", sender_name: demo.trainers[5].name, body: "Hi team, I can take one more for the 3-week program starting Nov 1 if you have someone in Dallas.", created_at: new Date(Date.now() - 3 * 3600e3).toISOString(), read_at: null },
+  { id: "m2", trainer_id: demo.trainers[5].id, sender_role: "admin", sender_name: "Dogwise team", body: "Perfect, we have a lead nearby. Will confirm by tonight.", created_at: new Date(Date.now() - 2 * 3600e3).toISOString(), read_at: null },
   { id: "m3", trainer_id: demo.trainers[3].id, sender_role: "trainer", sender_name: demo.trainers[3].name, body: "Heads up: pickup for Moose moved to Saturday morning.", created_at: new Date(Date.now() - 26 * 3600e3).toISOString(), read_at: null }
 ];
 

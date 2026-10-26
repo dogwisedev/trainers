@@ -23,7 +23,7 @@ export function FollowupForm({ dogs, dog, today }: { dogs: { id: string; label: 
         <label className="block"><span className="label">Date of the session</span><input type="date" name="date" defaultValue={today} max={today} className="field" required /></label>
         <label className="block"><span className="label">Miles driven</span><input name="miles" inputMode="decimal" className="field" placeholder="e.g. 40" required /><span className="mt-1 block text-caption text-ink-faint">Round trip. 0 if none.</span></label>
       </div>
-      <label className="block"><span className="label">What did you work on?</span><textarea name="notes" rows={4} className="field" required placeholder="What you practised with the dog and owner, how it went, and any homework you gave." /></label>
+      <label className="block"><span className="label">What did you work on?</span><textarea name="notes" rows={4} className="field" required placeholder="What you practiced with the dog and owner, how it went, and any homework you gave." /></label>
       <Save />
       {r && !r.ok && <p role="alert" className="rounded-xl bg-heart-wash px-3 py-2 text-body text-heart">{r.message}</p>}
     </form>

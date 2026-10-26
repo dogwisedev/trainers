@@ -3,7 +3,7 @@ import { WeekUse } from "@/lib/capacity";
 import { short } from "@/lib/dates";
 import { Trainer } from "@/lib/types";
 
-/** Every active trainer against the coming weeks. Cell = free kennels; colour = how full. */
+/** Every active trainer against the coming weeks. Cell = free kennels; color = how full. */
 export function Heatmap({ rows, weeks }: { rows: { t: Trainer; use: WeekUse[] }[]; weeks: string[] }) {
   const tone = (w: WeekUse) => {
     if (w.cap === 0 || w.blocked >= w.cap) return "kennel-blocked text-heart";

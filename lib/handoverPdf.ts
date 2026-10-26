@@ -201,7 +201,7 @@ export async function handoverPdf(d: HandoverData): Promise<Uint8Array> {
     videoButtons(d.trainingVideos, "Training videos");
   }
   if (d.homework.length || d.homeworkVideos.length) {
-    heading("Homework", "Keep practising at home");
+    heading("Homework", "Keep practicing at home");
     d.homework.forEach((t) => card(t.title, t.text, C.canvas));
     videoButtons(d.homeworkVideos, "Homework videos");
   }

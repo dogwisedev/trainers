@@ -38,16 +38,18 @@ export async function sendInvite(email: string, name: string): Promise<{ userId:
     ({ data, error } = await admin.auth.admin.generateLink({ type: "magiclink", email }));
     type = "magiclink";
   }
-  if (error || !data?.properties?.hashed_token || !data.user) throw new Error(error?.message || "Couldn't create the sign-in link.");
-  const link = `${site()}/auth/confirm?token_hash=${encodeURIComponent(data.properties.hashed_token)}&type=${type}&next=/t`;
+  if (error || !data?.user) throw new Error(error?.message || "Couldn't create the login.");
+  void type;
+  // The button goes to /welcome, which makes a fresh sign-in link when it's tapped: it works for 7 days, not 24 hours
+  const link = welcomeLink(email, "/t");
   const first = name.replace(/".*?"\s*/, "").split(" ")[0] || "there";
   await sendMail({
     to: email, subject: "Your Dogwise Academy app login",
     html: emailHtml("Welcome to the Dogwise Academy app",
       `Hi ${first}, this is where you'll see the dogs booked with you, block time off, get your payslips and message the Dogwise team.`,
       "Open the app", link,
-      "The button signs you straight in. Then choose a password (there's a prompt at the top) so you can sign in with your email and password any time. The link works once and expires in 24 hours."),
-    text: `Hi ${first}, open the Dogwise Academy app: ${link}\nThen choose a password so you can sign in any time. The link works once.`,
+      "The button signs you straight in and works for 7 days. Then choose a password so you can sign in with your email and password any time, or tap \"Email me a code\" on the sign-in page."),
+    text: `Hi ${first}, open the Dogwise Academy app: ${link}\nThe button works for 7 days. Then choose a password so you can sign in any time, or tap "Email me a code" on the sign-in page.`,
     attachments: [logo]
   });
   return { userId: data.user.id };

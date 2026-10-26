@@ -326,7 +326,7 @@ export function ChatThread(p: { chatId: string; me: Me; initial: ChatMsg[]; hasM
           <label className="sr-only" htmlFor="chat-msg">Message</label>
           <textarea ref={box} id="chat-msg" rows={1} value={text} onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !coarse) { e.preventDefault(); send(); } }}
-            placeholder={`Message ${p.otherLabel}`} className="max-h-[180px] min-h-[44px] flex-1 resize-none bg-transparent px-1.5 py-2.5 text-input focus:outline-none md:text-body" />
+            placeholder="Write a message" className="max-h-[180px] min-h-[44px] flex-1 resize-none bg-transparent px-1.5 py-2.5 text-input focus:outline-none md:text-body" />
           <button type="button" onClick={send} disabled={!text.trim()} className="btn-ink h-11 w-11 shrink-0 rounded-full p-0" aria-label="Send"><SendHorizontal size={18} /></button>
         </div>
       ) : <p className="mt-4 rounded-2xl bg-paper p-4 text-center text-body text-ink-soft">This chat is closed. Everything was sent to the client, and the client can start a fresh chat any time.</p>}

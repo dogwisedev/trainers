@@ -6,7 +6,7 @@ import { X } from "lucide-react";
 // A 2-minute guided tour of the real trainer app: highlights each part of the screen with a sentence, then moves on,
 // page to page. Start: the card on Home, "Take the tour again" on Profile, or any link with ?tour=1.
 type Step = { page: "home" | "chats" | "chat" | "forms" | "calendar" | "pay" | "profile"; sel: string; title: string; text: string; centre?: boolean };
-const STEPS: Step[] = [
+const FULL: Step[] = [
   { page: "home", sel: "", centre: true, title: "Welcome to the Dogwise app", text: "Your dogs, your client chats, your forms and your pay, all in one place. This takes 2 minutes: tap Next to see where everything is." },
   { page: "home", sel: '[data-tour="week"]', title: "Your week", text: "Your dogs and kennels for the coming weeks. Each square is a kennel: dark means a dog is booked, light means free." },
   { page: "home", sel: '[data-tour="todo"]', title: "To do", text: "Forms that are due for your dogs. Tap Start to fill one in." },
@@ -16,7 +16,7 @@ const STEPS: Step[] = [
   { page: "chats", sel: '[data-tour="team"]', title: "The Dogwise team", text: "Questions about a dog, a pickup or your calendar? Message the team here." },
   { page: "chat", sel: '[data-tour="composer"]', title: "Post every day", text: "Type here to message the client. Post at least one photo or video of the dog every day." },
   { page: "chat", sel: '[data-tour="attach"]', title: "Photos and videos", text: "Tap the paperclip to send photos or videos straight from your phone." },
-  { page: "chat", sel: '[data-tour="chat-more"]', title: "Dog profile and incidents", text: "Tap ⋯ for the Dog profile (vet, food, medication, behaviour, vaccines). If something happens (an injury, an escape, a bite), Report incident is here too: the team is told straight away." },
+  { page: "chat", sel: '[data-tour="chat-more"]', title: "Dog profile and incidents", text: "Tap ⋯ for the Dog profile (vet, food, medication, behavior, vaccines). If something happens (an injury, an escape, a bite), Report incident is here too: the team is told straight away." },
   { page: "forms", sel: '[data-tour="nav-forms"]', title: "Forms", text: "All your forms live here, under Forms in the menu. The red number shows how many are due." },
   { page: "forms", sel: '[data-tour="forms"]', title: "Your forms", text: "Pickup form on pickup day (with your miles). Weekly health check between Thursday and Wednesday: late or missing ones cost $100. Handover form on drop-off day. Tap Start to fill one in." },
   { page: "calendar", sel: '[data-tour="time-off"]', title: "Time off", text: "Block the dates you can't take dogs, and we won't book you then. Find it from Today, or under Me." },
@@ -28,14 +28,23 @@ const STEPS: Step[] = [
 const PAGE_PATH: Record<Step["page"], string> = { home: "/t", chats: "/t/chats", chat: "", forms: "/t/reports", calendar: "/t/calendar", pay: "/t/pay", profile: "/t/profile" };
 const pageOf = (path: string): Step["page"] | null =>
   path === "/t" ? "home" : path === "/t/chats" ? "chats" : /^\/t\/chats\/[^/]+$/.test(path) ? "chat" : path === "/t/reports" ? "forms" : path === "/t/calendar" ? "calendar" : path === "/t/pay" ? "pay" : path === "/t/profile" ? "profile" : null;
+// Day one: six stops, all on Today. The full tour (every page) is under Me → "Take the full tour".
+const SHORT: Step[] = [
+  { page: "home", sel: "", centre: true, title: "Welcome to the Dogwise app", text: "Your dogs, client chats, forms and pay, all in one place. Six quick stops: tap Next." },
+  { page: "home", sel: '[data-tour="week"]', title: "Your week", text: "Your dogs and kennels for the coming weeks. Dark squares are booked, light ones are free." },
+  { page: "home", sel: '[data-tour="todo"]', title: "To do", text: "Forms that are due. Tap one to fill it in. Late weekly checks cost $100, so do them on time." },
+  { page: "home", sel: '[data-tour="nav-chats"]', title: "Chats", text: "One chat per dog, with the client and the Dogwise team. Post at least one photo or video of the dog every day." },
+  { page: "home", sel: '[data-tour="nav-forms"]', title: "Forms", text: "Every form for your dogs: pickup, weekly health check and handover. The red number shows how many are due." },
+  { page: "home", sel: '[data-tour="nav-me"]', title: "Me", text: "Your pay, time off, password and notifications. Turn notifications on so you never miss a message. The full tour is here too." }
+];
 const KEY = "dogwise-tour", DONE = "dogwise-tour-done";
 const visible = (sel: string) => [...document.querySelectorAll<HTMLElement>(sel)].find((el) => el.offsetParent !== null || getComputedStyle(el).position === "fixed") || null;
 
-export function startTour() { try { localStorage.setItem(KEY, JSON.stringify({ i: 0 })); } catch { /* ignore */ } location.href = "/t"; }
+export function startTour(full = false) { try { localStorage.setItem(KEY, JSON.stringify({ i: 0, full })); } catch { /* ignore */ } location.href = "/t"; }
 
 export function TrainerTour() {
   const path = usePathname(), router = useRouter();
-  const [state, setState] = useState<{ i: number; chat?: string } | null>(null);
+  const [state, setState] = useState<{ i: number; chat?: string; full?: boolean } | null>(null);
   const [rect, setRect] = useState<DOMRect | null>(null);
   const [skipped, setSkipped] = useState(false);
   useEffect(() => {
@@ -44,8 +53,9 @@ export function TrainerTour() {
       const s = localStorage.getItem(KEY); setState(s ? JSON.parse(s) : null);
     } catch { /* private mode */ }
   }, [path]);
-  const save = (s: { i: number; chat?: string } | null) => { setState(s); try { if (s) localStorage.setItem(KEY, JSON.stringify(s)); else localStorage.removeItem(KEY); } catch { /* ignore */ } };
-  const step = state ? STEPS[state.i] : null;
+  const save = (s: { i: number; chat?: string; full?: boolean } | null) => { setState(s); try { if (s) localStorage.setItem(KEY, JSON.stringify(s)); else localStorage.removeItem(KEY); } catch { /* ignore */ } };
+  const steps = state?.full ? FULL : SHORT;
+  const step = state ? steps[state.i] : null;
   const here = pageOf(path);
   // Find and follow the highlighted element
   const measure = useCallback(() => { if (!step || step.page !== here) return setRect(null); const el = visible(step.sel); setRect(el ? el.getBoundingClientRect() : null); }, [step, here]);
@@ -64,17 +74,17 @@ export function TrainerTour() {
   }, [step, here, measure]);
   const go = (n: number) => {
     if (!state) return;
-    if (n >= STEPS.length) { save(null); try { localStorage.setItem(DONE, "1"); } catch { /* ignore */ } return; }
+    if (n >= steps.length) { save(null); try { localStorage.setItem(DONE, "1"); } catch { /* ignore */ } return; }
     if (n < 0) return;
-    let next = STEPS[n];
+    let next = steps[n];
     let chat = state.chat;
     // Leaving the chat list: open the first chat (or skip the chat steps if there are none)
     if (next.page === "chat" && !chat) {
       const a = document.querySelector<HTMLAnchorElement>('[data-tour="chat-row"] a');
       if (a) chat = a.getAttribute("href") || undefined;
-      else { while (n < STEPS.length && STEPS[n].page === "chat") n++; next = STEPS[n]; }
+      else { while (n < steps.length && steps[n].page === "chat") n++; next = steps[n]; }
     }
-    save({ i: n, chat });
+    save({ i: n, chat, full: state?.full });
     if (next && next.page !== here) router.push(next.page === "chat" ? chat! : PAGE_PATH[next.page]);
   };  // A part that isn't on this trainer's screen: move on to the next step by itself
   useEffect(() => { if (skipped && state) go(state.i + 1); }, [skipped]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -84,7 +94,7 @@ export function TrainerTour() {
     return (
       <div className="fixed inset-x-3 bottom-[calc(84px+env(safe-area-inset-bottom))] z-[70] md:bottom-6 md:left-auto md:right-6 md:w-[380px]">
         <div className="panel flex items-center gap-3 p-3 shadow-lift">
-          <p className="min-w-0 flex-1 text-body"><b>Tour paused.</b> Step {state.i + 1} of {STEPS.length}.</p>
+          <p className="min-w-0 flex-1 text-body"><b>Tour paused.</b> Step {state.i + 1} of {steps.length}.</p>
           <button type="button" className="btn-ink h-9 min-h-0 px-3 text-small" onClick={() => router.push(step.page === "chat" ? state.chat || "/t/chats" : PAGE_PATH[step.page])}>Carry on</button>
           <button type="button" className="grid h-9 w-9 place-items-center rounded-full hover:bg-paper" aria-label="End the tour" onClick={() => { save(null); try { localStorage.setItem(DONE, "1"); } catch { /* ignore */ } }}><X size={16} /></button>
         </div>
@@ -102,16 +112,16 @@ export function TrainerTour() {
         style={r ? (below ? { top: Math.min(r.bottom + pad + 12, window.innerHeight - 230) } : { top: Math.max(r.top - pad - 12 - 200, 12) }) : undefined}>
         <div className="panel p-4 shadow-lift">
           <div className="flex items-center justify-between gap-2">
-            <p className="text-caption font-bold text-lav-deep">Step {state.i + 1} of {STEPS.length}</p>
+            <p className="text-caption font-bold text-lav-deep">Step {state.i + 1} of {steps.length}</p>
             <button type="button" className="text-small font-semibold text-ink-soft underline" onClick={() => { save(null); try { localStorage.setItem(DONE, "1"); } catch { /* ignore */ } }}>Skip tour</button>
           </div>
           {step.centre && <span className="mx-auto mt-2 grid h-16 w-16 place-items-center rounded-[20px] bg-paper"><img src="/icons/mark.png" alt="" className="h-10 w-10" /></span>}
           <h2 className={`mt-1 font-extrabold ${step.centre ? "text-center text-h2" : "text-h3"}`}>{step.title}</h2>
           <p className={`mt-1 text-body leading-snug text-ink-soft ${step.centre ? "text-center" : ""}`}>{step.text}</p>
-          <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-paper"><div className="h-full rounded-full bg-lav" style={{ width: `${((state.i + 1) / STEPS.length) * 100}%` }} /></div>
+          <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-paper"><div className="h-full rounded-full bg-lav" style={{ width: `${((state.i + 1) / steps.length) * 100}%` }} /></div>
           <div className="mt-3 flex gap-2">
-            {state.i > 0 && <button type="button" className="btn-ghost h-10 min-h-0 flex-1" onClick={() => { const p = STEPS[state.i - 1]; save({ ...state, i: state.i - 1 }); if (p.page !== here) router.push(p.page === "chat" ? state.chat || "/t/chats" : PAGE_PATH[p.page]); }}>Back</button>}
-            <button type="button" className="btn-ink h-11 min-h-0 flex-[2]" onClick={() => go(state.i + 1)}>{state.i === 0 ? "Show me around" : state.i === STEPS.length - 1 ? "Finish" : "Next"}</button>
+            {state.i > 0 && <button type="button" className="btn-ghost h-10 min-h-0 flex-1" onClick={() => { const p = steps[state.i - 1]; save({ ...state, i: state.i - 1 }); if (p.page !== here) router.push(p.page === "chat" ? state.chat || "/t/chats" : PAGE_PATH[p.page]); }}>Back</button>}
+            <button type="button" className="btn-ink h-11 min-h-0 flex-[2]" onClick={() => go(state.i + 1)}>{state.i === 0 ? "Show me around" : state.i === steps.length - 1 ? "Finish" : "Next"}</button>
           </div>
         </div>
       </div>
@@ -132,7 +142,7 @@ export function TourInvite() {
       </div>
       <div className="flex border-t border-line">
         <button type="button" className="flex-1 px-4 py-3 text-body font-semibold text-ink-soft hover:bg-paper/60" onClick={() => { try { localStorage.setItem(DONE, "1"); } catch { /* ignore */ } setShow(false); }}>Not now</button>
-        <button type="button" className="flex-1 border-l border-line bg-ink px-4 py-3 text-body font-bold text-white" onClick={startTour}>Take the tour</button>
+        <button type="button" className="flex-1 border-l border-line bg-ink px-4 py-3 text-body font-bold text-white" onClick={() => startTour()}>Take the tour</button>
       </div>
     </div>
   );
@@ -140,5 +150,5 @@ export function TourInvite() {
 
 /** Button on Profile: take the tour again. */
 export function TourAgain() {
-  return <button type="button" className="btn-ghost mt-4 w-full sm:w-auto" onClick={startTour}>Take the app tour again</button>;
+  return <button type="button" className="btn-ghost mt-4 w-full sm:w-auto" onClick={() => startTour(true)}>Take the full tour</button>;
 }

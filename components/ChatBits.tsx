@@ -28,7 +28,7 @@ export function ChatListRow({ chat, href, unread, who, flag, dates, preview }: {
 
 /** What people see instead of messages once a chat is closed and archived. */
 export function ArchivedNotice({ chat, children, audience }: { chat: ChatRow; children?: React.ReactNode; audience: "client" | "staff" }) {
-  const on = chat.closed_at ? new Date(chat.closed_at).toLocaleDateString("en-US") : "";
+  const on = chat.closed_at ? new Date(chat.closed_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "America/New_York" }) : "";
   return (
     <div className="panel space-y-3 p-5">
       <p className="text-lead font-bold">This chat was closed{on ? ` on ${on}` : ""}</p>
