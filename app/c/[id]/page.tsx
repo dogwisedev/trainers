@@ -34,7 +34,7 @@ export default async function ClientChat({ params }: { params: { id: string } })
       </section>
       {ready && (ready.left > 0 || ready.balanceLink) && <BeforeTrainingPopup href={`/c/${chat.id}/profile`} left={ready.left} balanceLink={ready.balanceLink} summary={ready.summary} dog={chat.title || "your dog"} />}
       {ready && (ready.left > 0 || ready.balanceLink) && (
-        <div className="panel mb-4 divide-y divide-line overflow-hidden border-biscuit/60">
+        <div data-before-training className="panel mb-4 divide-y divide-line overflow-hidden border-biscuit/60">
           {ready.left > 0 && (
             <Link prefetch={false} href={`/c/${chat.id}/profile`} className="flex items-center gap-3 p-4 hover:bg-paper/50">
               <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[14px] bg-biscuit-wash text-warn"><ClipboardList size={19} /></span>

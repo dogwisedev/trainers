@@ -8,10 +8,10 @@ export function BeforeTrainingPopup({ href, left, balanceLink, dog, summary }: {
   const [open, setOpen] = useState(false);
   const first = useRef<HTMLAnchorElement>(null);
   useEffect(() => { setOpen(true); }, []);
-  useEffect(() => { if (open) first.current?.focus(); }, [open]);
+  useEffect(() => { if (open) first.current?.focus(); window.dispatchEvent(new Event("dw-popup")); }, [open]);
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 grid place-items-end bg-ink/40 p-3 sm:place-items-center" onClick={() => setOpen(false)} onKeyDown={(e) => e.key === "Escape" && setOpen(false)}>
+    <div data-before-training-open className="fixed inset-0 z-50 grid place-items-end bg-ink/40 p-3 sm:place-items-center" onClick={() => setOpen(false)} onKeyDown={(e) => e.key === "Escape" && setOpen(false)}>
       <div role="dialog" aria-modal="true" aria-labelledby="btp-title" className="w-full max-w-md rounded-[24px] bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
         <ClipboardList size={28} aria-hidden />
         <h2 id="btp-title" className="mt-2 text-h2 font-extrabold leading-tight">Before {dog}&apos;s training</h2>

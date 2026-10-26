@@ -1,3 +1,4 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import "server-only";
 import { serviceClient } from "./supabase";
 import { alertAdmins } from "./adminAlert";
@@ -13,6 +14,8 @@ import { clearFormIncidents } from "./incidents";
 import { catchUpBookings } from "./bookingCatchup";
 import { sendDailyDigest } from "./digest";
 import { autoInviteClients } from "./autoInvite";
+import { postSystemMessage } from "./chat";
+export const CLOSE_NOTICE = "This chat will close on";
 import { registerNotifyUrl, sweepNotifications } from "./chatNotify";
 import { watchDirectEdits } from "./directEdits";
 import { auditSystem } from "./audit";
@@ -30,10 +33,11 @@ type Incident = { id: string; chat_id: string; kind: IncidentKind; status: strin
 
 /** Runs every few minutes (Vercel cron): opens and clears incidents, alerts admins, sends the (rare) client digest emails. */
 export async function runChatChecks(now = new Date()) {
+  const autoClose = (process.env.CHAT_AUTO_CLOSE || "").trim().toLowerCase() !== "off";
   const sb = serviceClient();
   const { data: chatRows } = await sb.from("chats").select("*").eq("status", "open");
   const chats = (chatRows || []) as ChatRow[];
-  const out = { chats: chats.length, opened: 0, cleared: 0, realerted: 0, digests: 0, invited: 0, notified: 0, errors: [] as string[] };
+  const out = { chats: chats.length, opened: 0, cleared: 0, realerted: 0, digests: 0, invited: 0, notified: 0, noticed: 0, autoClosed: 0, errors: [] as string[] };
   try { out.cleared += await clearFormIncidents(sb); } catch (e) { out.errors.push(`forms: ${(e as Error).message}`); }
   try { const c = await catchUpBookings(sb); out.errors.push(...c.errors.map((x) => `booking email: ${x}`)); } catch (e) { out.errors.push(`booking email: ${(e as Error).message}`); }
   try { if (await sendDailyDigest(sb)) out.digests++; } catch (e) { out.errors.push(`daily summary: ${(e as Error).message}`); }
@@ -79,8 +83,31 @@ export async function runChatChecks(now = new Date()) {
         const n = pileUp(now, (unanswered || []).map((x: { created_at: string }) => x.created_at));
         if (n !== null) want.set("client_pileup", `${n} unanswered messages from ${c.client_name || "the client"} in the last ${RULES.pileUpWithinHours} hours`);
       }
-      const quiet = readyToClose(now, c.last_message_at, c.created_at, bs);
-      if (quiet !== null) want.set("ready_to_close", `No messages for ${quiet} days and no dog in care`);
+      if (autoClose) {
+        // Quiet chats close by themselves: a notice in the chat 7 days before, then closed (transcript saved, client emailed).
+        // "Quiet" counts people's messages only, so the notice itself doesn't restart the clock.
+        const since = [c.last_client_at, c.last_trainer_at, c.last_admin_at].reduce<string>((a, x) => (x && ms(x) > ms(a) ? x : a), c.created_at);
+        const quiet = readyToClose(now, since, c.created_at, bs, RULES.silentDaysToClose - RULES.closeNoticeDays);
+        if (quiet !== null) {
+          const { data: notice } = await sb.from("chat_messages").select("created_at").eq("chat_id", c.id).eq("sender_role", "system")
+            .like("body", `${CLOSE_NOTICE}%`).gt("created_at", since).order("created_at", { ascending: false }).limit(1);
+          const noticeAt = (notice as { created_at: string }[] | null)?.[0]?.created_at;
+          if (!noticeAt) {
+            const closeOn = new Date(Math.max(ms(since) + RULES.silentDaysToClose * 86400e3, now.getTime() + RULES.closeNoticeDays * 86400e3));
+            const label = closeOn.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/New_York" });
+            await postSystemMessage(c.id, { kind: "system", body: `${CLOSE_NOTICE} ${label} unless someone writes here. A copy of the whole chat, with every photo and video, will be emailed to ${(c.client_name || "the client").split(" ")[0]}, and a new chat can be started any time.` });
+            await auditSystem("Posted a closing notice in a quiet chat", `${c.title || "Dog"} (${c.client_name || "client"}): no messages for ${quiet} days and no dog in care. Closes ${label} unless someone writes.`, { link: `/a/chats/${c.id}` });
+            out.noticed++;
+          } else if (quiet >= RULES.silentDaysToClose && now.getTime() - ms(noticeAt) >= RULES.closeNoticeDays * 86400e3) {
+            const r = await closeChat(c.id);
+            await auditSystem("Closed a quiet chat", `${c.title || "Dog"} (${c.client_name || "client"}): no messages for ${quiet} days and no dog in care, ${RULES.closeNoticeDays} days after the notice. ${r.message}`, { link: `/a/chats/${c.id}`, ok: r.ok, error: r.ok ? null : r.message });
+            if (r.ok) { out.autoClosed++; continue; }
+          }
+        }
+      } else {
+        const quiet = readyToClose(now, c.last_message_at, c.created_at, bs);
+        if (quiet !== null) want.set("ready_to_close", `No messages for ${quiet} days and no dog in care`);
+      }
 
       for (const [kind, detail] of want) if (!live.some((i) => i.chat_id === c.id && i.kind === kind)) fresh.push({ chat: c, kind, detail });
 
@@ -89,7 +116,7 @@ export async function runChatChecks(now = new Date()) {
         const opened = ms(i.opened_at);
         const done = i.kind === "trainer_silent" ? ms(c.last_trainer_at) > opened
           : i.kind === "client_waiting" || i.kind === "client_pileup" || i.kind === "reopened" ? Math.max(ms(c.last_trainer_at), ms(c.last_admin_at)) > opened
-          : i.kind === "ready_to_close" ? ms(c.last_message_at) > opened : false;
+          : i.kind === "ready_to_close" ? autoClose || ms(c.last_message_at) > opened : false;
         if (done) { await sb.from("chat_incidents").update({ status: "resolved", resolved_at: now.toISOString(), resolved_by: "automatic", auto_resolved: true }).eq("id", i.id); out.cleared++; }
       }
     } catch (e) { out.errors.push(`${c.id}: ${(e as Error).message}`); }
@@ -125,14 +152,15 @@ export async function runChatChecks(now = new Date()) {
       if (!clientDigestDue(now, { latestFromOthers: latest, clientReadAt: read?.last_read_at || null, notifiedAt: c.notified_client_at ?? null })) continue;
       try {
         const link = `${site()}/c/${c.id}`, stop = `${site()}/api/chat/mute?c=${c.id}&t=${muteToken(c.id)}`, first = (c.client_name || "").split(" ")[0] || "there";
+        const waitingFor = await whatsWaiting(sb, c, read?.last_read_at || null);
         await sendMail({
           to: c.client_email!, subject: `New updates for ${c.title || "your dog"}`,
-          text: `Hi ${first}, there are new updates from ${c.trainer_name || "your trainer"} in your Dogwise chat: ${link}\n\nTo stop these emails: ${stop}`,
-          html: `<div style="background:#f4f5f8;padding:24px 12px;font-family:Arial,sans-serif"><div style="max-width:520px;margin:0 auto;background:#fff;border:1px solid #E7E3F3;border-radius:16px;padding:24px"><img src="cid:dogwise-logo" width="130" alt="Dogwise Academy" style="display:block;margin-bottom:14px"><p style="font-size:16px;font-weight:bold;color:#281870;margin:0 0 8px">New updates for ${esc(c.title || "your dog")}</p><p style="font-size:15px;color:#333;line-height:1.5;margin:0 0 18px">Hi ${esc(first)}, there are new messages, photos or videos from ${esc(c.trainer_name || "your trainer")} waiting for you.</p><a href="${link}" style="background:#281870;color:#fff;padding:11px 20px;border-radius:9px;text-decoration:none;font-weight:bold;display:inline-block">Open the chat</a><p style="font-size:12px;color:#8796AD;margin:20px 0 0">We email you at most once a day. <a href="${stop}" style="color:#8796AD">Stop these emails</a></p></div></div>`,
+          text: `Hi ${first}, ${waitingFor} in your Dogwise chat: ${link}\n\nTo stop these emails: ${stop}`,
+          html: `<div style="background:#f4f5f8;padding:24px 12px;font-family:Arial,sans-serif"><div style="max-width:520px;margin:0 auto;background:#fff;border:1px solid #E7E3F3;border-radius:16px;padding:24px"><img src="cid:dogwise-logo" width="130" alt="Dogwise Academy" style="display:block;margin-bottom:14px"><p style="font-size:16px;font-weight:bold;color:#281870;margin:0 0 8px">New updates for ${esc(c.title || "your dog")}</p><p style="font-size:15px;color:#333;line-height:1.5;margin:0 0 18px">Hi ${esc(first)}, ${esc(waitingFor)}.</p><a href="${link}" style="background:#281870;color:#fff;padding:11px 20px;border-radius:9px;text-decoration:none;font-weight:bold;display:inline-block">Open the chat</a><p style="font-size:12px;color:#8796AD;margin:20px 0 0">We email you at most once a day. <a href="${stop}" style="color:#8796AD">Stop these emails</a></p></div></div>`,
           attachments: [logo]
         });
         await sb.from("chats").update({ notified_client_at: now.toISOString() }).eq("id", c.id);
-        await auditSystem("Emailed a client about new chat updates", `${c.title || "Dog"} (${c.client_name || "client"}): unread updates, emailed to ${c.client_email}.`, { link: `/a/chats/${c.id}` });
+        await auditSystem("Emailed a client about new chat updates", `${c.title || "Dog"} (${c.client_name || "client"}): "${waitingFor}", emailed to ${c.client_email}.`, { link: `/a/chats/${c.id}` });
         out.digests++;
       } catch (e) { out.errors.push(`digest ${c.id}: ${(e as Error).message}`); }
     }
@@ -142,6 +170,23 @@ export async function runChatChecks(now = new Date()) {
 
 // ── Closing ─────────────────────────────────────────────────────────────
 /** Saves the transcript to Drive, emails the client, then clears the messages out of the app. */
+/** "Maya posted 2 photos, a video and 3 messages" (what the client hasn't seen yet, from the trainer and the team). */
+async function whatsWaiting(sb: SupabaseClient, c: ChatRow, readAt: string | null): Promise<string> {
+  const { data } = await sb.from("chat_messages").select("kind, media, sender_role").eq("chat_id", c.id).in("sender_role", ["trainer", "admin"])
+    .gt("created_at", readAt || "1970-01-01").order("created_at", { ascending: false }).limit(300);
+  const rows = (data || []) as { kind: string; media: { kind?: string }[] | null; sender_role: string }[];
+  let photos = 0, videos = 0, files = 0, texts = 0;
+  for (const r of rows) {
+    if (r.kind === "text") texts++;
+    for (const m of r.media || []) { if (m.kind === "video") videos++; else if (m.kind === "file") files++; else photos++; }
+  }
+  const n = (k: number, one: string, many: string) => (k === 1 ? `a${/^[aeiou]/.test(one) ? "n" : ""} ${one}` : `${k} ${many}`);
+  const parts = [photos && n(photos, "photo", "photos"), videos && n(videos, "video", "videos"), files && n(files, "document", "documents"), texts && n(texts, "message", "messages")].filter(Boolean) as string[];
+  const list = parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}` : parts[0];
+  const who = rows.every((r) => r.sender_role === "admin") ? "The Dogwise team" : (c.trainer_name || "Your trainer").split(" ")[0];
+  return list ? `${who} posted ${list}` : `there are new updates from ${c.trainer_name || "your trainer"}`;
+}
+
 export async function closeChat(chatId: string): Promise<{ ok: boolean; message: string }> {
   const sb = serviceClient();
   const { data: chat } = await sb.from("chats").select("*").eq("id", chatId).maybeSingle();

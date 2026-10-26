@@ -80,3 +80,6 @@ What changed:
 3. Supabase → Authentication → URL Configuration: Site URL `https://app.dogwiseacademy.com`, and add `https://app.dogwiseacademy.com/**` to Redirect URLs (keep the vercel.app ones).
 Page visits to the vercel.app address then move to the new one. `/api` keeps working on both, so Stripe, the HubSpot extension, crons and the availability feed need no change.
 Everyone signs in once more on the new address (password or "Email me a code") and re-adds the app to their home screen; turning notifications on there stops them on the old install.
+
+## Quiet chats close by themselves
+After 53 days with no messages from anyone (and no dog in care now or coming up), a notice goes in the chat: "This chat will close on <date> unless someone writes here." Seven days later, if still quiet, the chat closes: the transcript is saved to Drive and emailed to the client, as when an admin closes it. Each step is in the activity log. Anyone writing in the chat restarts the clock. `CHAT_AUTO_CLOSE=off` in Vercel goes back to closing by hand ("Ready to close" on To do).

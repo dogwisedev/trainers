@@ -6,8 +6,8 @@ import { BRICOLAGE_400, BRICOLAGE_600, BRICOLAGE_800, CEO_SIGNATURE_PNG } from "
 import { ABOUT, CEO_MESSAGE, CEO_NAME, CLIENT_RESPONSIBILITIES, Program, TRAINER_RESPONSIBILITIES } from "./programs";
 
 // The client's handover report: a designed, multi-page US Letter PDF in the Dogwise style.
-// Cover (photo of the dog with the trainer + the key facts), then the program, focus points, responsibilities,
-// training and homework (with video links), health check, the trainer's review and a message from the CEO.
+// Cover (photo of the dog with the trainer + the key facts), then homework (with video links), focus points, training,
+// health check and the trainer's review, then the standard text: the program, responsibilities and a message from the CEO.
 
 export type HandoverData = {
   dog: string; client: string; trainer: string; program: Program | string; location: string; contact: string;
@@ -175,8 +175,12 @@ export async function handoverPdf(d: HandoverData): Promise<Uint8Array> {
   };
 
   newPage();
-  const about = ABOUT[d.program as Program];
-  if (about?.length) { heading("About the program", String(d.program)); about.forEach((p) => body(p, { size: 11.5, color: C.soft })); }
+  // Homework and its videos first: it's what the client uses at home. The standard text goes at the back.
+  if (d.homework.length || d.homeworkVideos.length) {
+    heading("Homework", "Keep practicing at home");
+    d.homework.forEach((t) => card(t.title, t.text, C.canvas));
+    videoButtons(d.homeworkVideos, "Homework videos");
+  }
   if (d.goals) {
     heading("Training focus points");
     const parts = d.goals.split(/[;\n]|,(?=\s*[a-z])/i).map((x) => x.trim()).filter(Boolean);
@@ -192,18 +196,10 @@ export async function handoverPdf(d: HandoverData): Promise<Uint8Array> {
       y -= 46;
     } else body(d.goals, { size: 11.5 });
   }
-  heading("Responsibilities");
-  card("The trainer", TRAINER_RESPONSIBILITIES);
-  card("You, at home", CLIENT_RESPONSIBILITIES, C.canvas);
   if (d.training.length || d.trainingVideos.length) {
     heading("Training", "What we worked on together");
     d.training.forEach((t) => card(t.title, t.text));
     videoButtons(d.trainingVideos, "Training videos");
-  }
-  if (d.homework.length || d.homeworkVideos.length) {
-    heading("Homework", "Keep practicing at home");
-    d.homework.forEach((t) => card(t.title, t.text, C.canvas));
-    videoButtons(d.homeworkVideos, "Homework videos");
   }
   if (d.health) { heading("Snout to tail health check"); body(d.health, { size: 11 }); }
   if (d.extra) { heading("Anything else"); body(d.extra, { size: 11 }); }
@@ -214,6 +210,11 @@ export async function handoverPdf(d: HandoverData): Promise<Uint8Array> {
     y -= 18;
     body(d.review, { size: 11.5, indent: 58, color: C.ink });
   }
+  const about = ABOUT[d.program as Program];
+  if (about?.length) { heading("About the program", String(d.program)); about.forEach((p) => body(p, { size: 11.5, color: C.soft })); }
+  heading("Responsibilities");
+  card("The trainer", TRAINER_RESPONSIBILITIES);
+  card("You, at home", CLIENT_RESPONSIBILITIES, C.canvas);
   // Message from the CEO
   const msgLines = CEO_MESSAGE.flatMap((p, i) => [...wrap(p, reg, 10.5, CW - 30 - 40), ...(i < CEO_MESSAGE.length - 1 ? [""] : [])]);
   const msgH = 40 + msgLines.length * 15.5 + 90;

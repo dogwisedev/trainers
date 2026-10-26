@@ -8,6 +8,7 @@ import seed from "./demo-seed.json";
 import { addDays, todayIso } from "./dates";
 import { Answers, BookingForReports, Kind, MediaItem, RowLike, Status, Todo, endOfDay, expectedReports, healthFlags, lateDays, startOfDay, todos } from "./reports";
 import { dealKey } from "./chatTypes";
+import { loadProfile } from "./pretraining";
 import { Booking, Trainer } from "./types";
 
 export type ReportRow = RowLike & {
@@ -78,6 +79,22 @@ async function clientCityState(dealId: string): Promise<string> {
   } catch { return ""; }
 }
 
+/** Intake form: breed and medication from the owner's before-training answers, for the trainer to check at pickup. */
+async function intakeFromOwner(b: Booking): Promise<Answers> {
+  try {
+    const p = await loadProfile(b.hubspot_deal_id!, 24 * 60); // the copy the app keeps; no HubSpot call unless it's a day old
+    const d = p?.dogs.find((x) => x.booking.id === b.id) || (p?.dogs.length === 1 ? p.dogs[0] : null);
+    if (!d) return {};
+    const a = d.answers as Record<string, unknown>, txt = (k: string) => String(a[k] ?? "").trim();
+    const out: Answers = {};
+    if (txt("dog_s_breed")) out.dogBreed = txt("dog_s_breed");
+    const meds = txt("is_your_dog_on_any_medication__").toLowerCase();
+    if (/^(yes|true)$/.test(meds)) { out.medication = "yes"; if (txt("if_so__please_list_the_medication_")) out.medication_detail = txt("if_so__please_list_the_medication_"); }
+    else if (/^(no|false)$/.test(meds)) out.medication = "no";
+    return out;
+  } catch { return {}; }
+}
+
 /** Finds or starts the report for a booking/week. Trainers start their own; admins can start one for a trainer. */
 export async function ensureReport(sb: SupabaseClient, b: Booking, trainerName: string, kind: Kind, week: number, byAdmin: boolean): Promise<string> {
   const wk = kind === "weekly" ? week : 0;
@@ -88,6 +105,7 @@ export async function ensureReport(sb: SupabaseClient, b: Booking, trainerName: 
   if (!win) throw new Error("That report isn't part of this booking.");
   const answers = prefill(kind, b, trainerName, wk);
   if (kind === "handover" && b.hubspot_deal_id) answers.clientLocation = await clientCityState(b.hubspot_deal_id);
+  if (kind === "intake" && b.hubspot_deal_id) Object.assign(answers, await intakeFromOwner(b));
   const { data, error } = await sb.from("reports").insert({
     booking_id: b.id, trainer_id: b.trainer_id, kind, week_number: wk, status: "draft", answers,
     due_by: endOfDay(win.deadline).toISOString(), by_admin: byAdmin

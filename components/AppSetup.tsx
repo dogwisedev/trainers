@@ -12,7 +12,7 @@ const KEY = "dogwise-setup-hidden-until";
 const within = <T,>(ms: number, p: Promise<T>, why: string) => Promise.race([p, new Promise<T>((_, no) => setTimeout(() => no(new Error(why)), ms))]);
 const b64 = (s: string) => { const p = "=".repeat((4 - (s.length % 4)) % 4), r = atob((s + p).replace(/-/g, "+").replace(/_/g, "/")); return Uint8Array.from([...r].map((c) => c.charCodeAt(0))); };
 
-export function AppSetup({ always = false }: { always?: boolean }) {
+export function AppSetup({ always = false, quiet = false, onShowing }: { always?: boolean; quiet?: boolean; onShowing?: (showing: boolean) => void }) {
   const [env, setEnv] = useState<{ ios: boolean; android: boolean; mobile: boolean; standalone: boolean; push: boolean; macSafari: boolean } | null>(null);
   const [bip, setBip] = useState<BIP | null>(null);
   const [perm, setPerm] = useState<NotificationPermission | "unsupported">("default");
@@ -40,13 +40,15 @@ export function AppSetup({ always = false }: { always?: boolean }) {
     return () => { window.removeEventListener("beforeinstallprompt", onBip); window.removeEventListener("appinstalled", onInstalled); };
   }, [always]);
 
-  if (!env) return null;
   // Phones always; computers when the browser can install it (Chrome/Edge offer it, Safari on Mac has File → Add to Dock)
-  const needInstall = !env.standalone && (env.mobile || !!bip || env.macSafari);
-  const computer = !env.mobile;
-  const canPush = env.push && process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY && !(env.ios && !env.standalone);
+  const needInstall = !!env && !env.standalone && (env.mobile || !!bip || env.macSafari);
+  const canPush = !!env && env.push && !!process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY && !(env.ios && !env.standalone);
   const needPush = canPush && !(perm === "granted" && subscribed);
-  if (!always && (hidden || (!needInstall && !needPush))) return null;
+  const showing = !!env && (always || !(hidden || (!needInstall && !needPush)));
+  // Whoever shows "one thing at a time" (the trainer's first visit, the client's chat) waits for this card to be done or dismissed
+  useEffect(() => { if (env) onShowing?.(showing && !quiet); }, [env, showing, quiet, onShowing]);
+  if (!env || quiet || !showing) return null;
+  const computer = !env.mobile;
 
   const hide = () => { try { localStorage.setItem(KEY, String(Date.now() + 3 * 86400e3)); } catch { /* ignore */ } setHidden(true); };
   const install = async () => { if (!bip) return; await bip.prompt(); const c = await bip.userChoice; if (c.outcome === "accepted") setBip(null); };

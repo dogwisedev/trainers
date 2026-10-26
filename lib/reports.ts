@@ -124,7 +124,7 @@ export const WEEKLY_SECTIONS: Section[] = [
 export const INTAKE_SECTIONS: Section[] = [
   { title: "Pickup", fields: [
     { key: "pickupDate", label: "Date of pickup", type: "date", required: true },
-    { key: "dogBreed", label: "Dog's breed", type: "text" },
+    { key: "dogBreed", label: "Dog's breed", type: "text", hint: "Breed and medication are filled in from the owner's answers, where given. Check them at pickup." },
     { key: "behavior", label: "Overall behavior assessment during pickup", type: "textarea", required: true }
   ] },
   { title: "What came with the dog", fields: [

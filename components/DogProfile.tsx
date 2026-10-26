@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { Check, Circle, CreditCard, FileText, Pencil, Upload } from "lucide-react";
 import { Pill } from "@/components/ui";
 import { addVaccineFileAction, reviewVaccinesAction, saveProfileAction, setClearedAction, setSlotAction } from "@/app/pretraining-actions";
@@ -31,6 +31,44 @@ function shown(q: Q, d: Def, v: string) {
   const opts = optionsOf(q, d);
   return v.split(";").map((x) => opts.find((o) => o.value === x)?.label || x).join(", ");
 }
+// What a trainer checks at pickup, at the top of the Dog profile (the full answers fold away below).
+const KEY_FACTS: { label: string; keys: string[]; flag?: (v: string) => boolean }[] = [
+  { label: "Food", keys: ["company"] },
+  { label: "Medication", keys: ["is_your_dog_on_any_medication__", "if_so__please_list_the_medication_"] },
+  { label: "Medical, allergies, surgery", keys: ["does_your_dog_have_any_allergies_or_medical_conditions_"], flag: (v) => !/^(no|none|n\/a|false)\b/i.test(v) },
+  { label: "Ill in the last 7 days", keys: ["has_your_dog_displayed_any_medical_illness_within_the_last_7_days__i_e__coughing__nasal_discharge__"], flag: (v) => !/^(no|none|false)\b/i.test(v) },
+  { label: "CPR consent", keys: ["in_the_event_of_a_life_threatening_situation__would_you_give_consent_for_our_trainer_to_perform_cpr"], flag: (v) => /^(no|false)\b/i.test(v) },
+  { label: "Aggressive towards adults", keys: ["how_often_does_your_dog_show_aggressive_behaviours_towards_adults_"], flag: (v) => !/^never$/i.test(v) },
+  { label: "Aggressive towards children", keys: ["how_often_does_your_dog_show_aggressive_behaviour_towards_children_"], flag: (v) => !/^never$/i.test(v) },
+  { label: "Aggressive towards other dogs", keys: ["how_often_does_your_dog_show_aggressive_behaviours_towards_other_dogs_"], flag: (v) => !/^never$/i.test(v) },
+  { label: "Aggressive towards other animals", keys: ["how_often_does_your_dog_show_aggressive_behaviour_towards_other_animals_"], flag: (v) => !/^never$/i.test(v) },
+  { label: "Vet", keys: ["phone_number_of_veterinary_clinic", "full_address_of_veterinary_clinic"] },
+  { label: "Emergency contact", keys: ["emergency_contact_name___number"] }
+];
+const QBY = new Map(SECTIONS.flatMap((sec) => sec.questions.map((q) => [q.key, q] as const)));
+
+function KeyFacts({ answers, defs, name }: { answers: Answers; defs: Profile["defs"]; name: string }) {
+  const rows = KEY_FACTS.map((f) => {
+    const vals = f.keys.map((k) => { const q = QBY.get(k); const v = String((answers as Record<string, unknown>)[k] ?? ""); return q ? shown(q, defs[k], v) : v; }).map((v) => v.trim()).filter(Boolean);
+    const value = vals.join(" · ");
+    return { label: f.label, value, flag: !!value && !!f.flag?.(vals[0] || "") };
+  });
+  return (
+    <section className="panel overflow-hidden" aria-labelledby="facts-title">
+      <h2 id="facts-title" className="border-b border-line bg-paper/60 px-4 py-3 text-lead font-extrabold">Key facts for pickup</h2>
+      <dl className="divide-y divide-line">
+        {rows.map((r) => (
+          <div key={r.label} className={`grid grid-cols-[minmax(0,40%)_1fr] gap-3 px-4 py-2.5 text-body ${r.flag ? "bg-heart-wash" : ""}`}>
+            <dt className={`font-semibold ${r.flag ? "text-heart" : "text-ink-soft"}`}>{r.label}</dt>
+            <dd className={r.value ? (r.flag ? "font-semibold text-heart" : "") : "text-ink-faint"}>{r.value || "Not answered yet"}</dd>
+          </div>
+        ))}
+      </dl>
+      <p className="px-4 py-2.5 text-caption text-ink-faint">From {name}&apos;s owner. Red means check it with the owner at pickup.</p>
+    </section>
+  );
+}
+
 const when = (iso: string) => new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 
 export function DogProfile({ chatId, role, edit, open, profile, dogId, base, dogLink }: { chatId: string; role: Role; edit: boolean; open: boolean; profile: Profile; dogId: string; base: string; dogLink?: string }) {
@@ -39,6 +77,12 @@ export function DogProfile({ chatId, role, edit, open, profile, dogId, base, dog
   const items = dog.ready.items.filter((i) => role !== "client" || i.who === "client");
   const left = dog.cleared ? [] : items.filter((i) => !i.done);
   const answersFor = (s: Section) => (s.scope === "client" ? profile.client : dog.answers);
+  // Links to a section (from the checklist) open the folded-away answers first
+  useEffect(() => {
+    const reveal = () => { const el = location.hash ? document.getElementById(decodeURIComponent(location.hash.slice(1))) : null; const d = el?.closest("details"); if (d && !d.open) { d.open = true; el!.scrollIntoView({ block: "start" }); } };
+    reveal(); window.addEventListener("hashchange", reveal);
+    return () => window.removeEventListener("hashchange", reveal);
+  }, []);
   return (
     <div className="space-y-4">
       {many && (
@@ -51,6 +95,7 @@ export function DogProfile({ chatId, role, edit, open, profile, dogId, base, dog
         </nav>
       )}
 
+      {role === "trainer" && <KeyFacts answers={{ ...profile.client, ...dog.answers }} defs={profile.defs} name={dog.name} />}
       <section className={`panel p-4 ${left.length ? "" : "border-fern bg-mint-wash"}`} aria-labelledby="ready-title">
         <h2 id="ready-title" className="text-lead font-extrabold">{left.length ? `${left.length} thing${left.length > 1 ? "s" : ""} left before training` : `${dog.name} is ready for training`}</h2>
         {dog.cleared && role !== "client" && <p className="text-small font-semibold text-fern">Marked OK to start by {dog.cleared.by}{dog.cleared.at ? `, ${when(dog.cleared.at)}` : ""}. The client isn&apos;t asked for anything more.</p>}
@@ -69,12 +114,22 @@ export function DogProfile({ chatId, role, edit, open, profile, dogId, base, dog
         {role === "trainer" && dog.changedSinceStart && <p className="mt-3 rounded-xl bg-biscuit-wash p-2.5 text-small font-semibold text-warn">The client changed some answers after pickup: look for &ldquo;updated&rdquo; below.</p>}
       </section>
 
+      {role === "admin" && <KeyFacts answers={{ ...profile.client, ...dog.answers }} defs={profile.defs} name={dog.name} />}
       {role === "admin" && <AdminBits chatId={chatId} profile={profile} dog={dog} />}
       {role === "admin" && (dog.cleared || dog.ready.missing.length > 0) && <ClearButton chatId={chatId} bookingId={dog.booking.id} cleared={!!dog.cleared} />}
 
       <Vaccines chatId={chatId} role={role} edit={edit && open} dog={dog} dealYes={profile.deal.vaccines_in_order_} />
 
-      {SECTIONS.map((s) => (
+      {role === "trainer" ? (
+        <details className="group" open={!!dog.changedSinceStart}>
+          <summary className="panel flex cursor-pointer list-none items-center justify-between px-4 py-3.5 font-bold">All the owner&apos;s answers<span className="text-small font-semibold text-ink-soft group-open:hidden">Show</span><span className="hidden text-small font-semibold text-ink-soft group-open:inline">Hide</span></summary>
+          <div className="mt-4 space-y-4">
+            {SECTIONS.map((s) => (
+              <SectionCard key={s.id} chatId={chatId} bookingId={dog.booking.id} section={s} answers={answersFor(s)} defs={profile.defs} edit={edit && open} changes={dog.changes} shared={many && s.scope === "client"} role={role} />
+            ))}
+          </div>
+        </details>
+      ) : SECTIONS.map((s) => (
         <SectionCard key={s.id} chatId={chatId} bookingId={dog.booking.id} section={s} answers={answersFor(s)} defs={profile.defs} edit={edit && open} changes={dog.changes} shared={many && s.scope === "client"} role={role} />
       ))}
       {role === "client" && <p className="text-center text-small text-ink-faint">Questions? Ask in the chat, or email info@dogwiseacademy.com.</p>}

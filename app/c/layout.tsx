@@ -1,4 +1,4 @@
-import { AppSetup } from "@/components/AppSetup";
+import { ClientSetup } from "@/components/ClientSetup";
 import Image from "next/image";
 import { requireRole } from "@/lib/data";
 import { SignOutButton } from "@/components/SignOutButton";
@@ -14,7 +14,7 @@ export default async function ClientLayout({ children }: { children: React.React
           <SignOutButton className="rounded-full px-3 py-2 text-body text-ink-soft hover:bg-paper" />
         </div>
       </header>
-      <main className="mx-auto w-full max-w-2xl px-4 pb-10 pt-5">{!v.demo && <AppSetup />}{children}</main>
+      <main className="mx-auto w-full max-w-2xl px-4 pb-10 pt-5">{!v.demo && <ClientSetup />}{children}</main>
     </div>
   );
 }

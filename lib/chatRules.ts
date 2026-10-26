@@ -7,7 +7,8 @@ export const RULES = {
   wakeFrom: 8, wakeTo: 21,        // "waking hours" for client waiting times: 8 am to 9 pm Eastern
   clientWaitingHours: 12,         // a client message with no reply after 12 waking hours is flagged
   pileUpCount: 3, pileUpWithinHours: 3,   // 3+ unanswered client messages within 3 hours is flagged straight away
-  silentDaysToClose: 60,          // ~2 months with no messages and no dog in care: ready to close
+  silentDaysToClose: 60,          // ~2 months with no messages and no dog in care: the chat closes (CHAT_AUTO_CLOSE=off: ready to close, by hand)
+  closeNoticeDays: 7,             // a notice goes in the chat this many days before it closes
   realertHours: 12,               // re-send the alert if nobody has taken it
   // Client emails: at most one per chat per day, only if something is still unread, and only in the daytime
   clientDigestMinUnreadMinutes: 90, clientDigestEveryHours: 24, clientDigestFromHour: 9, clientDigestToHour: 20,
@@ -55,11 +56,11 @@ export function pileUp(now: Date, times: string[]): number | null {
 }
 
 /** ~2 months of silence and no dog in care now or later. Returns days of silence. */
-export function readyToClose(now: Date, lastMessageAt: string | null, createdAt: string, bookings: BookingSpan[]): number | null {
+export function readyToClose(now: Date, lastMessageAt: string | null, createdAt: string, bookings: BookingSpan[], minDays: number = RULES.silentDaysToClose): number | null {
   const today = etParts(now).date;
   if (bookings.some((b) => b.status !== "cancelled" && b.end_date >= today)) return null;
   const days = Math.floor((now.getTime() - new Date(lastMessageAt || createdAt).getTime()) / 86400000);
-  return days >= RULES.silentDaysToClose ? days : null;
+  return days >= minDays ? days : null;
 }
 
 /** Should the client get a "you have new updates" email now? */

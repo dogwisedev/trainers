@@ -1,4 +1,3 @@
-import { TourInvite } from "@/components/TrainerTour";
 import Link from "next/link";
 import { CalendarPlus } from "lucide-react";
 import { getTrainer, listBookings, listTimeOff, requireRole } from "@/lib/data";
@@ -40,7 +39,6 @@ export default async function TrainerHome() {
 
   return (
     <>
-      <TourInvite />
       <div className="rounded-[28px] bg-mint p-5 md:p-7" data-tour="week">
         <p className="text-body text-ink-soft">{new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}</p>
         <h1 className="mt-1 text-h1 font-extrabold leading-tight md:text-display">Hi {first}</h1>
