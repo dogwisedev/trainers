@@ -49,7 +49,7 @@ export default async function DogInfo({ params, searchParams }: { params: { id: 
         <DogProfile chatId={chatId} role="trainer" edit={false} open profile={profile} dogId={searchParams.dog || b.id} base={`/t/dogs/${b.id}`} />
       ) : (
         <div className="space-y-4">
-          <ClientCard c={{ ...contactFrom(null, b.client_name), email: b.client_email || "" }} dogs={b.dog_name || undefined} />
+          <ClientCard c={contactFrom(null, b.client_name)} dogs={b.dog_name || undefined} chatHref={chatId ? `/t/chats/${chatId}` : null} />
           <p className="panel p-4 text-body text-ink-soft">
             {deal ? "Couldn't load the client's forms from HubSpot just now. Try again in a minute." : "This dog isn't linked to its HubSpot deal yet, so the client's forms and address aren't here. Ask the team to link it."}
           </p>

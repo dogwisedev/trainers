@@ -103,7 +103,7 @@ export function DogProfile({ chatId, role, edit, open, profile, dogId, base, dog
         </nav>
       )}
 
-      {role !== "client" && <ClientCard c={contactFrom(profile.client)} dogs={profile.dogs.map((d) => d.name).filter(Boolean).join(" & ")} />}
+      {role !== "client" && <ClientCard c={contactFrom(profile.client, String((dog.booking as { client_name?: string }).client_name || ""))} dogs={profile.dogs.map((d) => d.name).filter(Boolean).join(" & ")} chatHref={`/${role === "admin" ? "a" : "t"}/chats/${chatId}`} />}
       {role === "trainer" && <KeyFacts answers={{ ...profile.client, ...dog.answers }} defs={profile.defs} name={dog.name} />}
       <section className={`panel p-4 ${left.length ? "" : "border-fern bg-mint-wash"}`} aria-labelledby="ready-title">
         <h2 id="ready-title" className="text-lead font-extrabold">{left.length ? `${left.length} thing${left.length > 1 ? "s" : ""} left before training` : `${dog.name} is ready for training`}</h2>

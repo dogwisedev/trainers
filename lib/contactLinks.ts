@@ -4,7 +4,6 @@
 export const directionsUrl = (address: string) => `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}&travelmode=driving`;
 const digits = (p: string) => p.replace(/[^\d+]/g, "");
 export const telHref = (p: string) => (digits(p).replace(/\D/g, "").length >= 7 ? `tel:${digits(p)}` : null);
-export const smsHref = (p: string) => (digits(p).replace(/\D/g, "").length >= 7 ? `sms:${digits(p)}` : null);
 
 export type ClientContact = { name: string; phone: string; email: string; address: string };
 /** From the client's before-training answers (the HubSpot contact): "5195 Fontaine Blvd, Colorado Springs, CO 80911". */
