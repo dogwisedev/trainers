@@ -125,6 +125,8 @@ export function ReportForm(p: Props) {
   const card = (title: string, children: React.ReactNode) => <section className="panel p-4 md:p-5"><h2 className="mb-4 text-lead font-bold">{title}</h2>{children}</section>;
 
   const emailMissing = !s(answers.clientEmail);
+  // Locked for trainers only when a valid email came with the booking. Before, it locked as soon as the first letter was typed.
+  const [emailLocked] = useState(() => p.mode === "trainer" && /^\S+@\S+\.\S+$/.test(s(p.initialAnswers.clientEmail)));
   const chatHref = p.chatId ? `${p.mode === "admin" ? "/a/chats/" : "/t/chats/"}${p.chatId}` : null;
   return (
     <div className="space-y-4">
@@ -166,8 +168,8 @@ export function ReportForm(p: Props) {
               {p.kind === "handover" && (
                 <>
                   <label className="block"><span className="label">Client&apos;s email (the report is sent here){emailMissing && <span className="text-heart"> *</span>}</span>
-                    <input className="field" inputMode="email" value={raw(answers.clientEmail)} onChange={(e) => set("clientEmail", e.target.value)} disabled={p.mode === "trainer" && !emailMissing} /></label>
-                  {p.mode === "trainer" && !emailMissing && <p className="text-caption text-ink-faint">Taken from the booking. Ask the team if it&apos;s wrong.</p>}
+                    <input className="field" inputMode="email" value={raw(answers.clientEmail)} type="email" autoComplete="off" autoCapitalize="none" onChange={(e) => set("clientEmail", e.target.value.trim())} disabled={emailLocked} /></label>
+                  {emailLocked && <p className="text-caption text-ink-faint">Taken from the booking. Ask the team if it&apos;s wrong.</p>}
                 </>
               )}
             </div>

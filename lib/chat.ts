@@ -7,6 +7,7 @@ import { Booking } from "./types";
 
 // Booking chats, created by the server. One chat per HubSpot deal (a two-dog booking is one chat).
 // Clients are emailed their chat link automatically 7 days before training (lib/autoInvite.ts; CHAT_AUTO_INVITE=off to stop it).
+// A dog with a HubSpot deal that reaches that point with no chat (e.g. booked before chats existed) gets one made then.
 // Admins can still send it any time with the "Invite client" button.
 
 type B = Pick<Booking, "id" | "trainer_id" | "client_name" | "dog_name" | "hubspot_deal_id"> & { client_email?: string | null };

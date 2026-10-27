@@ -3,7 +3,7 @@ import { audited } from "@/lib/audit";
 import { revalidatePath } from "next/cache";
 import { getViewer } from "@/lib/data";
 import { isDemo, serverClient, serviceClient } from "@/lib/supabase";
-import { Answers, Kind, MediaItem, Status, hasTrainerPhoto, healthFlags, items, kindName, reportTitle, s, validate } from "@/lib/reports";
+import { Answers, Kind, MediaItem, Status, hasTrainerPhoto, healthFlags, items, kindName, reportTitle, s, validate, expectedReports, endOfDay } from "@/lib/reports";
 import { dealKey } from "@/lib/chatTypes";
 import { ensureReport, getReport, pickupMedia } from "@/lib/reportData";
 import type { Booking } from "@/lib/types";
@@ -213,9 +213,29 @@ export async function setReportsEnabledAction(bookingId: string, on: boolean): P
   if (isDemo()) return DEMO;
   try {
     if ((await who()).role !== "admin") return { ok: false, message: "Admins only." };
-    const { error } = await serverClient().from("bookings").update({ reports_enabled: on }).eq("id", bookingId);
+    const sb = serverClient();
+    const { error } = await sb.from("bookings").update({ reports_enabled: on }).eq("id", bookingId);
+    if (error) return { ok: false, message: error.message };
+    // Switched on for a dog already in training (e.g. booked before the app): forms whose deadline has passed are marked
+    // "not needed", so the trainer starts from this week's check with nothing late and no penalty.
+    let waived = 0;
+    if (on) {
+      const { data: b } = await sb.from("bookings").select("*").eq("id", bookingId).maybeSingle();
+      const { data: t } = b ? await sb.from("trainers").select("name").eq("id", b.trainer_id).maybeSingle() : { data: null };
+      if (b && t) {
+        const now = new Date();
+        for (const w of expectedReports(b as Booking).filter((x) => x.kind !== "handover" && endOfDay(x.deadline) < now)) {
+          const id = await ensureReport(sb, b as Booking, t.name, w.kind, w.week, true);
+          const { data: r } = await sb.from("reports").select("status").eq("id", id).maybeSingle();
+          if (r && (r.status === "draft" || r.status === "changes_requested")) {
+            await sb.from("reports").update({ status: "waived", waived_by: "Forms switched on mid-training", waived_at: now.toISOString() }).eq("id", id);
+            waived++;
+          }
+        }
+      }
+    }
     revalidatePath("/", "layout");
-    return error ? { ok: false, message: error.message } : { ok: true, message: on ? "Reports are on for this booking." : "Reports are off for this booking." };
+    return { ok: true, message: on ? `Forms are on for this booking.${waived ? ` ${waived} earlier form${waived > 1 ? "s were" : " was"} marked not needed, so nothing shows as late.` : ""}` : "Forms are off for this booking." };
   } catch (e) { return { ok: false, message: (e as Error).message }; }
 });
 }

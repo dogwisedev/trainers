@@ -16,6 +16,7 @@ import { TRIP_LABEL } from "@/lib/payroll";
 import { remainingOf } from "@/lib/money";
 import { FollowupDates } from "@/components/FollowupDates";
 import { LinkDeal } from "@/components/LinkDeal";
+import { ChangeTrainer } from "@/components/ChangeTrainer";
 import { emailTrainerAboutBooking, setBookingStatus } from "@/app/actions";
 import { ActionButton, ExtraDays } from "@/components/forms";
 import { ReportsToggle } from "@/components/ReportsToggle";
@@ -46,6 +47,7 @@ export default async function DogPageView({ params, searchParams }: { params: { 
   const key = dealKey(b), deal = hubspotDeal(b.hubspot_deal_id), today = etParts(new Date()).date;
   const { data: chatRows } = await sb.from("chats").select("*").eq("deal_key", key).order("created_at", { ascending: false });
   const chat = (((chatRows || []) as ChatRow[]).find((c) => c.status === "open") || (chatRows || [])[0] || null) as ChatRow | null;
+  const { data: activeTrainers } = await sb.from("trainers").select("id, name").eq("active", true).order("name");
   const [{ data: siblings }, { data: reps }, { data: incs }, ready, { data: ireports }, { data: trips }, { data: money }, { data: rate }] = await Promise.all([
     b.hubspot_deal_id ? sb.from("bookings").select("id, dog_name, status").eq("hubspot_deal_id", b.hubspot_deal_id).neq("id", b.id) : Promise.resolve({ data: [] }),
     sb.from("reports").select("id, kind, week_number, status").eq("booking_id", b.id),
@@ -146,6 +148,7 @@ export default async function DogPageView({ params, searchParams }: { params: { 
               <div className="flex flex-wrap items-center gap-2">
                 <ActionButton className="btn-ghost" action={emailTrainerAboutBooking.bind(null, b.id)}>{b.notified_at ? "Email the trainer again" : "Email the trainer"}</ActionButton>
                 {!chat && <StartChat bookingId={b.id} />}
+                {b.status !== "cancelled" && b.end_date > today && <ChangeTrainer bookingId={b.id} dog={b.dog_name || "the dog"} current={b.trainers?.name || "the trainer"} start={b.start_date} end={b.end_date} today={today} trainers={((activeTrainers || []) as { id: string; name: string }[]).filter((t) => t.id !== b.trainer_id)} />}
                 {b.status !== "cancelled" && <ActionButton className="btn-danger" confirm={`Cancel ${b.dog_name || "this booking"}? The kennel frees up straight away, and the office is asked about a refund or partial pay.`} action={setBookingStatus.bind(null, b.id, "cancelled")}>Cancel training</ActionButton>}
               </div>
               <p className="text-small text-ink-soft">{b.notified_at ? `Trainer emailed ${new Date(b.notified_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}.` : "The trainer hasn't been emailed about this booking yet."}</p>

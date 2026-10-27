@@ -23,6 +23,7 @@ import { weekUsage } from "@/lib/capacity";
 import type { Booking, TimeOff, Trainer } from "@/lib/types";
 import { inviteWithBooking } from "@/lib/autoInvite";
 import { clearUnbooked } from "@/lib/unbookedDeals";
+import { ensureReport } from "@/lib/reportData";
 
 export type Result = { ok: boolean; message: string };
 const DEMO: Result = { ok: false, message: "Demo mode: connect Supabase to save changes." };
@@ -331,6 +332,81 @@ export async function saveBooking(_: Result | null, f: FormData): Promise<Result
   await clearUnbooked(dealId);
   revalidatePath("/", "layout");
   redirect(`/a/trainers/${trainerId}?saved=booking${n.sent ? "&emailed=1" : n.skipped ? "&emailed=off" : n.errors.length ? "&emailed=failed" : ""}`);
+  });
+}
+
+// ── Change a dog's trainer ────────────────────────────────────────────────
+/** Admin: move a booking to another trainer.
+ *  Before pickup (or from the pickup date): the whole booking moves: same deal, chat, dates and forms.
+ *  From a later date (rare, mid-training): the booking is split. The first trainer keeps the days before that date, the new
+ *  trainer gets a booking from that date to drop-off. Each is paid for their own days at the program's day rate
+ *  (e.g. 7 days and 14 days of a 3-week program). The first trainer's handover and the new trainer's pickup form are marked not needed. */
+export async function changeTrainerAction(_: Result | null, f: FormData): Promise<Result> {
+  const bookingId = String(f.get("booking_id") || ""), toId = String(f.get("trainer_id") || "");
+  const { data: names } = isDemo() ? { data: [] } : await serviceClient().from("trainers").select("id, name").in("id", [toId]);
+  const toName = ((names || []) as { id: string; name: string }[])[0]?.name || "";
+  return audited("changeTrainerAction", { bookingId, to: toName, from: String(f.get("from") || ""), anyway: f.get("force") === "on" ? "yes" : "" }, async () => {
+  if (isDemo()) return DEMO;
+  const v = await viewerOrThrow();
+  if (v.role !== "admin") return { ok: false, message: "Admins only." };
+  const sb = serverClient();
+  const id = str(f, "booking_id"), to = str(f, "trainer_id");
+  const { data: b0 } = await sb.from("bookings").select("*, trainers(name)").eq("id", id || "").maybeSingle();
+  const b = b0 as (Booking & { trainers: { name: string } | null }) | null;
+  if (!b || b.status === "cancelled") return { ok: false, message: "Booking not found, or it's cancelled." };
+  if (!to || to === b.trainer_id) return { ok: false, message: "Pick a different trainer." };
+  const { data: t } = await sb.from("trainers").select("*").eq("id", to).maybeSingle();
+  if (!t || !t.active) return { ok: false, message: "That trainer isn't active in the app." };
+  const from = (str(f, "from") || b.start_date) > b.start_date ? str(f, "from")! : b.start_date;
+  if (from >= b.end_date) return { ok: false, message: `That's on or after drop-off (${short(b.end_date)}).` };
+  const split = from > b.start_date;
+  const oldName = b.trainers?.name || "the first trainer", newName = String(t.name);
+
+  // A free kennel with the new trainer for every week they'll have the dog
+  if (f.get("force") !== "on") {
+    const [bk, off] = await Promise.all([
+      sb.from("bookings").select("*").eq("trainer_id", to).neq("status", "cancelled").lte("start_date", b.end_date).gte("end_date", from),
+      sb.from("time_off").select("*").eq("trainer_id", to).lte("start_date", b.end_date).gte("end_date", from)
+    ]);
+    const use = weekUsage(t as Trainer, (bk.data || []) as Booking[], (off.data || []) as TimeOff[], weeksFrom(from, Math.ceil((daysBetween(weekStart(from), b.end_date) + 1) / 7)));
+    const full = use.find((w) => w.free < 1);
+    if (full) return { ok: false, message: `${newName.split(" ")[0]} has no free kennel the week of ${short(full.week)}${full.blocked >= full.cap ? " (time off)" : ""}. Pick someone else, or tick "Book anyway".` };
+  }
+
+  const chatKey = b.hubspot_deal_id || b.id;
+  const today = todayIso();
+  if (!split) {
+    await notifyBookings(sb, [b.id], "cancelled"); // tells the first trainer it's off their calendar (sent before the switch)
+    const { error } = await sb.from("bookings").update({ trainer_id: to }).eq("id", b.id);
+    if (error) return { ok: false, message: error.message };
+    await sb.from("reports").update({ trainer_id: to }).eq("booking_id", b.id).in("status", ["draft", "changes_requested"]);
+    await sb.from("chats").update({ trainer_id: to, trainer_name: newName }).eq("deal_key", chatKey).eq("status", "open");
+    const n = await notifyBookings(sb, [b.id], "new");
+    revalidatePath("/", "layout");
+    return { ok: true, message: `${b.dog_name || "The dog"} moved from ${oldName} to ${newName}: same dates, deal, chat and forms.${n.sent ? ` ${newName.split(" ")[0]} was emailed.` : ""}` };
+  }
+
+  // Split: first trainer keeps pickup → `from`; the new trainer has `from` → drop-off. Same program (same day rate).
+  const { data: added, error: e1 } = await sb.from("bookings").insert({
+    trainer_id: to, client_name: b.client_name, client_email: b.client_email, dog_name: b.dog_name, program: b.program, rehab: b.rehab,
+    start_date: from, end_date: b.end_date, weeks: b.weeks, extra_days: b.extra_days ?? 0, status: b.status, notes: b.notes,
+    hubspot_deal_id: b.hubspot_deal_id, reports_enabled: b.reports_enabled, created_by: v.userId, source: "app"
+  }).select("*").single();
+  if (e1 || !added) return { ok: false, message: e1?.message || "Couldn't make the new trainer's booking." };
+  const { error: e2 } = await sb.from("bookings").update({ end_date: from, extra_days: 0 }).eq("id", b.id);
+  if (e2) { await sb.from("bookings").delete().eq("id", added.id); return { ok: false, message: e2.message }; }
+  // Forms: no client handover from the first trainer, no client pickup for the second
+  for (const [bk, tName, kind] of [[{ ...b, end_date: from } as Booking, oldName, "handover"], [added as Booking, newName, "intake"]] as [Booking, string, "handover" | "intake"][]) {
+    try {
+      const rid = await ensureReport(sb, bk, tName, kind, 0, true);
+      await sb.from("reports").update({ status: "waived", waived_by: "Trainer changed mid-training", waived_at: new Date().toISOString() }).eq("id", rid).in("status", ["draft", "changes_requested"]);
+    } catch { /* the admin can mark it not needed by hand */ }
+  }
+  if (from <= today) await sb.from("chats").update({ trainer_id: to, trainer_name: newName }).eq("deal_key", chatKey).eq("status", "open");
+  await notifyBookings(sb, [b.id], "changed");
+  await notifyBookings(sb, [added.id], "new");
+  revalidatePath("/", "layout");
+  return { ok: true, message: `${oldName} has ${b.dog_name || "the dog"} until ${short(from)} (${daysBetween(b.start_date, from)} days), then ${newName} to ${short(b.end_date)} (${daysBetween(from, b.end_date)} days). Each is paid for their own days.${from > today ? ` The chat moves to ${newName.split(" ")[0]} on ${short(from)}.` : ""}` };
   });
 }
 

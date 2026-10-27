@@ -15,6 +15,7 @@ import { catchUpBookings } from "./bookingCatchup";
 import { sendDailyDigest } from "./digest";
 import { autoInviteClients } from "./autoInvite";
 import { postSystemMessage } from "./chat";
+import { etParts } from "./chatRules";
 export const CLOSE_NOTICE = "This chat will close on";
 import { registerNotifyUrl, sweepNotifications } from "./chatNotify";
 import { watchDirectEdits } from "./directEdits";
@@ -56,8 +57,8 @@ export async function runChatChecks(now = new Date()) {
   const spans = new Map<string, Span[]>();
   if (keys.length) {
     const [a, b] = await Promise.all([
-      sb.from("bookings").select("id, hubspot_deal_id, start_date, end_date, status").in("hubspot_deal_id", keys),
-      sb.from("bookings").select("id, hubspot_deal_id, start_date, end_date, status").in("id", keys.filter((k) => /^[0-9a-f-]{36}$/i.test(k)))
+      sb.from("bookings").select("id, hubspot_deal_id, start_date, end_date, status, trainer_id, trainers(name)").in("hubspot_deal_id", keys),
+      sb.from("bookings").select("id, hubspot_deal_id, start_date, end_date, status, trainer_id, trainers(name)").in("id", keys.filter((k) => /^[0-9a-f-]{36}$/i.test(k)))
     ]);
     for (const bk of [...(a.data || []), ...(b.data || [])] as (Span & { id: string; hubspot_deal_id: string | null })[]) {
       const k = bk.hubspot_deal_id && keys.includes(bk.hubspot_deal_id) ? bk.hubspot_deal_id : bk.id;
@@ -73,6 +74,16 @@ export async function runChatChecks(now = new Date()) {
   for (const c of chats) {
     try {
       const bs = spans.get(c.deal_key) || [];
+      // The chat belongs to whoever has the dog today (after a trainer change mid-training, it moves on the change day)
+      const todayEt = etParts(now).date;
+      const inCare = (bs as (Span & { trainer_id?: string; trainers?: { name: string } | null })[]).filter((x) => x.status !== "cancelled" && x.start_date <= todayEt && x.end_date > todayEt);
+      const carers = [...new Set(inCare.map((x) => x.trainer_id).filter((x): x is string => !!x))];
+      if (carers.length === 1 && carers[0] !== c.trainer_id) {
+        const name = inCare.find((x) => x.trainer_id === carers[0])?.trainers?.name || null;
+        await sb.from("chats").update({ trainer_id: carers[0], trainer_name: name }).eq("id", c.id);
+        await auditSystem("Moved a chat to the dog's new trainer", `${c.title || "Dog"} (${c.client_name || "client"}): from ${c.trainer_name || "the previous trainer"} to ${name || "the new trainer"}, who has the dog from today.`, { link: `/a/chats/${c.id}` });
+        c.trainer_id = carers[0]; c.trainer_name = name;
+      }
       const lastReply = ms(c.last_trainer_at) > ms(c.last_admin_at) ? c.last_trainer_at : c.last_admin_at;
       const want = new Map<IncidentKind, string>();
       if (trainerSilent(now, bs, c.last_trainer_at)) want.set("trainer_silent", `No update from ${c.trainer_name || "the trainer"} today`);

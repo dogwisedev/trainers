@@ -36,6 +36,21 @@ export async function autoInviteClients(sb: SupabaseClient = serviceClient()) {
   if (!autoInviteOn()) return out;
   try {
     const t = today();
+    // First, make the chat for any dog with a HubSpot deal that's in care or starts within 7 days and has none yet
+    // (e.g. booked before the app made chats). No email here: the invite below sends the client their link.
+    const { data: due } = await sb.from("bookings").select("id, trainer_id, client_name, client_email, dog_name, hubspot_deal_id, start_date, end_date, status")
+      .neq("status", "cancelled").gte("end_date", t).lte("start_date", addDays(t, INVITE_DAYS_BEFORE)).not("hubspot_deal_id", "is", null).limit(300);
+    const dueRows = ((due || []) as Bk[]).filter((b) => /^\d+$/.test(b.hubspot_deal_id || ""));
+    if (dueRows.length) {
+      const { data: have } = await sb.from("chats").select("deal_key").in("deal_key", [...new Set(dueRows.map((b) => b.hubspot_deal_id!))]);
+      const has = new Set(((have || []) as { deal_key: string }[]).map((c) => c.deal_key));
+      const missing = dueRows.filter((b) => !has.has(b.hubspot_deal_id!));
+      if (missing.length) {
+        const made = await ensureChatsForBookings(missing, { invite: false }).catch(() => []);
+        const dogs = [...new Set(missing.map((b) => `${b.dog_name || "Dog"} (${b.client_name})`))];
+        await auditSystem("Made chats for dogs that had none", `${dogs.join(", ")}: in care or starting within ${INVITE_DAYS_BEFORE} days, with a HubSpot deal but no chat.`, { ok: made.length > 0 });
+      }
+    }
     const { data: chats } = await sb.from("chats").select("id, deal_key, client_email, client_name, title").eq("status", "open").is("invited_at", null).limit(200);
     const list = (chats || []) as { id: string; deal_key: string; client_email: string | null; client_name: string | null; title: string | null }[];
     if (!list.length) return out;
