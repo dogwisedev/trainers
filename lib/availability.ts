@@ -25,9 +25,9 @@ async function geocodeZip(zip: string) {
 
 export type Origin = { lat: number; lon: number; city?: string; state?: string; zip?: string };
 
-/** zip: a 5-digit US ZIP. lat/lon: used when there's no ZIP. limit: 0 = everyone. */
-export async function availability(o: { zip?: string; lat?: string | null; lon?: string | null; limit?: number }) {
-  const today = todayIso();
+/** zip: a 5-digit US ZIP. lat/lon: used when there's no ZIP. limit: 0 = everyone. today: the day to count from (default: the server's date, as the feed always has). */
+export async function availability(o: { zip?: string; lat?: string | null; lon?: string | null; limit?: number; today?: string }) {
+  const today = o.today || todayIso();
 
   let trainers: Trainer[], bookings: Booking[], off: TimeOff[];
   if (isDemo()) {
