@@ -3,15 +3,15 @@ import { isDemo, serviceClient } from "@/lib/supabase";
 import { recentMonths, salesMonth } from "@/lib/sales";
 import { salesTeam } from "@/lib/hubspot";
 import { etParts } from "@/lib/chatRules";
-import { SalesView, monthLabel } from "@/components/SalesView";
-import { SalesCutover, SalesImport, SalesRefresh, SalesTeam } from "@/components/SalesAdminBits";
+import { SalesView } from "@/components/SalesView";
+import { SalesRefresh, SalesTeam } from "@/components/SalesAdminBits";
 import { lastSalesSync } from "@/lib/salesSync";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60; // "Refresh from HubSpot" runs here and can take up to a minute
 
-// Admin: sales by month and person (every Closed Won deal in HubSpot), with the remaining balance.
-export default async function Sales({ searchParams }: { searchParams: { m?: string } }) {
+// Admin: sales by month and person, straight from HubSpot (every Closed Won deal), with what is still owed.
+export default async function Sales({ searchParams }: { searchParams: { m?: string; owed?: string } }) {
   await requireRole("admin");
   const today = etParts(new Date()).date, months = recentMonths(today.slice(0, 7));
   const month = searchParams.m && /^\d{4}-\d{2}$/.test(searchParams.m) ? searchParams.m : months[0];
@@ -28,10 +28,9 @@ export default async function Sales({ searchParams }: { searchParams: { m?: stri
   return (
     <>
       <h1 className="text-h1 font-extrabold leading-tight">Sales</h1>
-      <p className="mt-1 text-ink-soft">Closed Won deals by the month they were won, per sales person. Remaining balance is what&apos;s still to be paid.</p>
+      <p className="mt-1 text-ink-soft">From HubSpot: every Closed Won deal, by the month it was won (Eastern time), under the deal owner. Still owed = amount minus amount paid, unless the deal is marked Paid, Refund or Program Cancelled.</p>
       <SalesRefresh last={last} />
-      <div className="mt-3"><SalesCutover through={data.importedThrough} today={today} sheetRows={data.sellers.flatMap((x) => x.sales).filter((x) => x.source === "sheet").length} hubspotRows={data.sellers.flatMap((x) => x.sales).filter((x) => x.source === "app").length} /></div>
-      <SalesView month={month} months={months} base="/a/sales" {...data} admin />
+      <SalesView month={month} months={months} base="/a/sales" {...data} admin onlyOwed={searchParams.owed === "1"} />
       <div className="mt-8 space-y-3">
         {unlinked.length > 0 && (
           <p role="alert" className="rounded-xl bg-heart-wash px-3.5 py-2.5 text-small text-heart">
@@ -39,7 +38,6 @@ export default async function Sales({ searchParams }: { searchParams: { m?: stri
           </p>
         )}
         <SalesTeam team={team.map((t) => ({ id: t.id, name: t.name, email: t.email, hasLogin: withLogin.has(t.id) }))} />
-        <SalesImport month={month} today={today} monthName={monthLabel(month)} through={data.importedThrough} />
       </div>
     </>
   );

@@ -19,10 +19,10 @@ export const paidUp = (status: unknown) => /^(paid|refund|program cancelled)$/i.
 export const remainingOf = (m: { amount: number | null; amount_paid: number | null; payment_status?: string | null }) =>
   paidUp(m.payment_status) ? 0 : Math.max(0, Math.round(((m.amount || 0) - (m.amount_paid || 0)) * 100) / 100);
 
-export type MoneyResult = { deals: number; won: number; links: string[]; errors: string[] };
+export type MoneyResult = { deals: number; won: number; byMonth: Record<string, number>; links: string[]; errors: string[] };
 
 export async function syncMoney(opts: { dealIds?: string[]; sb?: SupabaseClient } = {}): Promise<MoneyResult> {
-  const out: MoneyResult = { deals: 0, won: 0, links: [], errors: [] };
+  const out: MoneyResult = { deals: 0, won: 0, byMonth: {}, links: [], errors: [] };
   if (isDemo() || !hubspotConfigured()) return out;
   const sb = opts.sb || serviceClient();
   const since = addDays(etParts(new Date()).date, -400);
@@ -32,12 +32,9 @@ export async function syncMoney(opts: { dealIds?: string[]; sb?: SupabaseClient 
   const booked = new Set(((bks || []) as { hubspot_deal_id: string }[]).map((b) => b.hubspot_deal_id).filter((x) => /^\d+$/.test(x)));
   let ids = [...booked];
   if (!opts.dealIds?.length) {
-    // Every Closed Won deal since the Monies sheet cut-over (or the last 400 days), and any deal already counted (to drop ones no longer won)
-    const { data: st } = await sb.from("app_state").select("value").eq("key", "sales_import_through").maybeSingle();
+    // Every Closed Won deal of the six months on the Sales page, and any deal already counted (to drop ones no longer won)
     const today = etParts(new Date()).date;
-    const sixMonths = `${addDays(today.slice(0, 7) + "-01", -160).slice(0, 7)}-01`; // the first day of the oldest month on the Sales page
-    const through = (st?.value as string | undefined) || null;
-    const from = through && through < sixMonths ? through : sixMonths;
+    const from = `${addDays(today.slice(0, 7) + "-01", -160).slice(0, 7)}-01`; // the first day of the oldest month shown
     try { ids.push(...(await closedWonSince(from, [])).map((d) => d.id)); } catch (e) { out.errors.push(`closed won search: ${(e as Error).message}`); }
     const { data: counted } = await sb.from("deal_money").select("deal_id").gte("closed_on", from);
     ids.push(...((counted || []) as { deal_id: string }[]).map((r) => r.deal_id));
@@ -93,7 +90,7 @@ export async function syncMoney(opts: { dealIds?: string[]; sb?: SupabaseClient 
         out.links.push(`${p.dealname || id}: $${amount}${extended ? " (extension)" : ""}`);
       } catch (e) { out.errors.push(`link ${id}: ${(e as Error).message}`); }
     }
-    if (row.closed_on) out.won++;
+    if (row.closed_on) { out.won++; const m = row.closed_on.slice(0, 7); out.byMonth[m] = (out.byMonth[m] || 0) + 1; }
     batch.push(row);
     if (batch.length >= 100) await flush();
   }

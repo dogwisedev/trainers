@@ -4,7 +4,6 @@ import { revalidatePath } from "next/cache";
 import { getViewer } from "@/lib/data";
 import { serviceClient, isDemo } from "@/lib/supabase";
 import { salesTeam } from "@/lib/hubspot";
-import { matchOwner, parseSheetSales, salesPeople } from "@/lib/sales";
 import { sendSignInLink } from "@/lib/authEmail";
 import { userIdByEmail } from "@/lib/userLookup";
 import { runSalesSync } from "@/lib/salesSync";
@@ -36,32 +35,6 @@ export async function inviteSalesAction(ownerId: string): Promise<R> {
 });
 }
 
-/** Admin: paste a month's rows from the Monies sheet (replaces that month's pasted rows). */
-export async function importSalesAction(_: R | null, f: FormData): Promise<R> {
-  return audited("importSalesAction", { f }, async () => {
-  if (isDemo() || !(await admin())) return { ok: false, message: "Admins only." };
-  const month = String(f.get("month") || ""), through = String(f.get("through") || "");
-  if (!/^\d{4}-\d{2}$/.test(month)) return { ok: false, message: "Pick the month." };
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(through)) return { ok: false, message: "Say the last day the sheet has every sale for." };
-  if (through > new Date().toISOString().slice(0, 10)) return { ok: false, message: "That date is in the future: the sheet can only cover sales already made." };
-  const rows = parseSheetSales(String(f.get("rows") || ""));
-  if (!rows.length) return { ok: false, message: "No sales found. Copy the rows from the sheet (name, client, program, amount…) and paste them." };
-  const all = await salesPeople();
-  const match = (name: string) => matchOwner(name, all);
-  const sb = serviceClient();
-  await sb.from("sales_import").delete().eq("month", `${month}-01`);
-  const { error } = await sb.from("sales_import").insert(rows.map((r) => ({ month: `${month}-01`, seller: r.seller, owner_id: match(r.seller), client: r.client || null, program: r.program || null, amount: r.amount, paid_in_full: r.paidInFull })));
-  if (error) return { ok: false, message: error.message };
-  // Importing moves the cut-over forward only (importing an older month never hides newer HubSpot sales).
-  // To move it back, use "Sheet covers sales up to" on the Sales page.
-  const { data: cur } = await sb.from("app_state").select("value").eq("key", "sales_import_through").maybeSingle();
-  if (!cur?.value || through > String(cur.value)) await sb.from("app_state").upsert({ key: "sales_import_through", value: through, updated_at: new Date().toISOString() });
-  revalidatePath("/a/sales");
-  const unmatched = [...new Set(rows.filter((r) => !match(r.seller)).map((r) => r.seller))];
-  return { ok: true, message: `Imported ${rows.length} sales. Deals won after ${through} come from the app.${unmatched.length ? ` Not matched to a HubSpot owner: ${unmatched.join(", ")}.` : ""}` };
-});
-}
-
 /** Admin: pull every Closed Won deal's sale and payments from HubSpot now (the same as the 30-minute job). */
 export async function refreshSalesAction(): Promise<R> {
   return audited("refreshSalesAction", {}, async () => {
@@ -73,24 +46,5 @@ export async function refreshSalesAction(): Promise<R> {
     return s.errors.length
       ? { ok: false, message: `Saved ${s.deals} deals, with problems: ${s.errors.join("; ")}` }
       : { ok: true, message: `Updated: ${s.deals} deals read from HubSpot, ${s.won} of them Closed Won.` };
-  });
-}
-
-/** Admin: the last day the Monies sheet has every sale for. Deals won after it come from HubSpot. Empty = HubSpot for everything. */
-export async function setSalesCutoverAction(_: R | null, f: FormData): Promise<R> {
-  return audited("setSalesCutoverAction", { f }, async () => {
-    if (isDemo() || !(await admin())) return { ok: false, message: "Admins only." };
-    const d = String(f.get("through") || "").trim();
-    const sb = serviceClient();
-    if (!d) {
-      await sb.from("app_state").delete().eq("key", "sales_import_through");
-      revalidatePath("/a/sales"); revalidatePath("/s");
-      return { ok: true, message: "Done: every month now comes from HubSpot (pasted sheet rows are ignored)." };
-    }
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return { ok: false, message: "Pick a date." };
-    if (d > new Date().toISOString().slice(0, 10)) return { ok: false, message: "That's in the future: the sheet can only cover sales already made." };
-    await sb.from("app_state").upsert({ key: "sales_import_through", value: d, updated_at: new Date().toISOString() });
-    revalidatePath("/a/sales"); revalidatePath("/s");
-    return { ok: true, message: `Done: sales up to ${d} come from the Monies sheet, and from HubSpot after that.` };
   });
 }
