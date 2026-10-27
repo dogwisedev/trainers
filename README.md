@@ -83,3 +83,11 @@ Everyone signs in once more on the new address (password or "Email me a code") a
 
 ## Quiet chats close by themselves
 After 53 days with no messages from anyone (and no dog in care now or coming up), a notice goes in the chat: "This chat will close on <date> unless someone writes here." Seven days later, if still quiet, the chat closes: the transcript is saved to Drive and emailed to the client, as when an admin closes it. Each step is in the activity log. Anyone writing in the chat restarts the clock. `CHAT_AUTO_CLOSE=off` in Vercel goes back to closing by hand ("Ready to close" on To do).
+
+## Claude connector
+The app is a custom connector in Claude (Organization settings > Connectors > Add > Custom > Web), so anyone in the Dogwise Claude org who turns it on can ask Claude about bookings, chats and forms.
+- Address: `https://<app address>/api/mcp`. In the connector's settings choose "No sign in" and add the request header `Authorization: Bearer <CLAUDE_MCP_KEY>`.
+- Tools (read only): `todo` (the admin To do list), `dogs_in_care`, `forms`, `before_training`, `find_dog`, `chat_messages`, `availability`. They live in `lib/claudeConnector.ts`; the MCP part is `app/api/mcp/route.ts`.
+- They read with the service key, like the To do list and the daily email, so the key gives admin-level read access. On a Team plan everyone who connects shares it. Keep it in Vercel (Production) and in Claude only.
+- Every call goes in the activity log as "Looked up app data through Claude", by "Claude connector".
+- Off until `CLAUDE_MCP_KEY` is set (32 characters or more). Make one with `openssl rand -hex 32`. Changing it disconnects Claude until the header is updated.
