@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
-
+ 
 // Keeps the Supabase session fresh and sends signed-out visitors to /login.
 // Also catches sign-in links that land on the wrong page (e.g. "/?code=…" when Supabase falls back to the
 // Site URL) and forwards them to the right handler, so a link can never just bounce back to the login screen.
