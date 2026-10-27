@@ -7,6 +7,7 @@ import { isDemo, serviceClient } from "./supabase";
 export const LOG_VIEWERS = () => (process.env.LOG_VIEWERS || "alma@dogwiseacademy.com").toLowerCase().split(",").map((s) => s.trim());
 
 const LABEL: Record<string, string> = {
+  claudeTool: "Looked up app data through Claude",
   signOut: "Signed out", setPassword: "Changed their password", saveTrainer: "Saved a trainer profile", setTrainerActive: "Changed a trainer's active status",
   clearFlag: "Cleared a trainer profile flag", inviteTrainer: "Sent a trainer their login", addTimeOff: "Added time off", deleteTimeOff: "Removed time off",
   saveBooking: "Saved a booking", setExtraDays: "Changed extra days", setBookingStatus: "Changed a booking's status", sendMessage: "Sent a Trainer message",
