@@ -14,7 +14,7 @@ export default async function TrainerLayout({ children }: { children: React.Reac
   const unread = teamUnread + chatsUnread;
   return (
     <Shell who={v.name} demo={v.demo} accountHref="/t/profile#password" needsPassword={v.passwordSet === false} headerActions={false} tourHome="/t" nav={[
-      { href: "/t", label: "Today", icon: "home", also: ["/t/calendar"] },
+      { href: "/t", label: "Today", icon: "home", also: ["/t/calendar", "/t/dogs"] },
       { href: "/t/chats", label: "Chats", icon: "messages", badge: unread, also: ["/t/messages"] },
       { href: "/t/reports", label: "Forms", icon: "reports", badge: formsDue },
       { href: "/t/profile", label: "Me", icon: "profile", also: ["/t/pay", "/t/past", "/t/followup", "/t/followups"] }

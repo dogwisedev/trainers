@@ -21,7 +21,7 @@ export default async function TrainerChat({ params }: { params: { id: string } }
         <Link prefetch={false} href="/t/chats" className="grid h-10 w-10 place-items-center rounded-full hover:bg-mint-wash" aria-label="All chats"><ChevronLeft /></Link>
         <Avatar name={chat.title || "Dog"} size={42} />
         <div className="min-w-0 flex-1"><h1 className="truncate text-h2 font-extrabold leading-tight">{chat.title || "Dog"}</h1><p className="truncate text-body text-ink-soft">{chat.client_name}</p></div>
-        <ChatMore profileHref={/^\d+$/.test(chat.deal_key) ? `/t/chats/${chat.id}/profile` : null} left={ready ? ready.left : null} incidentHref={chat.status === "open" ? `/t/chats/${chat.id}/incident` : null} />
+        <ChatMore profileHref={/^\d+$/.test(chat.deal_key) ? `/t/chats/${chat.id}/profile` : /^[0-9a-f-]{36}$/i.test(chat.deal_key) ? `/t/dogs/${chat.deal_key}` : null} left={ready ? ready.left : null} incidentHref={chat.status === "open" ? `/t/chats/${chat.id}/incident` : null} />
       </div>
       {chat.archived_at ? <ArchivedNotice chat={chat} audience="staff" /> : <ChatThread chatId={chat.id} me={{ userId: v.userId, role: "trainer", name: v.name }} initial={messages} hasMore={hasMore} open={chat.status === "open"} folderUrl={chat.drive_folder_url} demo={isDemo()} withBottomNav otherLabel={`${chat.client_name || "the client"} and the Dogwise team`} />}
     </>

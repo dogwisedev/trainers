@@ -10,6 +10,9 @@ import { TodoRowCompact } from "@/components/ReportBits";
 import { readinessFor } from "@/lib/pretraining";
 import { isDemo, serviceClient } from "@/lib/supabase";
 import type { Booking } from "@/lib/types";
+import { Info } from "lucide-react";
+import { contactFrom } from "@/lib/contactLinks";
+import { TodayVisits, type Visit } from "@/components/TodayVisits";
 
 export default async function TrainerHome() {
   const v = await requireRole("trainer");
@@ -37,8 +40,26 @@ export default async function TrainerHome() {
     return <Link prefetch={false} href={`/t/chats/${chat}/profile?dog=${b.id}`} className={`rounded-full px-2.5 py-0.5 text-caption font-bold ${n ? "bg-heart-wash text-heart" : "bg-mint-wash text-fern"}`}>{n ? `${n} to do before training` : "Ready"}</Link>;
   };
 
+  // Today's pickups and drop-offs, with the client's address from their forms (one row per client, all their dogs)
+  const visitsRaw = bookings.filter((b) => b.status !== "cancelled" && (b.start_date === today || b.end_date === today));
+  const visitDeals = [...new Set(visitsRaw.map((b) => b.hubspot_deal_id).filter((x): x is string => !!x && /^\d+$/.test(x)))];
+  const { data: contacts } = visitDeals.length && !isDemo() ? await serviceClient().from("pretraining_deals").select("deal_id, contact").in("deal_id", visitDeals) : { data: [] };
+  const contactOf = new Map(((contacts || []) as { deal_id: string; contact: Record<string, unknown> | null }[]).map((r) => [r.deal_id, r.contact]));
+  const grouped = new Map<string, Visit>();
+  for (const b of visitsRaw) {
+    const kind = b.start_date === today ? "pickup" : "home";
+    const k = `${kind}:${b.hubspot_deal_id || b.id}`;
+    const c = contactFrom(b.hubspot_deal_id ? contactOf.get(b.hubspot_deal_id) : null, b.client_name);
+    const x = grouped.get(k);
+    if (x) { x.dogs = `${x.dogs} & ${b.dog_name || "Dog"}`; continue; }
+    grouped.set(k, { key: k, kind, dogs: b.dog_name || "Dog", bookingId: b.id, client: c.name || b.client_name, address: c.address, phone: c.phone });
+  }
+  const visits = [...grouped.values()].sort((a, b) => (a.kind === b.kind ? 0 : a.kind === "pickup" ? -1 : 1));
+  const infoLink = (b: Booking) => <Link prefetch={false} href={`/t/dogs/${b.id}`} className="btn-ghost h-10 min-h-0 shrink-0 px-3 text-body"><Info size={16} />Info</Link>;
+
   return (
     <>
+      <TodayVisits visits={visits} today={today} />
       <div className="rounded-[28px] bg-mint p-5 md:p-7" data-tour="week">
         <p className="text-body text-ink-soft">{new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}</p>
         <h1 className="mt-1 text-h1 font-extrabold leading-tight md:text-display">Hi {first}</h1>
@@ -73,7 +94,7 @@ export default async function TrainerHome() {
                 <li key={b.id} className="panel p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div><p className="text-lead font-bold">{b.dog_name || "Dog"}</p><p className="text-body text-ink-soft">{b.client_name}, {range(b.start_date, b.end_date)}</p></div>
-                    <Pill tone="biscuit">Week {Math.ceil(done / 7)} of {Math.ceil(total / 7)}</Pill>
+                    <div className="flex shrink-0 flex-col items-end gap-2"><Pill tone="biscuit">Week {Math.ceil(done / 7)} of {Math.ceil(total / 7)}</Pill>{infoLink(b)}</div>
                   </div>
                   <div className="mt-3 h-2 overflow-hidden rounded-full bg-paper"><div className="h-full rounded-full bg-biscuit" style={{ width: `${(done / total) * 100}%` }} /></div>
                   {b.notes && <p className="mt-3 text-body text-ink-soft">{b.notes}</p>}
@@ -91,7 +112,7 @@ export default async function TrainerHome() {
             {next.map((b) => (
               <li key={b.id} className="flex items-center justify-between gap-3 p-4">
                 <div><p className="font-semibold">{b.dog_name || "Dog"} <span className="font-normal text-ink-soft">with {b.client_name}</span></p><p className="text-body text-ink-soft">{range(b.start_date, b.end_date)}</p>{readyBadge(b) && <div className="mt-1">{readyBadge(b)}</div>}</div>
-                <Pill tone={b.status === "pending" ? "line" : "mint"}>{b.status === "pending" ? "Pending" : "Confirmed"}</Pill>
+                <div className="flex shrink-0 flex-col items-end gap-2"><Pill tone={b.status === "pending" ? "line" : "mint"}>{b.status === "pending" ? "Pending" : "Confirmed"}</Pill>{infoLink(b)}</div>
               </li>
             ))}
           </ul>

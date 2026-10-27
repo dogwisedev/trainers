@@ -2,6 +2,8 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { ClientCard } from "@/components/ClientCard";
+import { contactFrom, telHref } from "@/lib/contactLinks";
 import { Check, Circle, CreditCard, FileText, Pencil, Upload } from "lucide-react";
 import { Pill } from "@/components/ui";
 import { addVaccineFileAction, reviewVaccinesAction, saveProfileAction, setClearedAction, setSlotAction } from "@/app/pretraining-actions";
@@ -47,6 +49,12 @@ const KEY_FACTS: { label: string; keys: string[]; flag?: (v: string) => boolean 
 ];
 const QBY = new Map(SECTIONS.flatMap((sec) => sec.questions.map((q) => [q.key, q] as const)));
 
+/** Phone numbers in a key fact become tap-to-call links. */
+function Linkified({ text }: { text: string }) {
+  const parts = text.split(/(\+?\(?\d[\d\s().-]{8,}\d)/g);
+  return <>{parts.map((p, i) => (i % 2 && telHref(p) ? <a key={i} href={telHref(p)!} className="font-semibold text-lav-deep underline">{p}</a> : <span key={i}>{p}</span>))}</>;
+}
+
 function KeyFacts({ answers, defs, name }: { answers: Answers; defs: Profile["defs"]; name: string }) {
   const rows = KEY_FACTS.map((f) => {
     const vals = f.keys.map((k) => { const q = QBY.get(k); const v = String((answers as Record<string, unknown>)[k] ?? ""); return q ? shown(q, defs[k], v) : v; }).map((v) => v.trim()).filter(Boolean);
@@ -60,7 +68,7 @@ function KeyFacts({ answers, defs, name }: { answers: Answers; defs: Profile["de
         {rows.map((r) => (
           <div key={r.label} className={`grid grid-cols-[minmax(0,40%)_1fr] gap-3 px-4 py-2.5 text-body ${r.flag ? "bg-heart-wash" : ""}`}>
             <dt className={`font-semibold ${r.flag ? "text-heart" : "text-ink-soft"}`}>{r.label}</dt>
-            <dd className={r.value ? (r.flag ? "font-semibold text-heart" : "") : "text-ink-faint"}>{r.value || "Not answered yet"}</dd>
+            <dd className={r.value ? (r.flag ? "font-semibold text-heart" : "") : "text-ink-faint"}>{r.value ? <Linkified text={r.value} /> : "Not answered yet"}</dd>
           </div>
         ))}
       </dl>
@@ -95,6 +103,7 @@ export function DogProfile({ chatId, role, edit, open, profile, dogId, base, dog
         </nav>
       )}
 
+      {role !== "client" && <ClientCard c={contactFrom(profile.client)} dogs={profile.dogs.map((d) => d.name).filter(Boolean).join(" & ")} />}
       {role === "trainer" && <KeyFacts answers={{ ...profile.client, ...dog.answers }} defs={profile.defs} name={dog.name} />}
       <section className={`panel p-4 ${left.length ? "" : "border-fern bg-mint-wash"}`} aria-labelledby="ready-title">
         <h2 id="ready-title" className="text-lead font-extrabold">{left.length ? `${left.length} thing${left.length > 1 ? "s" : ""} left before training` : `${dog.name} is ready for training`}</h2>
