@@ -3,7 +3,7 @@ import { serviceClient, isDemo } from "./supabase";
 import { listOwners, Owner, salesTeam } from "./hubspot";
 import { remainingOf } from "./money";
 
-// Sales: Closed Won deals booked in the app, in the month they were won, per deal owner.
+// Sales: every Closed Won deal in HubSpot (booked in the app or not), in the Eastern-time month it was won, per deal owner.
 // Sale = the deal amount (whatever has been paid); remaining = amount − amount paid (0 once Paid).
 // Before the app: rows pasted from the Monies sheet (sales_import), which cover sales up to "sales_import_through".
 

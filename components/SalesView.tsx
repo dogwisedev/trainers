@@ -44,7 +44,7 @@ export function SalesView({ month, months, base, sellers, total, remaining, coun
             ))}
           </ul>
         </section>
-      )) : <div className="mt-6"><Empty title={`No sales in ${monthLabel(month)} yet.`}>Closed Won deals show here once they&apos;re booked in the app.</Empty></div>}
+      )) : <div className="mt-6"><Empty title={`No sales in ${monthLabel(month)} yet.`}>Closed Won deals show here within 30 minutes of being won in HubSpot.</Empty></div>}
     </>
   );
 }

@@ -1,7 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { serviceClient } from "./supabase";
-import { closedWonSince, hsDate, hubspotConfigured } from "./hubspot";
+import { closedWonSince, hsDateET, hubspotConfigured } from "./hubspot";
 import { raiseIncident, resolveIncidents } from "./incidents";
 import { auditSystem } from "./audit";
 
@@ -38,7 +38,7 @@ export async function checkUnbookedDeals(sb: SupabaseClient = serviceClient()) {
     if (booked.has(d.id) || dismissed.has(ref) || live.has(ref)) continue;
     const name = d.properties.dealname || `Deal ${d.id}`;
     const dogs = DOGS.map((k) => (d.properties[k] || "").trim()).filter(Boolean);
-    const won = hsDate(d.properties.closedate);
+    const won = hsDateET(d.properties.closedate);
     if (await raiseIncident({
       kind: "deal_not_booked", title: name, ref, urgent: false, link: dealUrl(d.id),
       detail: `${name}${dogs.length ? ` (${dogs.join(" & ")})` : ""}: Closed Won${won ? ` on ${won}` : ""} in HubSpot, but not booked in the app.`

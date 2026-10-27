@@ -25,7 +25,7 @@ export async function middleware(req: NextRequest) {
       return NextResponse.redirect(to);
     }
   }
- 
+
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL, key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   const inArea = (p: string) => pathname === p || pathname.startsWith(p + "/");
   const protectedPath = inArea("/a") || inArea("/t") || inArea("/c") || inArea("/s"); // exact areas only: "/auth/…" must stay reachable while signed out

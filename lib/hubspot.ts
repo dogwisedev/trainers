@@ -79,6 +79,15 @@ export async function stageLabel(id: string | null | undefined): Promise<string>
 }
 
 /** A HubSpot date value as YYYY-MM-DD. Date properties are midnight UTC, so the UTC date is the calendar date. */
+/** A HubSpot date-time (like closedate) as the Eastern-time day it happened on: a deal won at 9pm on Oct 31 is an October sale. */
+export function hsDateET(v: string | null | undefined): string | null {
+  if (!v) return null;
+  const t = String(v).trim();
+  const when = /^\d{10,}$/.test(t) ? new Date(Number(t)) : /^\d{4}-\d{2}-\d{2}T/.test(t) ? new Date(t) : null;
+  if (!when || Number.isNaN(when.getTime())) return hsDate(t);
+  return when.toLocaleDateString("en-CA", { timeZone: "America/New_York" }); // en-CA = YYYY-MM-DD
+}
+
 export function hsDate(v: string | null | undefined): string | null {
   if (!v) return null;
   const t = String(v).trim();
