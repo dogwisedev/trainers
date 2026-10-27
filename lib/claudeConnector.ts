@@ -7,6 +7,7 @@ import { buildTodo } from "./todo";
 import { readinessFor } from "./pretraining";
 import { availability } from "./availability";
 import { dealKey } from "./chatTypes";
+import { cleanDealId } from "./dealId";
 import { auditCall } from "./audit";
 
 // The tools behind the app's Claude connector (app/api/mcp/route.ts). Claude calls them through MCP with the
@@ -197,7 +198,8 @@ export const CLAUDE_TOOLS: ClaudeTool[] = [
     input: { query: { type: "string", description: "Dog or client name (or part of it), client email, HubSpot deal id, or a HubSpot deal link." } },
     run: async (a) => {
       const raw = text(a, "query");
-      const deal = /hubspot\.com/i.test(raw) ? raw.match(/\d{6,}/g)?.pop() || "" : "";
+      const deal = /record\/0-3\/\d+|\/deal\/\d+/i.test(raw) ? cleanDealId(raw) || "" : "";
+      if (!deal && /^https?:\/\/\S*hubspot\.com/i.test(raw)) throw new Ask("That HubSpot link isn't a deal (deal links have record/0-3/ in them). Give the deal's link or id, or the dog's or client's name.");
       const q = deal || searchText(raw);
       if (q.length < 2) throw new Ask("Give at least 2 letters of the dog's or client's name, an email, or a HubSpot deal id.");
       const sb = serviceClient();
@@ -339,12 +341,12 @@ export async function runClaudeTool(name: string, args: Args): Promise<{ ok: tru
   if (isDemo()) return { ok: false, error: "The app is in demo mode (no database), so there is nothing to read." };
   const who = { name: "Claude connector", role: "claude" };
   // What was asked, for the log. A chat id is passed as chatId so the log names the dog and client and links the chat.
-  const asked = Object.fromEntries(Object.entries(args).filter(([k, v]) => k in tool.input && ["string", "number", "boolean"].includes(typeof v)));
+  const asked = Object.fromEntries(Object.entries(args).filter(([k, v]) => Object.hasOwn(tool.input, k) && ["string", "number", "boolean"].includes(typeof v)));
   const chatId = typeof args.chat_id === "string" && UUID.test(args.chat_id.trim()) ? args.chat_id.trim() : undefined;
   const logged = { tool: name, ...asked, ...(chatId ? { chatId } : {}) };
   let out: { ok: true; result: unknown } | { ok: false; error: string; detail: string };
   try {
-    const unknown = Object.keys(args).filter((k) => !(k in tool.input));
+    const unknown = Object.keys(args).filter((k) => !Object.hasOwn(tool.input, k));
     if (unknown.length) throw new Ask(`Unknown argument${unknown.length > 1 ? "s" : ""}: ${unknown.join(", ")}. ${name} takes: ${Object.keys(tool.input).join(", ") || "no arguments"}.`);
     out = { ok: true, result: await inTime(tool.run(args)) };
   } catch (e) {
