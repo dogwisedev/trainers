@@ -4,7 +4,7 @@ import { recentMonths, salesMonth } from "@/lib/sales";
 import { salesTeam } from "@/lib/hubspot";
 import { etParts } from "@/lib/chatRules";
 import { SalesView, monthLabel } from "@/components/SalesView";
-import { SalesImport, SalesRefresh, SalesTeam } from "@/components/SalesAdminBits";
+import { SalesCutover, SalesImport, SalesRefresh, SalesTeam } from "@/components/SalesAdminBits";
 import { lastSalesSync } from "@/lib/salesSync";
 
 export const dynamic = "force-dynamic";
@@ -30,6 +30,7 @@ export default async function Sales({ searchParams }: { searchParams: { m?: stri
       <h1 className="text-h1 font-extrabold leading-tight">Sales</h1>
       <p className="mt-1 text-ink-soft">Closed Won deals by the month they were won, per sales person. Remaining balance is what&apos;s still to be paid.</p>
       <SalesRefresh last={last} />
+      <div className="mt-3"><SalesCutover through={data.importedThrough} today={today} sheetRows={data.sellers.flatMap((x) => x.sales).filter((x) => x.source === "sheet").length} hubspotRows={data.sellers.flatMap((x) => x.sales).filter((x) => x.source === "app").length} /></div>
       <SalesView month={month} months={months} base="/a/sales" {...data} admin />
       <div className="mt-8 space-y-3">
         {unlinked.length > 0 && (
@@ -39,7 +40,6 @@ export default async function Sales({ searchParams }: { searchParams: { m?: stri
         )}
         <SalesTeam team={team.map((t) => ({ id: t.id, name: t.name, email: t.email, hasLogin: withLogin.has(t.id) }))} />
         <SalesImport month={month} today={today} monthName={monthLabel(month)} through={data.importedThrough} />
-        {data.importedThrough && <p className="px-1 text-caption text-ink-faint">Sales up to {data.importedThrough} come from the Monies sheet; after that, from the app.</p>}
       </div>
     </>
   );

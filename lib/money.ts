@@ -34,7 +34,10 @@ export async function syncMoney(opts: { dealIds?: string[]; sb?: SupabaseClient 
   if (!opts.dealIds?.length) {
     // Every Closed Won deal since the Monies sheet cut-over (or the last 400 days), and any deal already counted (to drop ones no longer won)
     const { data: st } = await sb.from("app_state").select("value").eq("key", "sales_import_through").maybeSingle();
-    const from = (st?.value as string | undefined) || since;
+    const today = etParts(new Date()).date;
+    const sixMonths = `${addDays(today.slice(0, 7) + "-01", -160).slice(0, 7)}-01`; // the first day of the oldest month on the Sales page
+    const through = (st?.value as string | undefined) || null;
+    const from = through && through < sixMonths ? through : sixMonths;
     try { ids.push(...(await closedWonSince(from, [])).map((d) => d.id)); } catch (e) { out.errors.push(`closed won search: ${(e as Error).message}`); }
     const { data: counted } = await sb.from("deal_money").select("deal_id").gte("closed_on", from);
     ids.push(...((counted || []) as { deal_id: string }[]).map((r) => r.deal_id));

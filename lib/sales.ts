@@ -46,7 +46,8 @@ export async function salesMonth(month: string, ownerId?: string): Promise<{ sel
   const team = await salesPeople();
   const through = (st?.value as string | undefined) || null;
   // A month entirely after the cut-over comes only from the app: its pasted rows are ignored (no double counting)
-  const useSheet = !through || from <= through;
+  // Pasted rows count only for months up to the cut-over; with no cut-over, everything comes from HubSpot (no double counting)
+  const useSheet = !!through && from <= through;
   const fixed = ((useSheet ? imp || [] : []) as { id: string; seller: string; owner_id: string | null }[]).filter((r) => !r.owner_id).map((r) => ({ id: r.id, owner: matchOwner(r.seller, team) })).filter((r) => r.owner);
   for (const r of fixed) await sb.from("sales_import").update({ owner_id: r.owner }).eq("id", r.id);
   let q = sb.from("deal_money").select("*").gte("closed_on", from).lt("closed_on", to);

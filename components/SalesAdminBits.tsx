@@ -2,7 +2,7 @@
 import { useState, useTransition } from "react";
 import { useFormState, useFormStatus } from "react-dom";
 import { useRouter } from "next/navigation";
-import { importSalesAction, inviteSalesAction, refreshSalesAction } from "@/app/sales-actions";
+import { importSalesAction, inviteSalesAction, refreshSalesAction, setSalesCutoverAction } from "@/app/sales-actions";
 
 /** Admin: when Sales was last updated from HubSpot, and a button to update it now. */
 export function SalesRefresh({ last }: { last: { at: string; deals: number; won: number; errors: string[]; by: string } | null }) {
@@ -26,6 +26,24 @@ export function SalesRefresh({ last }: { last: { at: string; deals: number; won:
     </div>
   );
 }
+
+/** Admin: where each month's sales come from. Up to this day: the Monies sheet. After it: HubSpot. Changeable either way. */
+export function SalesCutover({ through, today, sheetRows, hubspotRows }: { through: string | null; today: string; sheetRows: number; hubspotRows: number }) {
+  const [r, act] = useFormState(setSalesCutoverAction, null);
+  return (
+    <div className="panel p-4">
+      <p className="font-bold">Where these sales come from</p>
+      <p className="mt-1 text-small text-ink-soft">This month: <b>{hubspotRows}</b> from HubSpot, <b>{sheetRows}</b> from the Monies sheet. {through ? <>The sheet covers sales up to <b>{through}</b>; deals won after that come from HubSpot.</> : <>Every month comes from HubSpot.</>}</p>
+      <form action={act} className="mt-3 flex flex-wrap items-end gap-2">
+        <label className="min-w-[180px] flex-1"><span className="label">Sheet covers sales up to</span><input type="date" name="through" defaultValue={through || ""} max={today} className="field" /></label>
+        <SaveCutover />
+      </form>
+      <p className="mt-1 text-caption text-ink-faint">Leave it empty to use HubSpot for every month. Then tap Refresh from HubSpot.</p>
+      {r && <p role="status" className={`mt-2 text-small font-semibold ${r.ok ? "text-fern" : "text-heart"}`}>{r.message}</p>}
+    </div>
+  );
+}
+function SaveCutover() { const { pending } = useFormStatus(); return <button className="btn-ghost" disabled={pending}>{pending ? "Saving…" : "Save"}</button>; }
 
 /** Admin: the HubSpot sales team, and who has a login. */
 export function SalesTeam({ team }: { team: { id: string; name: string; email: string; hasLogin: boolean }[] }) {
@@ -62,7 +80,8 @@ export function SalesImport({ month, today, monthName, through }: { month: strin
         <input type="hidden" name="month" value={month} />
         <p className="text-small text-ink-soft">In the sheet&apos;s Sales tab, select this month&apos;s rows (from the Name column to Paid in full), copy, and paste here. Importing again replaces this month&apos;s pasted rows.</p>
         <textarea name="rows" rows={6} className="field font-mono text-small" placeholder={"James S\tSmith\t3 week basic\t3000\t210\tYES"} required />
-        <label className="block"><span className="label">These rows cover sales up to</span><input type="date" name="through" defaultValue={through || today} className="field" required /></label>
+        <label className="block"><span className="label">These rows cover sales up to</span><input type="date" name="through" defaultValue={through || ""} max={today} className="field" required /></label>
+        <p className="-mt-1 text-caption text-ink-faint">The last day the sheet has every sale for. Deals won after it come from HubSpot, so a later date hides HubSpot deals up to that day.</p>
         <Go />
         {r && <p role="status" className={`text-small font-semibold ${r.ok ? "text-fern" : "text-heart"}`}>{r.message}</p>}
       </form>
