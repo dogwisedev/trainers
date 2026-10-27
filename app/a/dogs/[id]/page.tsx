@@ -22,6 +22,7 @@ import { ActionButton, ExtraDays } from "@/components/forms";
 import { ReportsToggle } from "@/components/ReportsToggle";
 import { StartChat } from "@/components/StartChat";
 import { CloseChat } from "@/components/ChatActions";
+import { trainingOver } from "@/lib/chatOps";
 import { AdminChatPanel } from "@/components/AdminChatPanel";
 import { DogProfile } from "@/components/DogProfile";
 import { TodoDone } from "@/components/TodoDone";
@@ -47,6 +48,8 @@ export default async function DogPageView({ params, searchParams }: { params: { 
   const key = dealKey(b), deal = hubspotDeal(b.hubspot_deal_id), today = etParts(new Date()).date;
   const { data: chatRows } = await sb.from("chats").select("*").eq("deal_key", key).order("created_at", { ascending: false });
   const chat = (((chatRows || []) as ChatRow[]).find((c) => c.status === "open") || (chatRows || [])[0] || null) as ChatRow | null;
+  const over = chat ? await trainingOver(chat.id) : null;
+  const closeAfter = over && !over.over ? (over.lastDropOff ? short(over.lastDropOff) : "the last drop-off") : null;
   const { data: activeTrainers } = await sb.from("trainers").select("id, name").eq("active", true).order("name");
   const [{ data: siblings }, { data: reps }, { data: incs }, ready, { data: ireports }, { data: trips }, { data: money }, { data: rate }] = await Promise.all([
     b.hubspot_deal_id ? sb.from("bookings").select("id, dog_name, status").eq("hubspot_deal_id", b.hubspot_deal_id).neq("id", b.id) : Promise.resolve({ data: [] }),
@@ -198,7 +201,7 @@ export default async function DogPageView({ params, searchParams }: { params: { 
 
         {tab === "chat" && (chat ? (
           <>
-            {chat.status === "open" && <div className="mb-3 flex justify-end"><CloseChat chatId={chat.id} title={chat.title || "this dog"} /></div>}
+            {chat.status === "open" && <div className="mb-3 flex justify-end"><CloseChat chatId={chat.id} title={chat.title || "this dog"} after={closeAfter} /></div>}
             <AdminChatPanel chat={chat} me={{ userId: v.userId, name: v.name }} />
           </>
         ) : <div className="panel p-5"><p className="mb-3 text-ink-soft">No chat for this dog yet.</p><StartChat bookingId={b.id} /></div>)}

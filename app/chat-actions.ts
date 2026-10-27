@@ -4,7 +4,8 @@ import { revalidatePath } from "next/cache";
 import { getViewer } from "@/lib/data";
 import { isDemo, serverClient, serviceClient } from "@/lib/supabase";
 import { ensureChatsForBookings, postWelcome } from "@/lib/chat";
-import { closeChat, reopenChat, sendClosingEmail } from "@/lib/chatOps";
+import { closeChat, reopenChat, sendClosingEmail, trainingOver } from "@/lib/chatOps";
+import { short } from "@/lib/dates";
 import { ensureClientUser, sendChatInvite } from "@/lib/authEmail";
 import { mailConfigured, sendMail } from "@/lib/mail";
 import { notifyMessage } from "@/lib/chatNotify";
@@ -113,7 +114,13 @@ export async function resolveIncidentAction(id: string, note: string): Promise<C
 export async function closeChatAction(chatId: string): Promise<ChatResult> {
   return audited("closeChatAction", { chatId }, async () => {
   if (isDemo()) return DEMO;
-  try { await adminOnly(); const r = await closeChat(chatId); revalidatePath("/", "layout"); return { ...r, chatId }; }
+  try {
+    await adminOnly();
+    // Only after training: while a dog is in care or coming up, the chat stays open (it closes by itself ~2 months after, with a notice)
+    const t = await trainingOver(chatId);
+    if (!t.over) return { ok: false, message: `This chat can't be closed yet: training runs until ${t.lastDropOff ? short(t.lastDropOff) : "the last drop-off"}. You can close it from the day after.`, chatId };
+    const r = await closeChat(chatId); revalidatePath("/", "layout"); return { ...r, chatId };
+  }
   catch (e) { return { ok: false, message: (e as Error).message }; }
 });
 }

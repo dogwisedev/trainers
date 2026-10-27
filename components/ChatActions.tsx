@@ -4,10 +4,12 @@ import { useState, useTransition } from "react";
 import { closeChatAction, reopenChatAction, sendSummaryAgainAction, setClientEmailsAction } from "@/app/chat-actions";
 
 /** Admin: close this chat (saves a transcript to Drive, emails the client, clears the messages). */
-export function CloseChat({ chatId, title }: { chatId: string; title: string }) {
+export function CloseChat({ chatId, title, after }: { chatId: string; title: string; after?: string | null }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [msg, setMsg] = useState("");
+  // Training not over yet: no button, just when it can be closed
+  if (after) return <p className="text-caption text-ink-faint">Can be closed after training ({after}).</p>;
   return (
     <div>
       <button type="button" disabled={pending} className="btn-ghost h-9 min-h-0 px-3 text-small"

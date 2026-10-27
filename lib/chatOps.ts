@@ -198,6 +198,19 @@ async function whatsWaiting(sb: SupabaseClient, c: ChatRow, readAt: string | nul
   return list ? `${who} posted ${list}` : `there are new updates from ${c.trainer_name || "your trainer"}`;
 }
 
+/** Has training finished for every dog in this chat? (Closing by hand is allowed from the day after the last drop-off.) */
+export async function trainingOver(chatId: string, sb: SupabaseClient = serviceClient()): Promise<{ over: boolean; lastDropOff: string | null }> {
+  const { data: chat } = await sb.from("chats").select("deal_key").eq("id", chatId).maybeSingle();
+  if (!chat) return { over: false, lastDropOff: null };
+  const key = String(chat.deal_key);
+  const q = /^\d+$/.test(key) ? sb.from("bookings").select("end_date, status").eq("hubspot_deal_id", key)
+    : /^[0-9a-f-]{36}$/i.test(key) ? sb.from("bookings").select("end_date, status").eq("id", key) : null;
+  const { data } = q ? await q : { data: [] };
+  const live = ((data || []) as { end_date: string; status: string }[]).filter((b) => b.status !== "cancelled");
+  const lastDropOff = live.reduce<string | null>((m, b) => (!m || b.end_date > m ? b.end_date : m), null);
+  return { over: !lastDropOff || lastDropOff < etParts(new Date()).date, lastDropOff };
+}
+
 export async function closeChat(chatId: string): Promise<{ ok: boolean; message: string }> {
   const sb = serviceClient();
   const { data: chat } = await sb.from("chats").select("*").eq("id", chatId).maybeSingle();
