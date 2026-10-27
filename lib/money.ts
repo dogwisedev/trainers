@@ -19,10 +19,10 @@ export const paidUp = (status: unknown) => /^(paid|refund|program cancelled)$/i.
 export const remainingOf = (m: { amount: number | null; amount_paid: number | null; payment_status?: string | null }) =>
   paidUp(m.payment_status) ? 0 : Math.max(0, Math.round(((m.amount || 0) - (m.amount_paid || 0)) * 100) / 100);
 
-export type MoneyResult = { deals: number; links: string[]; errors: string[] };
+export type MoneyResult = { deals: number; won: number; links: string[]; errors: string[] };
 
 export async function syncMoney(opts: { dealIds?: string[]; sb?: SupabaseClient } = {}): Promise<MoneyResult> {
-  const out: MoneyResult = { deals: 0, links: [], errors: [] };
+  const out: MoneyResult = { deals: 0, won: 0, links: [], errors: [] };
   if (isDemo() || !hubspotConfigured()) return out;
   const sb = opts.sb || serviceClient();
   const since = addDays(etParts(new Date()).date, -400);
@@ -48,6 +48,14 @@ export async function syncMoney(opts: { dealIds?: string[]; sb?: SupabaseClient 
   const prevOf = new Map(((old || []) as Prev[]).map((r) => [r.deal_id, r]));
   const byApp = new Map([...prevOf.values()].map((r) => [r.deal_id, r.link_by_app]));
   const linksFrom = process.env.STRIPE_LINKS_FROM || "";
+  // Saved in batches (fast, and what's done is kept even if the run is cut short); any save error is reported, never ignored
+  const batch: Record<string, unknown>[] = [];
+  const flush = async () => {
+    if (!batch.length) return;
+    const rows = batch.splice(0, batch.length);
+    const { error } = await sb.from("deal_money").upsert(rows);
+    if (error) out.errors.push(`saving ${rows.length} deals: ${error.message}`); else out.deals += rows.length;
+  };
   for (const id of ids) {
     const p = deals.get(id);
     if (!p) continue;
@@ -82,9 +90,11 @@ export async function syncMoney(opts: { dealIds?: string[]; sb?: SupabaseClient 
         out.links.push(`${p.dealname || id}: $${amount}${extended ? " (extension)" : ""}`);
       } catch (e) { out.errors.push(`link ${id}: ${(e as Error).message}`); }
     }
-    await sb.from("deal_money").upsert(row);
-    out.deals++;
+    if (row.closed_on) out.won++;
+    batch.push(row);
+    if (batch.length >= 100) await flush();
   }
+  await flush();
   return out;
 }
 

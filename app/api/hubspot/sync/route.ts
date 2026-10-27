@@ -3,7 +3,6 @@ import { isDemo } from "@/lib/supabase";
 import { getViewer } from "@/lib/data";
 import { syncHubspotDates } from "@/lib/hubspotSync";
 import { syncPretraining } from "@/lib/pretraining";
-import { syncMoney } from "@/lib/money";
 import { checkUnbookedDeals } from "@/lib/unbookedDeals";
 import { cronRan } from "@/lib/cronHealth";
 
@@ -25,11 +24,9 @@ export async function GET(req: Request) {
   // Before-training checklist: read the client's answers, retry saves HubSpot missed, "Not ready" incidents a week out (not on a dry preview)
   const pretraining = dry ? null : await syncPretraining().catch((e) => ({ errors: [(e as Error).message] }));
   if (pretraining?.errors?.length) console.log("pretraining sync", JSON.stringify(pretraining));
-  // Sales and payments: amount, amount paid, Stripe balance links, follow-up session dates
-  const money = dry ? null : await syncMoney().catch((e) => ({ errors: [(e as Error).message] }));
-  if (money?.errors?.length) console.log("money sync", JSON.stringify(money));
+  // Sales and payments now have their own job (/api/sales/sync, and "Refresh from HubSpot" on the Sales page)
   // Closed Won deals (since Oct 11) with no booking in the app: a To do item each, cleared once booked
   const unbooked = dry ? null : await checkUnbookedDeals().catch((e) => ({ errors: [(e as Error).message] }));
   if (cron) await cronRan("hubspot", !result.errors.length, [...result.errors, ...(unbooked?.errors || [])].slice(0, 3).join("; ") || null);
-  return NextResponse.json({ ...result, pretraining, money, unbooked });
+  return NextResponse.json({ ...result, pretraining, unbooked });
 }

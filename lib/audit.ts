@@ -23,7 +23,7 @@ const LABEL: Record<string, string> = {
   signInLinkUsed: "Signed in with an email link", pushOn: "Turned notifications on", pushOff: "Turned notifications off", pushTest: "Sent themselves a test notification",
   bookingApi: "Booked a dog from the HubSpot extension", signInCodeSent: "Asked for a sign-in code by email", signInCode: "Signed in with an email code",
   signInCodeFailed: "Tried a sign-in code: wrong or expired", uploadFailed: "Upload failed", uploadWarning: "Upload warning", setDisplayNameAction: "Changed their name",
-  dismissDealAction: "Dismissed a 'Closed Won, not booked' deal", dealPrefillAction: "Looked up a HubSpot deal to book", payslipDraftsRefreshed: "Opened Payslips: drafts updated from bookings", screenError: "Saw an error screen",
+  dismissDealAction: "Dismissed a 'Closed Won, not booked' deal", dealPrefillAction: "Looked up a HubSpot deal to book", payslipDraftsRefreshed: "Opened Payslips: drafts updated from bookings", screenError: "Saw an error screen", refreshSalesAction: "Refreshed Sales from HubSpot",
   addVaccineFileAction: "Uploaded a vaccine record", linkDealAction: "Linked a booking to a HubSpot deal", saveGustoPayeesAction: "Updated the Gusto people list", setGustoCodeAction: "Linked a trainer to Gusto", markGustoPaidAction: "Marked a pay run paid in Gusto", saveGustoCodesAction: "Saved Gusto payroll numbers", inviteSalesAction: "Sent a sales login", importSalesAction: "Imported sales from the Monies sheet", reportIncidentAction: "Reported an incident"
 };
 

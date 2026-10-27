@@ -4,18 +4,21 @@ import { recentMonths, salesMonth } from "@/lib/sales";
 import { salesTeam } from "@/lib/hubspot";
 import { etParts } from "@/lib/chatRules";
 import { SalesView, monthLabel } from "@/components/SalesView";
-import { SalesImport, SalesTeam } from "@/components/SalesAdminBits";
+import { SalesImport, SalesRefresh, SalesTeam } from "@/components/SalesAdminBits";
+import { lastSalesSync } from "@/lib/salesSync";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60; // "Refresh from HubSpot" runs here and can take up to a minute
 
 // Admin: sales by month and person (every Closed Won deal in HubSpot), with the remaining balance.
 export default async function Sales({ searchParams }: { searchParams: { m?: string } }) {
   await requireRole("admin");
   const today = etParts(new Date()).date, months = recentMonths(today.slice(0, 7));
   const month = searchParams.m && /^\d{4}-\d{2}$/.test(searchParams.m) ? searchParams.m : months[0];
-  const [data, team, { data: profs }] = await Promise.all([
+  const [data, team, { data: profs }, last] = await Promise.all([
     salesMonth(month), salesTeam().catch(() => []),
-    isDemo() ? Promise.resolve({ data: [] }) : serviceClient().from("profiles").select("display_name, hubspot_owner_id").eq("role", "sales")
+    isDemo() ? Promise.resolve({ data: [] }) : serviceClient().from("profiles").select("display_name, hubspot_owner_id").eq("role", "sales"),
+    lastSalesSync()
   ]);
   const logins = (profs || []) as { display_name: string | null; hubspot_owner_id: string | null }[];
   const withLogin = new Set(logins.map((p) => p.hubspot_owner_id));
@@ -26,6 +29,7 @@ export default async function Sales({ searchParams }: { searchParams: { m?: stri
     <>
       <h1 className="text-h1 font-extrabold leading-tight">Sales</h1>
       <p className="mt-1 text-ink-soft">Closed Won deals by the month they were won, per sales person. Remaining balance is what&apos;s still to be paid.</p>
+      <SalesRefresh last={last} />
       <SalesView month={month} months={months} base="/a/sales" {...data} admin />
       <div className="mt-8 space-y-3">
         {unlinked.length > 0 && (

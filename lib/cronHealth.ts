@@ -5,7 +5,8 @@ import { serviceClient, isDemo } from "./supabase";
 // instead of failing silently. Stored in app_state as cron:<name> = { at, ok, error }.
 export const CRONS = {
   chat: { label: "Chat checks, client invites and emails", everyMin: 10 },
-  hubspot: { label: "HubSpot sync (dates, Closed Won, payments)", everyMin: 30 },
+  hubspot: { label: "HubSpot sync (booking dates, Closed Won to-dos)", everyMin: 30 },
+  sales: { label: "Sales and payments from HubSpot", everyMin: 30 },
   reports: { label: "Form reminders", everyMin: 20 },
   payroll: { label: "Payroll drafts (Mondays)", everyMin: 7 * 24 * 60 }
 } as const;

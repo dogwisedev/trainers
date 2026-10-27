@@ -7,6 +7,7 @@ import { salesTeam } from "@/lib/hubspot";
 import { matchOwner, parseSheetSales, salesPeople } from "@/lib/sales";
 import { sendSignInLink } from "@/lib/authEmail";
 import { userIdByEmail } from "@/lib/userLookup";
+import { runSalesSync } from "@/lib/salesSync";
 
 type R = { ok: boolean; message: string };
 async function admin() { const v = await getViewer(); return v?.role === "admin" ? v : null; }
@@ -57,4 +58,18 @@ export async function importSalesAction(_: R | null, f: FormData): Promise<R> {
   const unmatched = [...new Set(rows.filter((r) => !match(r.seller)).map((r) => r.seller))];
   return { ok: true, message: `Imported ${rows.length} sales. Deals won after ${through} come from the app.${unmatched.length ? ` Not matched to a HubSpot owner: ${unmatched.join(", ")}.` : ""}` };
 });
+}
+
+/** Admin: pull every Closed Won deal's sale and payments from HubSpot now (the same as the 30-minute job). */
+export async function refreshSalesAction(): Promise<R> {
+  return audited("refreshSalesAction", {}, async () => {
+    if (isDemo()) return { ok: false, message: "Demo mode." };
+    const v = await admin();
+    if (!v) return { ok: false, message: "Admins only." };
+    const s = await runSalesSync(v.name);
+    revalidatePath("/a/sales"); revalidatePath("/s");
+    return s.errors.length
+      ? { ok: false, message: `Saved ${s.deals} deals, with problems: ${s.errors.join("; ")}` }
+      : { ok: true, message: `Updated: ${s.deals} deals read from HubSpot, ${s.won} of them Closed Won.` };
+  });
 }
