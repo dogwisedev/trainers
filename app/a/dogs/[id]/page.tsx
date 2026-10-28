@@ -118,7 +118,7 @@ export default async function DogPageView({ params, searchParams }: { params: { 
               <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
                 <Fact k="Pickup" v={long(b.start_date)} />
                 <Fact k="Drop-off" v={long(b.end_date)} />
-                <Fact k="Program" v={`${b.program || `${b.weeks}-week`}${b.extra_days ? ` + ${b.extra_days} day${b.extra_days > 1 ? "s" : ""}` : ""}${b.rehab ? " (rehab)" : ""}`} />
+                <Fact k="Program" v={`${b.program || `${b.weeks}-week`}${b.program && !/^\d+-week$/.test(b.program) ? `, ${b.weeks} weeks` : ""}${b.extra_days ? ` + ${b.extra_days} day${b.extra_days > 1 ? "s" : ""}` : ""}${b.rehab ? " (rehab)" : ""}`} />
                 <Fact k="Trainer" v={b.trainers?.name || "None"} />
                 <Fact k="Client" v={b.client_name} />
                 <Fact k="Client email" v={b.client_email || "Not given"} />

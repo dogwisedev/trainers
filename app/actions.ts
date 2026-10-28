@@ -24,6 +24,7 @@ import type { Booking, TimeOff, Trainer } from "@/lib/types";
 import { inviteWithBooking } from "@/lib/autoInvite";
 import { clearUnbooked } from "@/lib/unbookedDeals";
 import { ensureReport } from "@/lib/reportData";
+import { PROGRAM_SOLD } from "@/lib/programs";
 
 export type Result = { ok: boolean; message: string };
 const DEMO: Result = { ok: false, message: "Demo mode: connect Supabase to save changes." };
@@ -239,7 +240,7 @@ export async function deleteTimeOff(id: string): Promise<Result> {
 // ── Booking a dog from the app (same rules as the HubSpot extension) ─────
 export type DealPrefill = {
   ok: boolean; message: string;
-  deal?: { id: string; name: string; client: string; email: string; dogs: string[]; start: string | null; end: string | null; weeks: number | null; extra: number; stage: string; closedWon: boolean;
+  deal?: { id: string; name: string; client: string; email: string; dogs: string[]; start: string | null; end: string | null; weeks: number | null; extra: number; stage: string; closedWon: boolean; program?: string;
     booked: { id: string; dog: string; trainer: string; dates: string }[] };
 };
 const DEAL_DOGS = ["k9___dog_name", "dog_2_name", "dog_3_name", "dog_4_name"];
@@ -255,10 +256,10 @@ export async function dealPrefillAction(input: string): Promise<DealPrefill> {
   const { data: existing } = await sb.from("bookings").select("id, dog_name, start_date, end_date, trainers(name)").eq("hubspot_deal_id", id).neq("status", "cancelled");
   const booked = ((existing || []) as unknown as { id: string; dog_name: string | null; start_date: string; end_date: string; trainers: { name: string } | null }[])
     .map((b) => ({ id: b.id, dog: b.dog_name || "Dog", trainer: b.trainers?.name || "no trainer", dates: `${short(b.start_date)} to ${short(b.end_date)}` }));
-  if (!hubspotConfigured()) return { ok: true, message: "HubSpot isn't connected, so fill in the rest by hand.", deal: { id, name: `Deal ${id}`, client: "", email: "", dogs: [], start: null, end: null, weeks: null, extra: 0, stage: "", closedWon: true, booked } };
+  if (!hubspotConfigured()) return { ok: true, message: "HubSpot isn't connected, so fill in the rest by hand.", deal: { id, name: `Deal ${id}`, client: "", email: "", dogs: [], start: null, end: null, weeks: null, extra: 0, stage: "", closedWon: true, booked, program: "" } };
   try {
     const props = await dealDateProps();
-    const deals = await readDeals([id], ["dealname", "hs_is_closed_won", "dealstage", props.start.name, ...(props.end ? [props.end.name] : []), ...DEAL_DOGS]);
+    const deals = await readDeals([id], ["dealname", "hs_is_closed_won", "dealstage", "type_of_program_sold", props.start.name, ...(props.end ? [props.end.name] : []), ...DEAL_DOGS]);
     const d = deals.get(id);
     if (!d) return { ok: false, message: `HubSpot has no deal ${id}. Check the link.` };
     const contactIds = (await dealContacts([id])).get(id) || [];
@@ -270,7 +271,7 @@ export async function dealPrefillAction(input: string): Promise<DealPrefill> {
     return { ok: true, message: "", deal: {
       id, name: d.dealname || `Deal ${id}`, client: [c.firstname, c.lastname].filter(Boolean).join(" ").trim(), email: String(c.email || "").trim().toLowerCase(),
       dogs: DEAL_DOGS.map((k) => String(d[k] || "").trim()).filter(Boolean), start, end, weeks, extra,
-      stage: await stageLabel(d.dealstage), closedWon: d.hs_is_closed_won === "true", booked
+      stage: await stageLabel(d.dealstage), closedWon: d.hs_is_closed_won === "true", booked, program: PROGRAM_SOLD[String(d.type_of_program_sold || "").trim()] || ""
     } };
   } catch (e) { return { ok: false, message: `Couldn't read the deal from HubSpot: ${(e as Error).message}` }; }
 }

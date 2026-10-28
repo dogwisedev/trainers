@@ -117,7 +117,7 @@ export const VACCINE_FILE_PROP = "please_upload_a_copy_of_your_dog_s_vaccination
 export const CONTACT_PROPS = [...QUESTIONS.map((q) => q.key), VACCINE_FILE_PROP, "firstname", "lastname", "email"];
 /** Deal properties the app reads. */
 export const DOG_NAME_PROPS = ["k9___dog_name", "dog_2_name", "dog_3_name", "dog_4_name"];
-export const DEAL_PROPS = [...DOG_NAME_PROPS, "how_many_dogs_need_training_", "remaining_balance_link", "payment_status", "vaccines_in_order_", "missing_vaccines", "forms", "pre_training_missing", "dealname"];
+export const DEAL_PROPS = [...DOG_NAME_PROPS, "type_of_program_sold", "how_many_dogs_need_training_", "remaining_balance_link", "payment_status", "vaccines_in_order_", "missing_vaccines", "forms", "pre_training_missing", "dealname"];
 export const VACCINES = ["DHLPP", "Bordetella", "Rabies"] as const;
 /** The balance link only counts while something is owed: once payment_status is Paid (or refunded / cancelled) it's ignored. */
 export const balanceOwed = (deal: Record<string, string | null | undefined>) => {

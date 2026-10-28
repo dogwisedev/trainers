@@ -9,7 +9,7 @@ import { BookingForReports, Kind, RowLike, Todo, kindName, todos } from "./repor
 import { trainerSignins } from "./trainerSignin";
 import { dealKey } from "./chatTypes";
 import { cronProblems } from "./cronHealth";
-import { programFor } from "./programs";
+import { notAProgram, programFor } from "./programs";
 
 // The admin "To do" list: everything that needs a person, in one place, most urgent first.
 // Sources: open incidents (chats, forms, bookings, HubSpot, before training), forms sent in for review,
@@ -142,7 +142,7 @@ async function buildTodoUncached(): Promise<TodoData> {
     const { data: unclear, error: uErr } = await sb.from("bookings").select("id, dog_name, client_name, program, program_choice, start_date")
       .neq("status", "cancelled").gte("end_date", today).not("hubspot_deal_id", "is", null).limit(500);
     if (!uErr) for (const b of (unclear || []) as { id: string; dog_name: string | null; client_name: string; program: string | null; program_choice: string | null; start_date: string }[]) {
-      if (programFor(b.program_choice || "") || programFor(b.program || "")) continue;
+      if (programFor(b.program_choice || "") || programFor(b.program || "") || notAProgram(b.program)) continue;
       items.push({ key: `program:${b.id}`, group: b.start_date <= addDays(today, 7) ? "now" : "week", tone: "biscuit", icon: "dog",
         text: `Set the program for ${b.dog_name || "the dog"}`, detail: `${b.client_name}: booked as "${b.program || "no program"}". Pick one of the 7 programs so training materials go out.`,
         dogHref: `/a/dogs/${b.id}`, primary: { label: "Set program", href: `/a/dogs/${b.id}#program` } });

@@ -6,6 +6,7 @@ import { etParts } from "./chatRules";
 import { raiseIncident, resolveIncidents } from "./incidents";
 import { alertAdmins } from "./adminAlert";
 import { auditSystem } from "./audit";
+import { PROGRAM_SOLD } from "./programs";
 import { uniqueDogs } from "./chatOps";
 import { DealProps, PropDef, dealContacts, hubspotConfigured, optionValue, propDefs, readContacts, readDeals, updateContact, updateDeal } from "./hubspot";
 import {
@@ -23,7 +24,7 @@ import type { Item } from "./pretrainingFields";
 const READY_DAYS = 7;
 const site = () => (process.env.NEXT_PUBLIC_SITE_URL || "").replace(/\/$/, "");
 
-type BookingRow = { id: string; dog_name: string | null; client_name: string; client_email?: string | null; start_date: string; end_date: string; status: string; trainer_id: string; created_at: string; hubspot_deal_id: string | null; trainers?: { name: string } | null };
+type BookingRow = { id: string; dog_name: string | null; client_name: string; client_email?: string | null; program?: string | null; start_date: string; end_date: string; status: string; trainer_id: string; created_at: string; hubspot_deal_id: string | null; trainers?: { name: string } | null };
 type DealRow = { deal_id: string; contact_id: string | null; deal: DealProps; contact: DealProps; pending: Record<string, string>; synced_at: string | null; sync_error: string | null };
 type DogRow = { booking_id: string; deal_id: string; slot: number; slot_set_by: string | null; cleared_by?: string | null; cleared_at?: string | null; answers: Answers; vaccines: VaccineState; changes: Record<string, { by: string; role: string; at: string }> };
 
@@ -51,7 +52,7 @@ function hubspotFiles(contact: DealProps): VaccineFile[] {
 
 async function bookingsFor(sb: SupabaseClient, dealIds: string[]) {
   if (!dealIds.length) return [] as BookingRow[];
-  const { data } = await sb.from("bookings").select("id, dog_name, client_name, client_email, start_date, end_date, status, trainer_id, created_at, hubspot_deal_id, trainers(name)").in("hubspot_deal_id", dealIds).neq("status", "cancelled");
+  const { data } = await sb.from("bookings").select("id, dog_name, client_name, client_email, program, start_date, end_date, status, trainer_id, created_at, hubspot_deal_id, trainers(name)").in("hubspot_deal_id", dealIds).neq("status", "cancelled");
   return (data || []) as unknown as BookingRow[];
 }
 
@@ -445,6 +446,9 @@ async function namesFromHubspot(sb: SupabaseClient, dealId: string, deal: DealPr
     if (dog && dog !== clean(b.dog_name)) patch.dog_name = dog.slice(0, 80);
     if (client && client.toLowerCase() !== clean(b.client_name).toLowerCase()) patch.client_name = client.slice(0, 120);
     if (email && /^\S+@\S+\.\S+$/.test(email) && !clean(b.client_email)) patch.client_email = email;
+    // The program sold (HubSpot's type_of_program_sold), as its HubSpot label: "Strong Companion", "Puppy Foundations"…
+    const sold = PROGRAM_SOLD[clean(deal.type_of_program_sold)];
+    if (sold && sold !== clean((b as { program?: string | null }).program)) patch.program = sold;
     if (!Object.keys(patch).length) continue;
     const { error } = await sb.from("bookings").update(patch).eq("id", b.id);
     if (error) throw new Error(error.message);
@@ -458,7 +462,7 @@ async function namesFromHubspot(sb: SupabaseClient, dealId: string, deal: DealPr
       if (patch.client_email && !clean(a.clientEmail)) { a.clientEmail = patch.client_email; touched = true; }
       if (touched) await sb.from("reports").update({ answers: a }).eq("id", r.id);
     }
-    changes.push([patch.dog_name && `dog "${b.dog_name || ""}" → "${patch.dog_name}"`, patch.client_name && `client "${b.client_name}" → "${patch.client_name}"`, patch.client_email && "client email added"].filter(Boolean).join(", "));
+    changes.push([patch.dog_name && `dog "${b.dog_name || ""}" → "${patch.dog_name}"`, patch.client_name && `client "${b.client_name}" → "${patch.client_name}"`, patch.client_email && "client email added", patch.program && `program "${(b as { program?: string | null }).program || ""}" → "${patch.program}"`].filter(Boolean).join(", "));
     Object.assign(b, patch);
   }
   // The chat's title is every dog on the deal, and its client is the deal's contact: checked on every sync,

@@ -7,11 +7,32 @@ export const PROGRAMS = [
 export type Program = (typeof PROGRAMS)[number];
 
 /** HubSpot / booking program name → report program. */
+/** HubSpot's deal field type_of_program_sold: its internal values (what the API and the extension send) → the 7 programs.
+ *  Program Extension and Refresher Course aren't programs of their own: no list, no "set the program" to-do. */
+export const PROGRAM_SOLD: Record<string, Program | "Program Extension" | "Refresher Course"> = {
+  "Puppy Program": "Puppy Foundations",
+  "Big Puppy": "Big Puppy",
+  "Adolescent & Adult Basic Obedience/Mild Behavioural Modification": "Adolescent Essentials",
+  "Strong Companion": "Strong Companion",
+  "Anxiety Training": "Anxiety Support",
+  "Aggression Rehabilitation Training": "Reactivity & Aggression Reset",
+  "Rescue Restart": "Rescue Restart",
+  "Program Extension": "Program Extension",
+  "Refresher Course": "Refresher Course"
+};
+/** Not one of the 7 on purpose (HubSpot says so): an extension or a refresher. */
+export const notAProgram = (name: string | null | undefined) => /^(program extension|refresher course)$/i.test(String(name || "").trim());
+
+/** One of the 7 programs, from HubSpot's type_of_program_sold (value or label) or, for older text, by its words. */
 export function programFor(name: string | null | undefined): Program | null {
-  const n = String(name || "").toLowerCase();
-  if (!n) return null;
+  const raw = String(name || "").trim();
+  if (!raw) return null;
+  const sold = PROGRAM_SOLD[raw];
+  if (sold) return (PROGRAMS as readonly string[]).includes(sold) ? (sold as Program) : null;
+  const n = raw.toLowerCase();
   const exact = PROGRAMS.find((p) => p.toLowerCase() === n);
   if (exact) return exact;
+  if (notAProgram(raw) || /^\d+-week$/.test(n)) return null; // "3-week" is a length, not a program
   if (/aggress|reactiv|rehab/.test(n)) return "Reactivity & Aggression Reset";
   if (/anxi/.test(n)) return "Anxiety Support";
   if (/big puppy/.test(n)) return "Big Puppy";
