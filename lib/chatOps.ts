@@ -57,8 +57,8 @@ export async function runChatChecks(now = new Date()) {
   const spans = new Map<string, Span[]>();
   if (keys.length) {
     const [a, b] = await Promise.all([
-      sb.from("bookings").select("id, hubspot_deal_id, start_date, end_date, status, trainer_id, trainers(name)").in("hubspot_deal_id", keys),
-      sb.from("bookings").select("id, hubspot_deal_id, start_date, end_date, status, trainer_id, trainers(name)").in("id", keys.filter((k) => /^[0-9a-f-]{36}$/i.test(k)))
+      sb.from("bookings").select("id, hubspot_deal_id, start_date, end_date, status, trainer_id, dog_name, created_at, trainers(name)").in("hubspot_deal_id", keys),
+      sb.from("bookings").select("id, hubspot_deal_id, start_date, end_date, status, trainer_id, dog_name, created_at, trainers(name)").in("id", keys.filter((k) => /^[0-9a-f-]{36}$/i.test(k)))
     ]);
     for (const bk of [...(a.data || []), ...(b.data || [])] as (Span & { id: string; hubspot_deal_id: string | null })[]) {
       const k = bk.hubspot_deal_id && keys.includes(bk.hubspot_deal_id) ? bk.hubspot_deal_id : bk.id;
@@ -74,6 +74,11 @@ export async function runChatChecks(now = new Date()) {
   for (const c of chats) {
     try {
       const bs = spans.get(c.deal_key) || [];
+      // The chat's name is always its dogs' names, as they are on the bookings now (e.g. "your dog" → "Zeus" once HubSpot has the name)
+      const dogNames = [...new Set((bs as (Span & { dog_name?: string | null; created_at?: string })[])
+        .filter((x) => x.status !== "cancelled").sort((a, b) => (a.created_at || "").localeCompare(b.created_at || ""))
+        .map((x) => String(x.dog_name || "").trim()).filter(Boolean))].join(" & ");
+      if (dogNames && dogNames !== c.title) { await sb.from("chats").update({ title: dogNames }).eq("id", c.id); c.title = dogNames; }
       // The chat belongs to whoever has the dog today (after a trainer change mid-training, it moves on the change day)
       const todayEt = etParts(now).date;
       const inCare = (bs as (Span & { trainer_id?: string; trainers?: { name: string } | null })[]).filter((x) => x.status !== "cancelled" && x.start_date <= todayEt && x.end_date > todayEt);

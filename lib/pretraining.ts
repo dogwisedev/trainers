@@ -460,12 +460,18 @@ async function namesFromHubspot(sb: SupabaseClient, dealId: string, deal: DealPr
     changes.push([patch.dog_name && `dog "${b.dog_name || ""}" → "${patch.dog_name}"`, patch.client_name && `client "${b.client_name}" → "${patch.client_name}"`, patch.client_email && "client email added"].filter(Boolean).join(", "));
     Object.assign(b, patch);
   }
-  if (!changes.length) return;
-  // The chat's title is every dog on the deal; its client name follows the booking
+  // The chat's title is every dog on the deal, and its client is the deal's contact: checked on every sync,
+  // so a chat that was named "Your dog" (or before a name was fixed) catches up even if the bookings already had it right
   const title = [...new Set(bks.filter((b) => b.status !== "cancelled").map((b) => clean(b.dog_name)).filter(Boolean))].join(" & ");
-  const chatPatch: Record<string, string> = {};
-  if (title) chatPatch.title = title;
-  if (client) chatPatch.client_name = client;
-  if (Object.keys(chatPatch).length) await sb.from("chats").update(chatPatch).eq("deal_key", dealId).eq("status", "open");
+  const { data: openChats } = await sb.from("chats").select("id, title, client_name").eq("deal_key", dealId).eq("status", "open");
+  for (const c of (openChats || []) as { id: string; title: string | null; client_name: string | null }[]) {
+    const chatPatch: Record<string, string> = {};
+    if (title && clean(c.title) !== title) chatPatch.title = title;
+    if (client && clean(c.client_name) !== client) chatPatch.client_name = client;
+    if (!Object.keys(chatPatch).length) continue;
+    await sb.from("chats").update(chatPatch).eq("id", c.id);
+    if (chatPatch.title) changes.push(`chat "${c.title || ""}" → "${chatPatch.title}"`);
+  }
+  if (!changes.length) return;
   await auditSystem("Updated a booking from HubSpot", `${title || "Dog"}: ${changes.join("; ")}.`, { link: `https://app.hubspot.com/contacts/21869370/record/0-3/${dealId}` });
 }
