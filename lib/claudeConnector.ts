@@ -9,7 +9,7 @@ import { availability } from "./availability";
 import { dealKey } from "./chatTypes";
 import { cleanDealId } from "./dealId";
 import { auditCall } from "./audit";
-import { commsOverview, recentMessages, trainerComms } from "./claudeComms";
+import { commsOverview, NarrowDown, recentMessages, trainerComms } from "./claudeComms";
 
 // The tools behind the app's Claude connector (app/api/mcp/route.ts). Claude calls them through MCP with the
 // CLAUDE_MCP_KEY. Each tool reads with the service key, like the admin To do list and the daily email do, so whoever
@@ -293,7 +293,7 @@ export const CLAUDE_TOOLS: ClaudeTool[] = [
     run: async (a) => {
       const who = searchText(text(a, "trainer"));
       const r = await commsOverview({ trainer: who, all: yes(a, "all") });
-      return who && !r.chats.length && !r.teamThreads.length && !r.noChat ? { ...r, note: `No open chat or team thread for a trainer with "${who}" in their name.` } : r;
+      return who && !r.counts.openChats && !r.teamThreads.length && !r.noChat ? { ...r, note: `No open chat or team thread for a trainer with "${who}" in their name.` } : r;
     }
   },
   {
@@ -308,9 +308,9 @@ export const CLAUDE_TOOLS: ClaudeTool[] = [
     },
     run: async (a) => {
       const now = Date.now(), at = momentArg(a, "since");
-      let since = at ?? now - num(a, "hours", 3, 1, 168) * 3600000, note = "";
-      if (since > now) throw new Ask(`since (${text(a, "since")}) is in the future.`);
-      if (since < now - 7 * 86400000) { since = now - 7 * 86400000; note = "since was more than 7 days ago, so this starts 7 days ago."; }
+      let since = at === null ? new Date(now - num(a, "hours", 3, 1, 168) * 3600000).toISOString() : text(a, "since"), note = "";   // a given since is passed on exactly (it may carry microseconds)
+      if (at !== null && at > now) throw new Ask(`since (${text(a, "since")}) is in the future.`);
+      if (at !== null && at < now - 7 * 86400000) { since = new Date(now - 7 * 86400000).toISOString(); note = "since was more than 7 days ago, so this starts 7 days ago."; }
       const r = await recentMessages({ since, trainer: searchText(text(a, "trainer")), team: !(a.team === false || a.team === "false"), limit: num(a, "limit", 300, 1, 600) });
       return { ...r, note: [note, r.note].filter(Boolean).join(" ") || undefined };
     }
@@ -409,7 +409,7 @@ export async function runClaudeTool(name: string, args: Args): Promise<{ ok: tru
     const slow = name === "availability" && text(args, "zip") ? "the app's database or the ZIP lookup" : "the app's database";
     out = {
       ok: false, detail,
-      error: e instanceof Ask ? detail
+      error: e instanceof Ask || e instanceof NarrowDown ? detail
         : e instanceof TooSlow ? `No answer: ${slow} is slow right now. Try again in a minute; if it keeps happening, tell Alma.`
         : "The app couldn't answer that just now (the error is in the app's activity log). Try again in a minute; if it keeps happening, tell Alma."
     };
