@@ -1,4 +1,7 @@
 import "server-only";
+import { cache } from "react";
+import { isPayMonday, periodLabel } from "./payroll";
+import { todayIso } from "./dates";
 import { serviceClient, isDemo } from "./supabase";
 import { addDays, short } from "./dates";
 import { etParts, INCIDENT_LABEL, IncidentKind } from "./chatRules";
@@ -33,7 +36,13 @@ type B = BookingForReports & { hubspot_deal_id: string | null; reports_enabled?:
 
 const NOW_KINDS: IncidentKind[] = ["trainer_report", "client_waiting", "client_pileup", "trainer_silent", "check_vaccines", "booking_cancelled", "length_changed", "overbooked"];
 
-export async function buildTodo(): Promise<TodoData> {
+/** To do, worked out once per page load (the menu badge and the To do page use the same list, so the numbers always match). */
+export const buildTodo = cache(buildTodoUncached);
+/** The number on the To do badge and at the top of To do: every row, with the late forms counted as one row (as shown). */
+export const todoTotal = (d: TodoData) => d.items.length + (d.late.length ? 1 : 0);
+export async function todoCount(): Promise<number> { return todoTotal(await buildTodo()); }
+
+async function buildTodoUncached(): Promise<TodoData> {
   if (isDemo()) return { items: [], late: [] };
   const sb = serviceClient(), today = etParts(new Date()).date;
   const [{ data: incs }, { data: reps }, { data: msgs }, { data: trainers }, signins, { data: bks }] = await Promise.all([
@@ -145,5 +154,14 @@ export async function buildTodo(): Promise<TodoData> {
 
   const order: Record<TodoGroup, number> = { now: 0, week: 1, later: 2 };
   items.sort((a, b) => order[a.group] - order[b.group] || (a.since || "~").localeCompare(b.since || "~"));
+  // Payslips waiting for approval: one small count, not the whole pay run
+  if (!isDemo()) {
+    const { data: drafts } = await sb.from("payslips").select("id, pay_runs(submit_date, period_start, period_end)").eq("status", "draft").limit(200);
+    const list = (drafts || []) as unknown as { pay_runs: { submit_date: string; period_start: string; period_end: string } | null }[];
+    if (list.length) {
+      const r = list.map((x) => x.pay_runs).filter(Boolean).sort((a, b) => a!.submit_date.localeCompare(b!.submit_date))[0];
+      items.push({ key: "pay", group: isPayMonday(todayIso()) ? "now" : "week", tone: "biscuit", icon: "pay", text: `${list.length} payslip${list.length > 1 ? "s" : ""} to approve`, detail: r ? periodLabel(r.period_start, r.period_end) : undefined, primary: { label: "Open payslips", href: "/a/trainers?view=pay" } });
+    }
+  }
   return { items, late };
 }

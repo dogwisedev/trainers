@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Plus } from "lucide-react";
 import { requireRole } from "@/lib/data";
-import { buildTodo } from "@/lib/todo";
+import { buildTodo, todoTotal } from "@/lib/todo";
 import { LOG_VIEWERS } from "@/lib/audit";
 import { isPayMonday, periodLabel } from "@/lib/payroll";
 import { todayIso } from "@/lib/dates";
@@ -16,16 +16,7 @@ export const maxDuration = 60;
 export default async function ToDo() {
   const v = await requireRole("admin");
   const { items, late } = await buildTodo();
-  // Payslips waiting for approval: one small count, not the whole pay run
-  if (!isDemo()) {
-    const { data: drafts } = await serviceClient().from("payslips").select("id, pay_runs(submit_date, period_start, period_end)").eq("status", "draft").limit(200);
-    const list = (drafts || []) as unknown as { pay_runs: { submit_date: string; period_start: string; period_end: string } | null }[];
-    if (list.length) {
-      const r = list.map((x) => x.pay_runs).filter(Boolean).sort((a, b) => a!.submit_date.localeCompare(b!.submit_date))[0];
-      items.push({ key: "pay", group: isPayMonday(todayIso()) ? "now" : "week", tone: "biscuit", icon: "pay", text: `${list.length} payslip${list.length > 1 ? "s" : ""} to approve`, detail: r ? periodLabel(r.period_start, r.period_end) : undefined, primary: { label: "Open payslips", href: "/a/trainers?view=pay" } });
-    }
-  }
-  const total = items.length + (late.length ? 1 : 0);
+  const total = todoTotal({ items, late });
   return (
     <>
       <div className="flex flex-wrap items-end justify-between gap-3">
