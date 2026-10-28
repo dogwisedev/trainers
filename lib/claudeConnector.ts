@@ -9,6 +9,7 @@ import { availability } from "./availability";
 import { dealKey } from "./chatTypes";
 import { cleanDealId } from "./dealId";
 import { auditCall } from "./audit";
+import { commsOverview, recentMessages, trainerComms } from "./claudeComms";
 
 // The tools behind the app's Claude connector (app/api/mcp/route.ts). Claude calls them through MCP with the
 // CLAUDE_MCP_KEY. Each tool reads with the service key, like the admin To do list and the daily email do, so whoever
@@ -33,6 +34,15 @@ function dateArg(a: Args, k: string) {
   if (!s) return "";
   if (!/^\d{4}-\d{2}-\d{2}$/.test(s) || toIso(toDate(s)) !== s || s < "2020-01-01" || s > "2100-01-01") throw new Ask(`${k} should be a real day written YYYY-MM-DD, not "${s.slice(0, 40)}".`);
   return s;
+}
+const DATETIME = "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d{1,6})?)?(Z|[+-]\\d{2}:\\d{2})$";
+/** An ISO 8601 date-time argument (e.g. 2026-10-28T13:00:00Z), as a moment; null when not given. */
+function momentArg(a: Args, k: string): number | null {
+  const s = text(a, k);
+  if (!s) return null;
+  const t = new RegExp(DATETIME).test(s) ? Date.parse(s) : NaN;
+  if (!Number.isFinite(t)) throw new Ask(`${k} should be a date and time like 2026-10-28T13:00:00Z, not "${s.slice(0, 40)}".`);
+  return t;
 }
 function num(a: Args, k: string, fallback: number, min: number, max: number) {
   const v = a[k];
@@ -271,6 +281,51 @@ export const CLAUDE_TOOLS: ClaudeTool[] = [
         note: [others.length ? "More than one chat matches: this is the open one (or the newest). Use chat_id for another." : "", chat.archived_at && !msgs.length ? "This chat was closed and archived: its messages are in the transcript in Google Drive." : ""].filter(Boolean).join(" ") || undefined,
         messages: msgs.map((m) => ({ at: m.created_at, from: m.sender_name || m.sender_role, role: m.sender_role, text: cut(m.body, 1200), files: (m.media || []).map((x) => `${x.kind || "file"}: ${x.name || ""}`.trim()) }))
       };
+    }
+  },
+  {
+    name: "chats", title: "Chats overview",
+    description: "Every open chat (each dog's chat with the client, the trainer and the Dogwise team) and each trainer's team thread with the office, showing who is waiting on whom. Per chat: where the dog is in training, whether the client was invited and has opened the chat, the last message, a client waiting for a reply (since when, clock and waking hours, and what they said), hours since the trainer and the team last wrote, whether the trainer posted today and yesterday and on how many of the last 7 days with a photo or video, and open chat incidents. Also dogs in care or starting within 7 days that have no chat, and team threads where a trainer is waiting on the office or hasn't read the office's messages. Most urgent first. Chats for finished programs are listed only when a client is waiting or something happened in the last 3 days, unless all is true. \"team\" means the Dogwise office. Waking hours are 8 am to 9 pm Eastern.",
+    input: {
+      trainer: { type: "string", description: "Only this trainer's chats and team thread (name or part of it).", optional: true },
+      all: { type: "boolean", description: "Also list quiet chats for finished programs.", optional: true }
+    },
+    run: async (a) => {
+      const who = searchText(text(a, "trainer"));
+      const r = await commsOverview({ trainer: who, all: yes(a, "all") });
+      return who && !r.chats.length && !r.teamThreads.length && !r.noChat ? { ...r, note: `No open chat or team thread for a trainer with "${who}" in their name.` } : r;
+    }
+  },
+  {
+    name: "recent_messages", title: "Recent messages",
+    description: "Messages sent since a moment across every dog's chat (client, trainer, the Dogwise team and the app's own notices) and the trainers' team threads with the office, oldest first, grouped by chat. Each message has an id. Use it to read what was said lately; use chat_messages for one chat's history. Up to 600 messages from the chats and 600 from the team threads; when there are more, nextSince says where to carry on. Long messages are cut short.",
+    input: {
+      since: { type: "string", description: "Messages after this moment, as an ISO 8601 date-time like 2026-10-28T13:00:00Z. At most 7 days back. Default: the last 3 hours.", optional: true, pattern: DATETIME },
+      hours: { type: "number", description: "Or the last this many hours, when since isn't given. Default 3, up to 168.", optional: true, min: 1, max: 168 },
+      trainer: { type: "string", description: "Only this trainer's chats and team thread (name or part of it).", optional: true },
+      team: { type: "boolean", description: "Include the trainers' team threads with the office. Default true.", optional: true },
+      limit: { type: "number", description: "Most messages to return from the dogs' chats (and the same from the team threads). Default 300, up to 600.", optional: true, min: 1, max: 600 }
+    },
+    run: async (a) => {
+      const now = Date.now(), at = momentArg(a, "since");
+      let since = at ?? now - num(a, "hours", 3, 1, 168) * 3600000, note = "";
+      if (since > now) throw new Ask(`since (${text(a, "since")}) is in the future.`);
+      if (since < now - 7 * 86400000) { since = now - 7 * 86400000; note = "since was more than 7 days ago, so this starts 7 days ago."; }
+      const r = await recentMessages({ since, trainer: searchText(text(a, "trainer")), team: !(a.team === false || a.team === "false"), limit: num(a, "limit", 300, 1, 600) });
+      return { ...r, note: [note, r.note].filter(Boolean).join(" ") || undefined };
+    }
+  },
+  {
+    name: "trainer_comms", title: "Trainer communication",
+    description: "How each trainer kept up with the communication standard over the last full days (US Eastern, not counting today). Daily updates: the days a dog was in their care and on how many the dog's chat got a photo or video (the standard is one every day), with the days missed. Client messages: how many times clients wrote, how long replies took in waking hours (the standard is within 2 to 3 hours), replies over 3 waking hours or over 12 hours, and clients still waiting. Team thread: messages each way with the office. Trainers with the most misses first.",
+    input: {
+      days: { type: "number", description: "How many full days back. Default 7, up to 30.", optional: true, min: 1, max: 30 },
+      trainer: { type: "string", description: "Only this trainer (name or part of it).", optional: true }
+    },
+    run: async (a) => {
+      const who = searchText(text(a, "trainer"));
+      const r = await trainerComms({ days: num(a, "days", 7, 1, 30), trainer: who });
+      return who && !r.trainers.length ? { ...r, note: `No trainer with "${who}" in their name had a dog in care or client messages in that time.` } : r;
     }
   },
   {
