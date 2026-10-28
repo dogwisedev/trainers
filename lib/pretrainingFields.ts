@@ -114,7 +114,7 @@ export const CLIENT_KEYS = QUESTIONS.filter((q) => q.scope === "client").map((q)
 export const DOG_KEYS = QUESTIONS.filter((q) => q.scope === "dog").map((q) => q.key);
 /** Contact properties the app reads from HubSpot (the questions, plus the vaccine file from the HubSpot form). */
 export const VACCINE_FILE_PROP = "please_upload_a_copy_of_your_dog_s_vaccination_records__if_you_are_not_able_to_do_so__please_email_";
-export const CONTACT_PROPS = [...QUESTIONS.map((q) => q.key), VACCINE_FILE_PROP, "firstname", "lastname", "email"];
+export const CONTACT_PROPS = [...QUESTIONS.map((q) => q.key), VACCINE_FILE_PROP, "firstname", "lastname", "email", "dogwise_forms_link"];
 /** Deal properties the app reads. */
 export const DOG_NAME_PROPS = ["k9___dog_name", "dog_2_name", "dog_3_name", "dog_4_name"];
 export const DEAL_PROPS = [...DOG_NAME_PROPS, "type_of_program_sold", "how_many_dogs_need_training_", "remaining_balance_link", "payment_status", "vaccines_in_order_", "missing_vaccines", "forms", "pre_training_missing", "dealname"];

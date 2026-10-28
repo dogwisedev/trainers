@@ -312,7 +312,7 @@ function SectionCard({ chatId, bookingId, section, answers, defs, edit, changes,
   );
 }
 
-function Field({ q, d, value, onChange }: { q: Q; d: Def; value: string; onChange: (v: string) => void }) {
+export function Field({ q, d, value, onChange }: { q: Q; d: Def; value: string; onChange: (v: string) => void }) {
   const id = `f-${q.key}`;
   if (q.key === "signature" && d?.type === "bool") q = { ...q, label: "I agree to the Terms & Conditions", input: "yesno" }; // HubSpot may store it as a tick box
   const label = <label htmlFor={id} className="label">{q.label}{q.required && <span className="text-heart"> *</span>}{q.hint && <span className="block text-caption font-normal text-ink-faint">{q.hint}</span>}</label>;

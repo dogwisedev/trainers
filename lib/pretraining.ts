@@ -7,6 +7,7 @@ import { raiseIncident, resolveIncidents } from "./incidents";
 import { alertAdmins } from "./adminAlert";
 import { auditSystem } from "./audit";
 import { PROGRAM_SOLD } from "./programs";
+import { formAnswersFor, formsLink } from "./clientForms";
 import { uniqueDogs } from "./chatOps";
 import { DealProps, PropDef, dealContacts, hubspotConfigured, optionValue, propDefs, readContacts, readDeals, updateContact, updateDeal } from "./hubspot";
 import {
@@ -90,7 +91,7 @@ function buildProfile(dealId: string, row: DealRow | null, dogRows: DogRow[], bo
   };
 }
 
-async function fieldDefs(): Promise<Profile["defs"]> {
+export async function fieldDefs(): Promise<Profile["defs"]> {
   try {
     const defs = await propDefs("contacts");
     return Object.fromEntries(QUESTIONS.map((q) => [q.key, defs.get(q.key)]).filter(([, d]) => d).map(([k, d]) => {
@@ -141,7 +142,7 @@ export async function readinessFor(bookingIds: string[]): Promise<Map<string, { 
  * Sends answers to the HubSpot contact. If HubSpot refuses some values (an option it doesn't allow), those are named and
  * left out so the rest still go through. Anything not sent (no permission, HubSpot down) stays waiting for the next try.
  */
-async function pushContact(contactId: string, props: Record<string, string>): Promise<{ pending: Record<string, string>; error: string | null; sent: number }> {
+export async function pushContact(contactId: string, props: Record<string, string>): Promise<{ pending: Record<string, string>; error: string | null; sent: number }> {
   const left = { ...props }, refused: string[] = [];
   const named = () => refused.map((k) => QUESTIONS.find((q) => q.key === k)?.label || k).join("; ");
   for (let i = 0; i < 4 && Object.keys(left).length; i++) {
@@ -212,13 +213,20 @@ export async function syncPretraining(opts: { dealIds?: string[]; sb?: SupabaseC
         contact = { ...contact, ...pending }; out.pushed += r.sent; pending = r.pending; syncError = r.error;
       }
       await sb.from("pretraining_deals").upsert({ deal_id: dealId, contact_id: contactId, deal, contact, pending, synced_at: now, sync_error: syncError, updated_at: now });
+      // The client's personal before-training link, on their HubSpot contact for templates
+      if (contactId && !str(contact.dogwise_forms_link)) await updateContact(contactId, { dogwise_forms_link: formsLink(contactId) }).catch(() => {});
       // 2. One row per dog, with its slot on the deal (dog 1 = k9___dog_name, dog 2 = dog_2_name…)
       const bks = bookings.filter((b) => b.hubspot_deal_id === dealId);
       const mine = ((dogRows || []) as DogRow[]).filter((d) => d.deal_id === dealId);
       const slots = matchSlots(bks.map((b) => { const d = mine.find((x) => x.booking_id === b.id); return { ...b, slot: d?.slot, slot_set_by: d?.slot_set_by }; }), DOG_NAME_PROPS.map((p) => str(deal[p])));
       for (const b of bks) {
         const d = mine.find((x) => x.booking_id === b.id);
-        if (!d) await sb.from("pretraining_dogs").insert({ booking_id: b.id, deal_id: dealId, slot: slots.get(b.id) || 1 });
+        if (!d) {
+          // A dog 2–4 answered on the client's form before it was booked: its booking starts with those answers
+          const slot = slots.get(b.id) || 1;
+          const pre = slot > 1 && contactId ? await formAnswersFor(sb, contactId, [b.dog_name, str(deal[DOG_NAME_PROPS[slot - 1]])]).catch(() => null) : null;
+          await sb.from("pretraining_dogs").insert({ booking_id: b.id, deal_id: dealId, slot, ...(pre ? { answers: pre } : {}) });
+        }
         else if (!d.slot_set_by && d.slot !== slots.get(b.id)) await sb.from("pretraining_dogs").update({ slot: slots.get(b.id), updated_at: now }).eq("booking_id", b.id);
         out.dogs++;
       }

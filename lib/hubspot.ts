@@ -207,3 +207,47 @@ export async function closedWonSince(since: string, properties: string[]): Promi
   const all = await run(true).catch(() => run(false));
   return all.filter((d) => d.properties.hs_is_closed_won === "true");
 }
+
+// ── Client form links ──
+/** A contact's deals, newest first (by close date, else created). */
+export async function contactDeals(contactId: string, properties: string[]): Promise<{ id: string; properties: DealProps }[]> {
+  const res = await hs<{ results?: { toObjectId: number | string }[] }>(`/crm/v4/objects/contacts/${encodeURIComponent(contactId)}/associations/deals?limit=100`);
+  const ids = (res.results || []).map((r) => String(r.toObjectId));
+  if (!ids.length) return [];
+  const deals = await readDeals(ids, [...new Set([...properties, "createdate", "closedate", "hs_is_closed_won", "hs_is_closed"])]);
+  return [...deals.entries()].map(([id, properties]) => ({ id, properties }))
+    .sort((a, b) => String(b.properties.createdate || "").localeCompare(String(a.properties.createdate || "")));
+}
+
+/** Contacts created on or after `sinceMs` that don't have `prop` set yet (up to `max`). */
+export async function contactsMissing(prop: string, sinceMs: number, max = 500): Promise<string[]> {
+  const out: string[] = [];
+  let after: string | undefined;
+  while (out.length < max) {
+    const res = await hs<{ results?: { id: string }[]; paging?: { next?: { after: string } } }>("/crm/v3/objects/contacts/search", {
+      method: "POST", body: JSON.stringify({
+        filterGroups: [{ filters: [{ propertyName: prop, operator: "NOT_HAS_PROPERTY" }, { propertyName: "createdate", operator: "GTE", value: String(sinceMs) }] }],
+        properties: ["email"], sorts: [{ propertyName: "createdate", direction: "DESCENDING" }], limit: 100, ...(after ? { after } : {})
+      })
+    });
+    out.push(...(res.results || []).map((r) => String(r.id)));
+    after = res.paging?.next?.after;
+    if (!after) break;
+  }
+  return out.slice(0, max);
+}
+
+/** Sets properties on many contacts at once (100 per call). */
+export async function updateContacts(rows: { id: string; properties: Record<string, string> }[]) {
+  for (let i = 0; i < rows.length; i += 100)
+    await hs("/crm/v3/objects/contacts/batch/update", { method: "POST", body: JSON.stringify({ inputs: rows.slice(i, i + 100) }) });
+}
+
+/** The contact with exactly this email, if there is one. */
+export async function contactByEmail(email: string): Promise<{ id: string; email: string } | null> {
+  const res = await hs<{ results?: { id: string; properties: { email?: string } }[] }>("/crm/v3/objects/contacts/search", {
+    method: "POST", body: JSON.stringify({ filterGroups: [{ filters: [{ propertyName: "email", operator: "EQ", value: email.trim().toLowerCase() }] }], properties: ["email"], limit: 2 })
+  });
+  const r = (res.results || [])[0];
+  return r ? { id: String(r.id), email: String(r.properties.email || email) } : null;
+}
