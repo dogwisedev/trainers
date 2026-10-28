@@ -5,6 +5,7 @@ import { addDays, short } from "./dates";
 import { etParts } from "./chatRules";
 import { raiseIncident, resolveIncidents } from "./incidents";
 import { alertAdmins } from "./adminAlert";
+import { auditSystem } from "./audit";
 import { DealProps, PropDef, dealContacts, hubspotConfigured, optionValue, propDefs, readContacts, readDeals, updateContact, updateDeal } from "./hubspot";
 import {
   Answers, CLIENT_KEYS, CONTACT_PROPS, DEAL_PROPS, DOG_KEYS, DOG_NAME_PROPS, QUESTIONS, Ready, VACCINE_FILE_PROP, VACCINES, VaccineFile, VaccineState,
@@ -21,7 +22,7 @@ import type { Item } from "./pretrainingFields";
 const READY_DAYS = 7;
 const site = () => (process.env.NEXT_PUBLIC_SITE_URL || "").replace(/\/$/, "");
 
-type BookingRow = { id: string; dog_name: string | null; client_name: string; start_date: string; end_date: string; status: string; trainer_id: string; created_at: string; hubspot_deal_id: string | null; trainers?: { name: string } | null };
+type BookingRow = { id: string; dog_name: string | null; client_name: string; client_email?: string | null; start_date: string; end_date: string; status: string; trainer_id: string; created_at: string; hubspot_deal_id: string | null; trainers?: { name: string } | null };
 type DealRow = { deal_id: string; contact_id: string | null; deal: DealProps; contact: DealProps; pending: Record<string, string>; synced_at: string | null; sync_error: string | null };
 type DogRow = { booking_id: string; deal_id: string; slot: number; slot_set_by: string | null; cleared_by?: string | null; cleared_at?: string | null; answers: Answers; vaccines: VaccineState; changes: Record<string, { by: string; role: string; at: string }> };
 
@@ -49,7 +50,7 @@ function hubspotFiles(contact: DealProps): VaccineFile[] {
 
 async function bookingsFor(sb: SupabaseClient, dealIds: string[]) {
   if (!dealIds.length) return [] as BookingRow[];
-  const { data } = await sb.from("bookings").select("id, dog_name, client_name, start_date, end_date, status, trainer_id, created_at, hubspot_deal_id, trainers(name)").in("hubspot_deal_id", dealIds).neq("status", "cancelled");
+  const { data } = await sb.from("bookings").select("id, dog_name, client_name, client_email, start_date, end_date, status, trainer_id, created_at, hubspot_deal_id, trainers(name)").in("hubspot_deal_id", dealIds).neq("status", "cancelled");
   return (data || []) as unknown as BookingRow[];
 }
 
@@ -219,6 +220,9 @@ export async function syncPretraining(opts: { dealIds?: string[]; sb?: SupabaseC
         else if (!d.slot_set_by && d.slot !== slots.get(b.id)) await sb.from("pretraining_dogs").update({ slot: slots.get(b.id), updated_at: now }).eq("booking_id", b.id);
         out.dogs++;
       }
+      // 2b. HubSpot is the source of truth for names: each dog's name (by its slot) and the client's name go onto the
+      //     booking, the chat and unsent forms. The email is only filled in when the booking has none (it's the client's login).
+      try { await namesFromHubspot(sb, dealId, deal, contact, bks, mine, slots); } catch (e) { out.errors.push(`names ${dealId}: ${(e as Error).message}`); }
       // 3. Readiness: tick "forms" in HubSpot, list what's missing, incidents a week out
       const { data: fresh } = await sb.from("pretraining_dogs").select("*").eq("deal_id", dealId);
       const p = buildProfile(dealId, { deal_id: dealId, contact_id: contactId, deal, contact, pending, synced_at: now, sync_error: syncError }, (fresh || []) as DogRow[], bks, {});
@@ -423,4 +427,45 @@ export async function setCleared(dealId: string, bookingId: string, cleared: boo
   if (error) return { ok: false, message: error.message };
   if (cleared) await resolveIncidents({ kinds: ["not_ready"], ref: `ready:${bookingId}` }, who.name, "Marked OK to start", sb);
   return { ok: true, message: cleared ? "Marked OK to start. The client won't be asked for anything more." : "Back to normal: the client sees what's missing again." };
+}
+
+/** Puts HubSpot's dog names and client name on the app's bookings (and the chat, and unsent forms). Logs every change. */
+async function namesFromHubspot(sb: SupabaseClient, dealId: string, deal: DealProps, contact: DealProps, bks: BookingRow[], mine: DogRow[], slots: Map<string, number>) {
+  const clean = (v: unknown) => String(v ?? "").replace(/\s+/g, " ").trim();
+  const client = [clean(contact.firstname), clean(contact.lastname)].filter(Boolean).join(" ");
+  const email = clean(contact.email).toLowerCase();
+  const changes: string[] = [];
+  for (const b of bks) {
+    if (b.status === "cancelled") continue;
+    const d = mine.find((x) => x.booking_id === b.id);
+    const slot = d?.slot_set_by ? d.slot : slots.get(b.id) || d?.slot || 1;
+    const dog = clean(deal[DOG_NAME_PROPS[slot - 1]]);
+    const patch: Record<string, string> = {};
+    if (dog && dog !== clean(b.dog_name)) patch.dog_name = dog.slice(0, 80);
+    if (client && client.toLowerCase() !== clean(b.client_name).toLowerCase()) patch.client_name = client.slice(0, 120);
+    if (email && /^\S+@\S+\.\S+$/.test(email) && !clean(b.client_email)) patch.client_email = email;
+    if (!Object.keys(patch).length) continue;
+    const { error } = await sb.from("bookings").update(patch).eq("id", b.id);
+    if (error) throw new Error(error.message);
+    // Forms not sent yet (and the certificate made from the handover) use the new names too
+    const { data: drafts } = await sb.from("reports").select("id, answers").eq("booking_id", b.id).in("status", ["draft", "changes_requested"]);
+    for (const r of (drafts || []) as { id: string; answers: Record<string, unknown> | null }[]) {
+      const a = { ...(r.answers || {}) };
+      let touched = false;
+      if (patch.dog_name && clean(a.dogName) === clean(b.dog_name)) { a.dogName = patch.dog_name; touched = true; }
+      if (patch.client_name && clean(a.clientName) === clean(b.client_name)) { a.clientName = patch.client_name; touched = true; }
+      if (patch.client_email && !clean(a.clientEmail)) { a.clientEmail = patch.client_email; touched = true; }
+      if (touched) await sb.from("reports").update({ answers: a }).eq("id", r.id);
+    }
+    changes.push([patch.dog_name && `dog "${b.dog_name || ""}" → "${patch.dog_name}"`, patch.client_name && `client "${b.client_name}" → "${patch.client_name}"`, patch.client_email && "client email added"].filter(Boolean).join(", "));
+    Object.assign(b, patch);
+  }
+  if (!changes.length) return;
+  // The chat's title is every dog on the deal; its client name follows the booking
+  const title = [...new Set(bks.filter((b) => b.status !== "cancelled").map((b) => clean(b.dog_name)).filter(Boolean))].join(" & ");
+  const chatPatch: Record<string, string> = {};
+  if (title) chatPatch.title = title;
+  if (client) chatPatch.client_name = client;
+  if (Object.keys(chatPatch).length) await sb.from("chats").update(chatPatch).eq("deal_key", dealId).eq("status", "open");
+  await auditSystem("Updated a booking from HubSpot", `${title || "Dog"}: ${changes.join("; ")}.`, { link: `https://app.hubspot.com/contacts/21869370/record/0-3/${dealId}` });
 }
