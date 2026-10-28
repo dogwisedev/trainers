@@ -63,13 +63,18 @@ type Chat = {
 const CHAT_COLS = "id, deal_key, trainer_id, trainer_name, client_user_id, client_name, title, status, last_message_at, last_preview, last_sender, last_trainer_at, last_client_at, last_admin_at, admin_seen_at, invited_at, created_at";
 type Booking = { id: string; hubspot_deal_id: string | null; dog_name: string | null; client_name: string; start_date: string; end_date: string; status: string; trainer_id: string; trainers?: { name: string } | null };
 const BOOKING_COLS = "id, hubspot_deal_id, dog_name, client_name, start_date, end_date, status, trainer_id, trainers(name)";
-type Msg = { id: string; chat_id: string; sender_role: "client" | "trainer" | "admin" | "system"; sender_name: string | null; kind: string; body: string | null; media: { kind?: string }[] | null; created_at: string };
+type Msg = { id: string; chat_id: string; sender_id?: string | null; sender_role: "client" | "trainer" | "admin" | "system"; sender_name: string | null; kind: string; body: string | null; media: { kind?: string }[] | null; created_at: string };
 type TeamMsg = { id: string; trainer_id: string; sender_id: string | null; sender_role: "admin" | "trainer"; sender_name: string | null; body: string; created_at: string; read_at: string | null };
 const TEAM_COLS = "id, trainer_id, sender_id, sender_role, sender_name, body, created_at, read_at";
 type Trainer = { id: string; name: string; active: boolean };
 
 /** "team" is the Dogwise office (admins in the app). */
 const ROLE: Record<string, string> = { client: "client", trainer: "trainer", admin: "team", system: "system" };
+/** An office message with no sender was posted by the app itself (the training materials it sends on a schedule), not by a
+ *  person: a signed-in person's message always gets their id (chat_messages_before_insert). It is never a reply to a
+ *  client, and it doesn't count as the office being in touch. */
+const isAutomatic = (m: { sender_role: string; sender_id?: string | null }) => m.sender_role === "admin" && !m.sender_id;
+const roleOf = (m: { sender_role: string; sender_id?: string | null }) => (isAutomatic(m) ? "automatic" : ROLE[m.sender_role] || m.sender_role);
 /** A photo or a video (not only a PDF). */
 const hasPhotoOrVideo = (m: Pick<Msg, "kind" | "media">) => (m.media && m.media.length ? m.media.some((x) => x.kind !== "file") : m.kind === "media");
 function attachments(m: Pick<Msg, "media">) {
@@ -131,16 +136,30 @@ export async function commsOverview(o: { trainer?: string; all?: boolean; now?: 
   ]);
   const chats = chatRows.filter((c) => mine(c.trainer_name));
   const ids = chats.map((c) => c.id), trainerIds = [...new Set(chats.map((c) => c.trainer_id).filter((x): x is string => !!x))];
-  const [bookings, reads, incidents, logins] = await Promise.all([
+  type At = { id: string; chat_id: string; created_at: string };
+  const since60 = iso(now - 60 * 86400000);
+  const [bookings, reads, incidents, logins, autos] = await Promise.all([
     bookingsFor(chats.map((c) => c.deal_key)),
     byIds<{ chat_id: string; user_id: string; last_read_at: string }>(ids, (c, f, t) => sb.from("chat_reads").select("chat_id, user_id, last_read_at").in("chat_id", c).order("chat_id").order("user_id").range(f, t)),
     byIds<{ chat_id: string; kind: string; status: string; detail: string | null; opened_at: string; taken_by: string | null }>(ids, (c, f, t) =>
       sb.from("chat_incidents").select("chat_id, kind, status, detail, opened_at, taken_by").neq("status", "resolved").in("chat_id", c).order("opened_at").order("id").range(f, t)),
-    byIds<{ id: string; trainer_id: string }>(trainerIds, (c, f, t) => sb.from("profiles").select("id, trainer_id").eq("role", "trainer").in("trainer_id", c).order("id").range(f, t))
+    byIds<{ id: string; trainer_id: string }>(trainerIds, (c, f, t) => sb.from("profiles").select("id, trainer_id").eq("role", "trainer").in("trainer_id", c).order("id").range(f, t)),
+    byIds<At>(ids, (c, f, t) => sb.from("chat_messages").select("id, chat_id, created_at").eq("sender_role", "admin").is("sender_id", null)
+      .gte("created_at", since60).in("chat_id", c).order("created_at").order("id").range(f, t))
   ]);
 
+  // A chat's last_admin_at also moves when the app posts by itself (training materials). Where the latest office message
+  // was automatic, look up when a person in the office last wrote.
+  const latest = (rows: At[]) => { const m = new Map<string, string>(); for (const r of rows) if (ms(r.created_at) >= ms(m.get(r.chat_id))) m.set(r.chat_id, r.created_at); return m; };
+  const lastAuto = latest(autos);
+  const autoLast = new Set(chats.filter((c) => c.last_admin_at && ms(lastAuto.get(c.id)) >= ms(c.last_admin_at)).map((c) => c.id));
+  const lastPerson = latest(await byIds<At>([...autoLast], (c, f, t) => sb.from("chat_messages").select("id, chat_id, created_at").eq("sender_role", "admin")
+    .not("sender_id", "is", null).gte("created_at", since60).in("chat_id", c).order("created_at").order("id").range(f, t)));
+  /** When a person in the office last wrote in the chat (not the app's automatic posts). */
+  const officeAt = (c: Chat) => (autoLast.has(c.id) ? lastPerson.get(c.id) || null : c.last_admin_at);
+
   const phases = new Map(chats.map((c) => [c.id, phaseOf(bookings.get(c.deal_key) || [], today)]));
-  const ourSide = (c: Chat) => Math.max(ms(c.last_trainer_at), ms(c.last_admin_at));    // the trainer or the team, whoever wrote last
+  const ourSide = (c: Chat) => Math.max(ms(c.last_trainer_at), ms(officeAt(c)));    // the trainer or a person in the office, whoever wrote last
   const waitingChats = chats.filter((c) => ms(c.last_client_at) > ourSide(c));
   const careChats = chats.filter((c) => CARE.includes(phases.get(c.id)!.phase));
   const fromOldest = waitingChats.length ? iso(Math.min(...waitingChats.map(ourSide))) : "";
@@ -195,8 +214,8 @@ export async function commsOverview(o: { trainer?: string; all?: boolean; now?: 
       id: c.id, dog: c.title || dogs || "Dog", client: c.client_name, trainer: c.trainer_name,
       phase: p.phase, day: p.day, pickup: p.pickup, dropoff: p.dropoff, startsInDays: p.startsInDays, endedDaysAgo: p.endedDaysAgo,
       clientInvited: !!c.invited_at, invitedAt: c.invited_at || undefined, clientOpenedChat: clientRead > 0, clientLastRead: clientRead ? iso(clientRead) : undefined,
-      lastMessage: c.last_message_at ? { at: c.last_message_at, from: ROLE[c.last_sender || ""] || c.last_sender, text: cut(c.last_preview, 120) } : null,
-      lastClientAt: c.last_client_at, lastTrainerAt: c.last_trainer_at, lastTeamAt: c.last_admin_at,
+      lastMessage: c.last_message_at ? { at: c.last_message_at, from: c.last_sender === "admin" && autoLast.has(c.id) ? "automatic" : ROLE[c.last_sender || ""] || c.last_sender, text: cut(c.last_preview, 120) } : null,
+      lastClientAt: c.last_client_at, lastTrainerAt: c.last_trainer_at, lastTeamAt: officeAt(c), lastAutomaticAt: lastAuto.get(c.id),
       hoursSinceTrainer: c.last_trainer_at ? hoursBetween(ms(c.last_trainer_at), now) : null,
       hoursSinceTrainerOrTeam: us ? hoursBetween(us, now) : null,
       waiting, trainerPosts,
@@ -285,7 +304,7 @@ export async function recentMessages(o: { since: string; now?: Date; trainer?: s
     ]);
     chatIds = cs.map((c) => c.id); trainerIds = ts.map((t) => t.id);
   }
-  const MSG_COLS = "id, chat_id, sender_role, sender_name, kind, body, media, created_at";
+  const MSG_COLS = "id, chat_id, sender_id, sender_role, sender_name, kind, body, media, created_at";
   const sortTime = <T extends { created_at: string; id: string }>(rows: T[]) => rows.sort((a, b) => micros(a.created_at) - micros(b.created_at) || a.id.localeCompare(b.id));
   const [chatMsgs, teamMsgs] = await Promise.all([
     chatIds
@@ -296,8 +315,16 @@ export async function recentMessages(o: { since: string; now?: Date; trainer?: s
         ? byIds<TeamMsg>(trainerIds, (c, f, t) => sb.from("messages").select(TEAM_COLS).gt("created_at", since).lte("created_at", until).in("trainer_id", c).order("created_at").order("id").range(f, Math.min(t, f + limit))).then(sortTime)
         : allRows<TeamMsg>((f, t) => sb.from("messages").select(TEAM_COLS).gt("created_at", since).lte("created_at", until).order("created_at").order("id").range(0, limit), limit + 1)
   ]);
+  // A list that is too long is cut after its last message earlier than the first one left out, so messages sent at the very
+  // same moment are never split between two pages (the next page starts after nextSince)
+  const cutAt = (rows: { created_at: string }[]) => {
+    if (rows.length <= limit) return "";
+    const out = micros(rows[limit].created_at);
+    for (let i = limit - 1; i >= 0; i--) if (micros(rows[i].created_at) < out) return rows[i].created_at;
+    throw new NarrowDown(`More than ${limit} messages were sent at the same moment (${rows[limit].created_at}). Ask again with a larger limit, or for one trainer.`);
+  };
   // When either list is cut off, both stop at the same moment, so the next page (since = nextSince) repeats nothing and misses nothing
-  const ends = [chatMsgs.length > limit ? chatMsgs[limit - 1].created_at : "", teamMsgs.length > limit ? teamMsgs[limit - 1].created_at : ""].filter(Boolean);
+  const ends = [cutAt(chatMsgs), cutAt(teamMsgs)].filter(Boolean);
   const nextSince = ends.sort((a, b) => micros(a) - micros(b))[0] || "";
   const upTo = <T extends { created_at: string }>(rows: T[]) => (nextSince ? rows.filter((m) => micros(m.created_at) <= micros(nextSince)) : rows).slice(0, limit);
   const chatShown = upTo(chatMsgs), teamShown = upTo(teamMsgs);
@@ -316,7 +343,7 @@ export async function recentMessages(o: { since: string; now?: Date; trainer?: s
       return {
         chatId: id, dog: c?.title || "Dog", client: c?.client_name || null, trainer: c?.trainer_name || null, chatStatus: c?.status, link: link(`/a/chats/${id}`),
         messages: msgs.map((m) => ({
-          id: m.id, at: m.created_at, role: ROLE[m.sender_role] || m.sender_role, from: m.sender_name || ROLE[m.sender_role],
+          id: m.id, at: m.created_at, role: roleOf(m), from: isAutomatic(m) ? `${m.sender_name || "Dogwise team"} (automatic)` : m.sender_name || ROLE[m.sender_role],
           text: cut(m.body, m.sender_role === "system" ? 160 : 800) || undefined, attachments: attachments(m), kind: m.kind === "report" ? "report" : undefined
         }))
       };
@@ -337,7 +364,7 @@ export async function trainerComms(o: { days: number; trainer?: string; now?: Da
   const [bookingRows, trainers, msgs, team] = await Promise.all([
     allRows<Booking>((f, t) => sb.from("bookings").select(BOOKING_COLS).neq("status", "cancelled").lte("start_date", today).gte("end_date", from).order("id").range(f, t)),
     allRows<Trainer>((f, t) => sb.from("trainers").select("id, name, active").order("id").range(f, t)),
-    allRows<Msg>((f, t) => sb.from("chat_messages").select("id, chat_id, sender_role, kind, media, created_at").gte("created_at", lookBack).order("created_at").order("id").range(f, t), 60000),
+    allRows<Msg>((f, t) => sb.from("chat_messages").select("id, chat_id, sender_id, sender_role, kind, media, created_at").gte("created_at", lookBack).order("created_at").order("id").range(f, t), 60000),
     allRows<TeamMsg>((f, t) => sb.from("messages").select("id, trainer_id, sender_id, sender_role, created_at").gte("created_at", lookBack).order("created_at").order("id").range(f, t))
   ]);
   const tName = new Map(trainers.map((t) => [t.id, t]));
@@ -413,7 +440,7 @@ export async function trainerComms(o: { days: number; trainer?: string; now?: Da
     };
     for (const m of list) {
       if (m.sender_role === "client") { if (open === null) open = ms(m.created_at); }
-      else if (m.sender_role === "trainer" || m.sender_role === "admin") close(ms(m.created_at), m.sender_role);
+      else if (m.sender_role === "trainer" || (m.sender_role === "admin" && !isAutomatic(m))) close(ms(m.created_at), m.sender_role);
     }
     close(null, null);
   }
@@ -439,7 +466,7 @@ export async function trainerComms(o: { days: number; trainer?: string; now?: Da
   return {
     from, to, days: o.days,
     standard: "A photo or video in the dog's chat every day it is in care (pickup day up to the night before drop-off); reply to clients within 2 to 3 hours. Waking hours are 8 am to 9 pm Eastern.",
-    note: "A turn is a client message (or several in a row) and the first reply after it from the trainer or the team. Turns are counted for the trainer who had the dog that day, or the chat's trainer after training. chatArchived: days whose chat was closed and archived to Drive, so they can't be checked here (and their client messages aren't counted).",
+    note: "A turn is a client message (or several in a row) and the first reply after it from the trainer or a person in the office (the app's automatic posts, such as training materials, are not replies). Turns are counted for the trainer who had the dog that day, or the chat's trainer after training. chatArchived: days whose chat was closed and archived to Drive, so they can't be checked here (and their client messages aren't counted).",
     trainers: rows
   };
 }

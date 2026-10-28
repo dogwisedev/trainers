@@ -247,7 +247,7 @@ export const CLAUDE_TOOLS: ClaudeTool[] = [
   },
   {
     name: "chat_messages", title: "Read a dog's chat",
-    description: "The latest messages in a dog's chat with the client, the trainer and the Dogwise team, oldest first. Photos and videos are listed by file name. Very long messages are cut short.",
+    description: "The latest messages in a dog's chat with the client, the trainer and the Dogwise team, oldest first. Photos and videos are listed by file name. Very long messages are cut short. role: client, trainer, admin (a person in the office), system (the app's notices) or automatic (the app's own posts as the Dogwise team, such as training materials: not a person replying).",
     input: {
       chat_id: { type: "string", description: "The chat's id, from find_dog.", optional: true },
       dog: { type: "string", description: "Dog or client name, if you don't have the chat id. The open chat is used first.", optional: true },
@@ -272,20 +272,21 @@ export const CLAUDE_TOOLS: ClaudeTool[] = [
         others = found.filter((c) => c.id !== chat?.id).slice(0, 5);
       } else throw new Ask("Give a chat_id (from find_dog) or at least 2 letters of the dog's or client's name.");
       if (!chat) return { chat: null, messages: [], note: `No chat for a dog or client matching "${name}".` };
-      const { data, error } = await sb.from("chat_messages").select("sender_role, sender_name, kind, body, media, created_at").eq("chat_id", chat.id).order("created_at", { ascending: false }).limit(num(a, "limit", 30, 1, 60));
+      const { data, error } = await sb.from("chat_messages").select("sender_id, sender_role, sender_name, kind, body, media, created_at").eq("chat_id", chat.id).order("created_at", { ascending: false }).limit(num(a, "limit", 30, 1, 60));
       if (error) throw new Error(error.message);
-      const msgs = ((data || []) as { sender_role: string; sender_name: string | null; kind: string; body: string | null; media: { name?: string; kind?: string }[] | null; created_at: string }[]).reverse();
+      const msgs = ((data || []) as { sender_id: string | null; sender_role: string; sender_name: string | null; kind: string; body: string | null; media: { name?: string; kind?: string }[] | null; created_at: string }[]).reverse();
+      const auto = (m: (typeof msgs)[number]) => m.sender_role === "admin" && !m.sender_id;   // posted by the app itself (training materials), not a person
       return {
         chat: { id: chat.id, dog: chat.title, client: chat.client_name, trainer: chat.trainer_name, status: chat.status, link: link(`/a/chats/${chat.id}`), transcript: chat.transcript_url || undefined },
         otherChats: others.length ? others.map((c) => ({ id: c.id, dog: c.title, client: c.client_name, status: c.status })) : undefined,
         note: [others.length ? "More than one chat matches: this is the open one (or the newest). Use chat_id for another." : "", chat.archived_at && !msgs.length ? "This chat was closed and archived: its messages are in the transcript in Google Drive." : ""].filter(Boolean).join(" ") || undefined,
-        messages: msgs.map((m) => ({ at: m.created_at, from: m.sender_name || m.sender_role, role: m.sender_role, text: cut(m.body, 1200), files: (m.media || []).map((x) => `${x.kind || "file"}: ${x.name || ""}`.trim()) }))
+        messages: msgs.map((m) => ({ at: m.created_at, from: auto(m) ? `${m.sender_name || "Dogwise team"} (automatic)` : m.sender_name || m.sender_role, role: auto(m) ? "automatic" : m.sender_role, text: cut(m.body, 1200), files: (m.media || []).map((x) => `${x.kind || "file"}: ${x.name || ""}`.trim()) }))
       };
     }
   },
   {
     name: "chats", title: "Chats overview",
-    description: "Every open chat (each dog's chat with the client, the trainer and the Dogwise team) and each trainer's team thread with the office, showing who is waiting on whom. Per chat: where the dog is in training, whether the client was invited and has opened the chat, the last message, a client waiting for a reply (since when, clock and waking hours, and what they said), hours since the trainer and the team last wrote, whether the trainer posted today and yesterday and on how many of the last 7 days with a photo or video, and open chat incidents. Also dogs in care or starting within 7 days that have no chat, and team threads where a trainer is waiting on the office or hasn't read the office's messages. Most urgent first. Chats for finished programs are listed only when a client is waiting or something happened in the last 3 days, unless all is true. \"team\" means the Dogwise office. Waking hours are 8 am to 9 pm Eastern.",
+    description: "Every open chat (each dog's chat with the client, the trainer and the Dogwise team) and each trainer's team thread with the office, showing who is waiting on whom. Per chat: where the dog is in training, whether the client was invited and has opened the chat, the last message, a client waiting for a reply (since when, clock and waking hours, and what they said), hours since the trainer and the team last wrote, whether the trainer posted today and yesterday and on how many of the last 7 days with a photo or video, and open chat incidents. Also dogs in care or starting within 7 days that have no chat, and team threads where a trainer is waiting on the office or hasn't read the office's messages. Most urgent first. Chats for finished programs are listed only when a client is waiting or something happened in the last 3 days, unless all is true. \"team\" means a person in the Dogwise office; the app's own automatic posts (such as training materials) never count as a reply or as the team being in touch (lastAutomaticAt shows the latest). Waking hours are 8 am to 9 pm Eastern.",
     input: {
       trainer: { type: "string", description: "Only this trainer's chats and team thread (name or part of it).", optional: true },
       all: { type: "boolean", description: "Also list quiet chats for finished programs.", optional: true }
@@ -298,7 +299,7 @@ export const CLAUDE_TOOLS: ClaudeTool[] = [
   },
   {
     name: "recent_messages", title: "Recent messages",
-    description: "Messages sent since a moment across every dog's chat (client, trainer, the Dogwise team and the app's own notices) and the trainers' team threads with the office, oldest first, grouped by chat. Each message has an id. Use it to read what was said lately; use chat_messages for one chat's history. Up to 600 messages from the chats and 600 from the team threads; when there are more, nextSince says where to carry on. Long messages are cut short.",
+    description: "Messages sent since a moment across every dog's chat (role: client, trainer, team = a person in the office, automatic = the app's own posts such as training materials, system = the app's notices) and the trainers' team threads with the office, oldest first, grouped by chat. Each message has an id. Use it to read what was said lately; use chat_messages for one chat's history. Up to 600 messages from the chats and 600 from the team threads; when there are more, nextSince says where to carry on. Long messages are cut short.",
     input: {
       since: { type: "string", description: "Messages after this moment, as an ISO 8601 date-time like 2026-10-28T13:00:00Z. At most 7 days back. Default: the last 3 hours.", optional: true, pattern: DATETIME },
       hours: { type: "number", description: "Or the last this many hours, when since isn't given. Default 3, up to 168.", optional: true, min: 1, max: 168 },
