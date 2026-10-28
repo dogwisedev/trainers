@@ -17,6 +17,9 @@ import { remainingOf } from "@/lib/money";
 import { FollowupDates } from "@/components/FollowupDates";
 import { LinkDeal } from "@/components/LinkDeal";
 import { ChangeTrainer } from "@/components/ChangeTrainer";
+import { DogTraining } from "@/components/DogTraining";
+import { dealTraining } from "@/lib/training";
+import { PROGRAMS, programFor } from "@/lib/programs";
 import { emailTrainerAboutBooking, setBookingStatus } from "@/app/actions";
 import { ActionButton, ExtraDays } from "@/components/forms";
 import { ReportsToggle } from "@/components/ReportsToggle";
@@ -145,6 +148,7 @@ export default async function DogPageView({ params, searchParams }: { params: { 
                 <FollowupDates bookingId={b.id} dates={m?.followups || []} rate={Number((rate as { followup_rate?: number } | null)?.followup_rate ?? 60)} />
               </section>
             )}
+            {b.hubspot_deal_id && <DogTraining bookingId={b.id} programs={PROGRAMS} chosen={(b as { program_choice?: string | null }).program_choice || null} bookingProgram={programFor(b.program || "")} data={await dealTraining(b.hubspot_deal_id)} />}
             <section className="panel space-y-3 p-4">
               <h2 className="text-lead font-extrabold">Actions</h2>
               {b.hubspot_deal_id && <LinkDeal bookingId={b.id} hasDeal />}

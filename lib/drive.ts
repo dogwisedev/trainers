@@ -156,3 +156,26 @@ export async function photoBytes(fileId: string, size = 1600): Promise<Uint8Arra
     return r.ok ? new Uint8Array(await r.arrayBuffer()) : null;
   } catch { return null; }
 }
+
+/** A file's name and type, if the app can open it (it can for anything shared "anyone with the link"). */
+export async function fileMeta(fileId: string): Promise<{ ok: boolean; name?: string; mimeType?: string; message?: string }> {
+  const r = await api(`/drive/v3/files/${encodeURIComponent(fileId)}?fields=id,name,mimeType,trashed&supportsAllDrives=true`);
+  if (r.ok && !r.body.trashed) return { ok: true, name: r.body.name, mimeType: r.body.mimeType };
+  return { ok: false, message: r.status === 404 ? "The app can't open this file. In Drive, set it to \"Anyone with the link can view\"." : r.body?.error?.message || `Drive said ${r.status}.` };
+}
+
+/** Videos and PDFs directly inside a folder, by name (for importing a whole folder of training material). */
+export async function listFolderFiles(folderId: string): Promise<{ id: string; name: string; mimeType: string }[]> {
+  const q = `'${folderId.replace(/'/g, "")}' in parents and trashed=false and (mimeType contains 'video/' or mimeType = 'application/pdf')`;
+  const out: { id: string; name: string; mimeType: string }[] = [];
+  let page = "";
+  for (let i = 0; i < 10; i++) {
+    const r = await api(`/drive/v3/files?q=${encodeURIComponent(q)}&fields=nextPageToken,files(id,name,mimeType)&pageSize=200&supportsAllDrives=true&includeItemsFromAllDrives=true${page ? `&pageToken=${page}` : ""}`);
+    if (!r.ok) throw new Error(r.body?.error?.message || `Drive said ${r.status}.`);
+    out.push(...((r.body.files || []) as { id: string; name: string; mimeType: string }[]));
+    page = r.body.nextPageToken || "";
+    if (!page) break;
+  }
+  // "Strong Companion 2 - …" before "Strong Companion 10 - …"
+  return out.sort((a, b) => a.name.localeCompare(b.name, "en", { numeric: true }));
+}

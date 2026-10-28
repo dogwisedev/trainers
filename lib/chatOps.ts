@@ -19,6 +19,7 @@ import { etParts } from "./chatRules";
 export const CLOSE_NOTICE = "This chat will close on";
 import { registerNotifyUrl, sweepNotifications } from "./chatNotify";
 import { watchDirectEdits } from "./directEdits";
+import { runTrainingSends } from "./training";
 import { auditSystem } from "./audit";
 
 const URGENT_CHAT: IncidentKind[] = ["client_waiting", "client_pileup"];
@@ -30,6 +31,12 @@ const ms = (v: string | null) => (v ? new Date(v).getTime() : 0);
 export const muteToken = (chatId: string) => signMedia(chatId, "mute-chat");
 
 type Span = { start_date: string; end_date: string; status: string };
+/** Each dog once, however many bookings it has on the deal (a trainer change, an earlier training): "Storm", "storm " = one. */
+export const uniqueDogs = (names: (string | null | undefined)[]) => {
+  const seen = new Map<string, string>();
+  for (const n of names) { const t = String(n || "").replace(/\s+/g, " ").trim(); if (t && !seen.has(t.toLowerCase())) seen.set(t.toLowerCase(), t); }
+  return [...seen.values()];
+};
 type Incident = { id: string; chat_id: string; kind: IncidentKind; status: string; opened_at: string; last_alert_at: string | null };
 
 /** Runs every few minutes (Vercel cron): opens and clears incidents, alerts admins, sends the (rare) client digest emails. */
@@ -38,7 +45,7 @@ export async function runChatChecks(now = new Date()) {
   const sb = serviceClient();
   const { data: chatRows } = await sb.from("chats").select("*").eq("status", "open");
   const chats = (chatRows || []) as ChatRow[];
-  const out = { chats: chats.length, opened: 0, cleared: 0, realerted: 0, digests: 0, invited: 0, notified: 0, noticed: 0, autoClosed: 0, errors: [] as string[] };
+  const out = { chats: chats.length, opened: 0, cleared: 0, realerted: 0, digests: 0, invited: 0, notified: 0, noticed: 0, autoClosed: 0, training: 0, errors: [] as string[] };
   try { out.cleared += await clearFormIncidents(sb); } catch (e) { out.errors.push(`forms: ${(e as Error).message}`); }
   try { const c = await catchUpBookings(sb); out.errors.push(...c.errors.map((x) => `booking email: ${x}`)); } catch (e) { out.errors.push(`booking email: ${(e as Error).message}`); }
   try { if (await sendDailyDigest(sb)) out.digests++; } catch (e) { out.errors.push(`daily summary: ${(e as Error).message}`); }
@@ -49,6 +56,7 @@ export async function runChatChecks(now = new Date()) {
     out.notified = missed;
     if (missed) await auditSystem("Sent missed chat notifications", `${missed} message${missed > 1 ? "s" : ""} hadn't been notified within 90 seconds, so the 10-minute check sent ${missed > 1 ? "them" : "it"}.`, { ok: true });
   } catch (e) { out.errors.push(`notifications: ${(e as Error).message}`); }
+  try { const t = await runTrainingSends(sb); out.training = t.sent; out.errors.push(...t.errors.map((x) => `training: ${x}`)); } catch (e) { out.errors.push(`training: ${(e as Error).message}`); }
   try { await watchDirectEdits(sb); } catch (e) { out.errors.push(`direct edits: ${(e as Error).message}`); }
   try { const inv = await autoInviteClients(sb); out.invited = inv.invited; out.errors.push(...inv.errors.map((x) => `invite: ${x}`)); } catch (e) { out.errors.push(`invite: ${(e as Error).message}`); }
 
@@ -75,9 +83,9 @@ export async function runChatChecks(now = new Date()) {
     try {
       const bs = spans.get(c.deal_key) || [];
       // The chat's name is always its dogs' names, as they are on the bookings now (e.g. "your dog" → "Zeus" once HubSpot has the name)
-      const dogNames = [...new Set((bs as (Span & { dog_name?: string | null; created_at?: string })[])
+      const dogNames = uniqueDogs((bs as (Span & { dog_name?: string | null; created_at?: string })[])
         .filter((x) => x.status !== "cancelled").sort((a, b) => (a.created_at || "").localeCompare(b.created_at || ""))
-        .map((x) => String(x.dog_name || "").trim()).filter(Boolean))].join(" & ");
+        .map((x) => x.dog_name)).join(" & ");
       if (dogNames && dogNames !== c.title) { await sb.from("chats").update({ title: dogNames }).eq("id", c.id); c.title = dogNames; }
       // The chat belongs to whoever has the dog today (after a trainer change mid-training, it moves on the change day)
       const todayEt = etParts(now).date;

@@ -37,6 +37,7 @@ export default async function Trainers({ searchParams }: { searchParams: { view?
     <div className="mb-4 space-y-3">
       <div className="flex items-center justify-between gap-3">
         <h1 className="text-h1 font-extrabold leading-tight">Trainers</h1>
+        <Link prefetch={false} href="/a/materials" className="text-small font-semibold text-ink-soft underline">Training materials</Link>
         {!payView && !kennels && <Link prefetch={false} href="/a/trainers/new" className="btn-ink h-10 min-h-0 shrink-0 px-3.5 text-body"><UserPlus size={17} />Add trainer</Link>}
       </div>
       <nav className="grid grid-cols-3 rounded-2xl border border-line bg-white p-1 text-body font-semibold shadow-card sm:inline-grid sm:w-auto" aria-label="Trainers views">

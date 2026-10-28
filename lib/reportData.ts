@@ -26,7 +26,7 @@ export const prefill = (kind: Kind, b: Booking, trainerName: string, week: numbe
   dogName: b.dog_name || "", trainerName, clientName: b.client_name,
   ...(kind === "weekly" ? { weekNumber: week } : {}),
   ...(kind === "intake" ? { pickupDate: b.start_date } : {}),
-  ...(kind === "handover" ? { clientEmail: b.client_email || "", program: programFor(b.program) || "" } : {})
+  ...(kind === "handover" ? { clientEmail: b.client_email || "", program: programFor((b as { program_choice?: string | null }).program_choice || "") || programFor(b.program) || "" } : {})
 });
 
 /** Reports a trainer (or everyone, for admins) still owes: from bookings plus the reports that exist. */

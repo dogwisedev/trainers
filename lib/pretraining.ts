@@ -6,6 +6,7 @@ import { etParts } from "./chatRules";
 import { raiseIncident, resolveIncidents } from "./incidents";
 import { alertAdmins } from "./adminAlert";
 import { auditSystem } from "./audit";
+import { uniqueDogs } from "./chatOps";
 import { DealProps, PropDef, dealContacts, hubspotConfigured, optionValue, propDefs, readContacts, readDeals, updateContact, updateDeal } from "./hubspot";
 import {
   Answers, CLIENT_KEYS, CONTACT_PROPS, DEAL_PROPS, DOG_KEYS, DOG_NAME_PROPS, QUESTIONS, Ready, VACCINE_FILE_PROP, VACCINES, VaccineFile, VaccineState,
@@ -462,7 +463,7 @@ async function namesFromHubspot(sb: SupabaseClient, dealId: string, deal: DealPr
   }
   // The chat's title is every dog on the deal, and its client is the deal's contact: checked on every sync,
   // so a chat that was named "Your dog" (or before a name was fixed) catches up even if the bookings already had it right
-  const title = [...new Set(bks.filter((b) => b.status !== "cancelled").map((b) => clean(b.dog_name)).filter(Boolean))].join(" & ");
+  const title = uniqueDogs(bks.filter((b) => b.status !== "cancelled").map((b) => b.dog_name)).join(" & ");
   const { data: openChats } = await sb.from("chats").select("id, title, client_name").eq("deal_key", dealId).eq("status", "open");
   for (const c of (openChats || []) as { id: string; title: string | null; client_name: string | null }[]) {
     const chatPatch: Record<string, string> = {};
