@@ -312,15 +312,17 @@ function SectionCard({ chatId, bookingId, section, answers, defs, edit, changes,
   );
 }
 
-export function Field({ q, d, value, onChange }: { q: Q; d: Def; value: string; onChange: (v: string) => void }) {
-  const id = `f-${q.key}`;
+export function Field({ q, d, value, onChange, idPrefix = "f", plain = false }: { q: Q; d: Def; value: string; onChange: (v: string) => void; idPrefix?: string; plain?: boolean }) {
+  const id = `${idPrefix}-${q.key}`;
+  // plain: no red stars; optional questions say "(optional)" instead (the client's form)
+  const mark = plain ? (q.required ? null : <span className="font-normal text-ink-faint"> (optional)</span>) : (q.required ? <span className="text-heart"> *</span> : null);
   if (q.key === "signature" && d?.type === "bool") q = { ...q, label: "I agree to the Terms & Conditions", input: "yesno" }; // HubSpot may store it as a tick box
-  const label = <label htmlFor={id} className="label">{q.label}{q.required && <span className="text-heart"> *</span>}{q.hint && <span className="block text-caption font-normal text-ink-faint">{q.hint}</span>}</label>;
+  const label = <label htmlFor={id} className="label">{q.label}{mark}{q.hint && <span className="block text-caption font-normal text-ink-faint">{q.hint}</span>}</label>;
   if (isMulti(q, d)) {
     const chosen = value ? value.split(";").filter(Boolean) : [], max = q.key.startsWith("what_are_the_most_important") ? 4 : 99;
     return (
       <fieldset>
-        <legend className="label">{q.label}{q.required && <span className="text-heart"> *</span>}</legend>
+        <legend className="label">{q.label}{mark}</legend>
         <div className="flex flex-wrap gap-2">
           {optionsOf(q, d).map((o) => {
             const on = chosen.includes(o.value), full = !on && chosen.length >= max;
@@ -336,7 +338,7 @@ export function Field({ q, d, value, onChange }: { q: Q; d: Def; value: string; 
     if (opts.length <= 4 && opts.every((o) => o.label.length < 40)) {
       return (
         <fieldset>
-          <legend className="label">{q.label}{q.required && <span className="text-heart"> *</span>}</legend>
+          <legend className="label">{q.label}{mark}</legend>
           <div className="flex flex-wrap gap-2">
             {opts.map((o) => <label key={o.value} className={`rounded-full border px-3.5 py-1.5 text-body ${value === o.value ? "border-ink bg-mint font-semibold" : "border-line bg-white"}`}><input type="radio" className="sr-only" name={id} checked={value === o.value} onChange={() => onChange(o.value)} />{o.label}</label>)}
           </div>

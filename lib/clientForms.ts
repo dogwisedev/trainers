@@ -58,8 +58,8 @@ export async function loadForm(contactId: string, sb: SupabaseClient = serviceCl
   const fromDeal = deal ? DOG_NAME_PROPS.map((p) => String(deal.properties[p] || "").trim()).filter(Boolean) : [];
   const fromContact = splitNames(contact.k9___dog_name);
   const fromClient = (Array.isArray(fc?.names) ? (fc!.names as string[]) : []).filter(Boolean);
-  const names = fromDeal.length ? fromDeal : fromContact.length ? fromContact : fromClient;
-  const namesFrom: ClientFormData["namesFrom"] = fromDeal.length ? "deal" : fromContact.length ? "contact" : fromClient.length ? "client" : "none";
+  const names = fromDeal.length ? fromDeal : fromClient.length ? fromClient : fromContact;
+  const namesFrom: ClientFormData["namesFrom"] = fromDeal.length ? "deal" : fromClient.length ? "client" : fromContact.length ? "contact" : "none";
   const saved = new Map(((fdogs || []) as { name_key: string; answers: Answers }[]).map((r) => [r.name_key, r.answers || {}]));
   const booked = myBookings.length > 0;
   // Before booking: if dog 1 changed since the client last answered, its answers follow the dog (see alignDogOne)
@@ -123,11 +123,25 @@ export async function saveForm(contactId: string, dogKey: string | null, values:
   } catch (e) { return { ok: false, message: `That didn't save: ${(e as Error).message}` }; }
 }
 
-/** When HubSpot doesn't have the dogs' names yet, the client types them in (up to 4). */
-export async function setFormDogs(contactId: string, names: string[], sb: SupabaseClient = serviceClient()) {
-  const list = names.map((n) => n.replace(/\s+/g, " ").trim().slice(0, 60)).filter(Boolean).slice(0, 4);
-  if (!list.length) return { ok: false, message: "Type your dog's name." };
-  await sb.from("form_contacts").upsert({ contact_id: contactId, names: list, updated_at: new Date().toISOString() });
+/** The client sets or fixes their dogs' names (up to 4). A renamed dog keeps its answers. */
+export async function setFormDogs(contactId: string, list: { name: string; was: string | null }[], sb: SupabaseClient = serviceClient()) {
+  const rows = list.map((x) => ({ name: String(x.name || "").replace(/\s+/g, " ").trim().slice(0, 60), was: x.was })).filter((x) => x.name).slice(0, 4);
+  if (!rows.length) return { ok: false, message: "Type your dog's name." };
+  if (new Set(rows.map((x) => nameKey(x.name))).size !== rows.length) return { ok: false, message: "Two dogs have the same name. Add something to tell them apart." };
+  const { data: fc } = await sb.from("form_contacts").select("dog1_key").eq("contact_id", contactId).maybeSingle();
+  let dog1 = (fc?.dog1_key as string | null) ?? null;
+  for (const r of rows) {
+    const now = nameKey(r.name);
+    if (!r.was || r.was === now) continue;
+    // Renamed: move its answers to the new name (and dog 1 stays dog 1)
+    const { data: old } = await sb.from("form_dogs").select("answers").eq("contact_id", contactId).eq("name_key", r.was).maybeSingle();
+    if (old) {
+      await sb.from("form_dogs").upsert({ contact_id: contactId, name_key: now, name: r.name, answers: old.answers, updated_at: new Date().toISOString() });
+      await sb.from("form_dogs").delete().eq("contact_id", contactId).eq("name_key", r.was);
+    }
+    if (dog1 === r.was) dog1 = now;
+  }
+  await sb.from("form_contacts").upsert({ contact_id: contactId, names: rows.map((r) => r.name), dog1_key: dog1, updated_at: new Date().toISOString() });
   return { ok: true, message: "Saved." };
 }
 

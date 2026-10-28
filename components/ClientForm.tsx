@@ -22,12 +22,13 @@ export function ClientForm({ token, f, sections }: { token: string; f: ClientFor
       <Group title="About you" note="Asked once, for all your dogs.">
         {mine.map((s) => <SectionForm key={s.id} token={token} dogKey={null} section={s} answers={f.client} defs={f.defs} />)}
       </Group>
-      {f.dogs.length === 0 ? <DogNames token={token} /> : f.dogs.map((d) => (
+      {f.dogs.length === 0 ? <DogNames token={token} current={[]} /> : <DogsRow token={token} f={f} />}
+      {f.dogs.map((d) => (
         <Group key={d.key} title={`About ${d.name}`}>
           {dogs.map((s) => <SectionForm key={s.id} token={token} dogKey={d.key} section={s} answers={d.answers} defs={f.defs} />)}
         </Group>
       ))}
-      {f.dogs.length > 0 && f.namesFrom !== "deal" && <p className="text-center text-small text-ink-faint">Missing a dog, or a name spelled wrong? Tell the Dogwise team and it&apos;ll appear here.</p>}
+
     </div>
   );
 }
@@ -57,18 +58,16 @@ function SectionForm({ token, dogKey, section, answers, defs }: { token: string;
   return (
     <div className="panel overflow-hidden">
       <button type="button" onClick={() => setOpen((x) => !x)} aria-expanded={open} className="flex min-h-[56px] w-full items-center gap-3 px-4 text-left">
-        <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-full ${left ? "bg-biscuit-wash text-warn" : "bg-mint-wash text-fern"}`}>{left ? <span className="text-caption font-bold">{left}</span> : <Check size={15} />}</span>
         <span className="flex-1 font-bold">{section.title}</span>
-        <span className="text-small text-ink-soft">{left ? `${left} to answer` : "Done"}</span>
+        {left ? <span className="rounded-full bg-biscuit-wash px-2.5 py-0.5 text-small font-semibold text-warn">{left} left</span>
+          : <span className="flex items-center gap-1 rounded-full bg-mint-wash px-2.5 py-0.5 text-small font-semibold text-fern"><Check size={14} />Done</span>}
         <ChevronDown size={18} className={`shrink-0 text-ink-faint transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
       {open && (
         <div className="space-y-4 border-t border-line p-4">
           {section.questions.map((q) => (
-            <label key={q.key} className="block">
-              <span className="label">{q.label}{q.required ? "" : " (optional)"}</span>
-              <Field q={q} d={defs[q.key]} value={String(vals[q.key] ?? "")} onChange={(v) => setVals((x) => ({ ...x, [q.key]: v }))} />
-            </label>
+            <Field key={q.key} q={q} d={defs[q.key]} idPrefix={`${dogKey || "you"}-${section.id}`.replace(/[^a-z0-9-]/gi, "_")} plain
+              value={String(vals[q.key] ?? "")} onChange={(v) => setVals((x) => ({ ...x, [q.key]: v }))} />
           ))}
           <button type="button" onClick={save} disabled={pending} className="btn-ink w-full">{pending ? "Saving…" : "Save"}</button>
           {msg && <p role="status" className={`text-small font-semibold ${msg.ok ? "text-fern" : "text-heart"}`}>{msg.message}</p>}
@@ -78,10 +77,24 @@ function SectionForm({ token, dogKey, section, answers, defs }: { token: string;
   );
 }
 
-function DogNames({ token }: { token: string }) {
+/** "Your dogs: Spot, Tuffy · Change". From the booking they're fixed (the team changes them); otherwise the client can fix them. */
+function DogsRow({ token, f }: { token: string; f: ClientFormData }) {
+  const [editing, setEditing] = useState(false);
+  if (editing) return <DogNames token={token} current={f.dogs.map((d) => ({ key: d.key, name: d.name }))} onDone={() => setEditing(false)} />;
+  return (
+    <div className="panel flex flex-wrap items-center gap-2 p-4">
+      <p className="min-w-0 flex-1 text-body"><span className="font-bold">Your dog{f.dogs.length > 1 ? "s" : ""}:</span> {f.dogs.map((d) => d.name).join(", ")}</p>
+      {f.namesFrom === "deal"
+        ? <p className="w-full text-small text-ink-soft">From your booking. A name wrong or a dog missing? Tell the Dogwise team.</p>
+        : <button type="button" onClick={() => setEditing(true)} className="btn-ghost h-10 min-h-0 px-4">Change</button>}
+    </div>
+  );
+}
+
+function DogNames({ token, current, onDone }: { token: string; current: { key: string; name: string }[]; onDone?: () => void }) {
   const router = useRouter();
-  const [n, setN] = useState(1);
-  const [names, setNames] = useState<string[]>(["", "", "", ""]);
+  const [n, setN] = useState(Math.max(1, current.length));
+  const [names, setNames] = useState<string[]>([0, 1, 2, 3].map((i) => current[i]?.name || ""));
   const [pending, start] = useTransition();
   const [msg, setMsg] = useState("");
   return (
@@ -95,7 +108,14 @@ function DogNames({ token }: { token: string }) {
           <input value={names[i]} onChange={(e) => setNames((x) => x.map((v, j) => (j === i ? e.target.value : v)))} className="field" maxLength={60} />
         </label>
       ))}
-      <button type="button" disabled={pending} className="btn-ink w-full" onClick={() => start(async () => { const r = await setFormDogsAction(token, names.slice(0, n)); setMsg(r.ok ? "" : r.message); if (r.ok) router.refresh(); })}>{pending ? "Saving…" : "Next"}</button>
+      <p className="text-caption text-ink-faint">Answers stay with each dog if you fix a name.</p>
+      <div className="flex gap-2">
+        <button type="button" disabled={pending} className="btn-ink flex-1" onClick={() => start(async () => {
+          const list = names.slice(0, n).map((name, i) => ({ name, was: current[i]?.key || null }));
+          const r = await setFormDogsAction(token, list); setMsg(r.ok ? "" : r.message); if (r.ok) { onDone?.(); router.refresh(); }
+        })}>{pending ? "Saving…" : current.length ? "Save" : "Next"}</button>
+        {onDone && <button type="button" className="btn-ghost" onClick={onDone}>Cancel</button>}
+      </div>
       {msg && <p className="text-small text-heart">{msg}</p>}
     </section>
   );

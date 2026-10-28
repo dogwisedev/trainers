@@ -17,7 +17,7 @@ export async function saveFormAction(token: string, dogKey: string | null, value
   return r;
 }
 
-export async function setFormDogsAction(token: string, names: string[]): Promise<R> {
+export async function setFormDogsAction(token: string, names: { name: string; was: string | null }[]): Promise<R> {
   if (isDemo()) return { ok: false, message: "Demo mode." };
   const id = contactFromToken(token);
   if (!id) return { ok: false, message: "This link isn't valid." };
