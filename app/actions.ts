@@ -294,7 +294,7 @@ export async function saveBooking(_: Result | null, f: FormData): Promise<Result
   // Already booked? (one live booking per dog per deal)
   const { data: live } = await sb.from("bookings").select("id, dog_name, trainer_id, trainers(name)").eq("hubspot_deal_id", dealId).neq("status", "cancelled");
   const liveRows = (live || []) as unknown as { id: string; dog_name: string | null; trainer_id: string; trainers: { name: string } | null }[];
-  const twice = dogs.filter((d) => liveRows.some((b) => (b.dog_name || "").trim().toLowerCase() === d.toLowerCase()));
+  const twice = dogs.filter((d) => liveRows.some((b) => sameDog(b.dog_name, d)));
   if (twice.length) return { ok: false, message: `${twice.join(" & ")} ${twice.length > 1 ? "are" : "is"} already booked on this deal (with ${liveRows[0]?.trainers?.name || "a trainer"}). Change that booking instead.` };
 
   const { data: t } = await sb.from("trainers").select("*").eq("id", trainerId).maybeSingle();
@@ -334,6 +334,12 @@ export async function saveBooking(_: Result | null, f: FormData): Promise<Result
   redirect(`/a/trainers/${trainerId}?saved=booking${n.sent ? "&emailed=1" : n.skipped ? "&emailed=off" : n.errors.length ? "&emailed=failed" : ""}`);
   });
 }
+
+/** Same dog? Names compared without case or extra spaces ("Storm " = "storm"). */
+const sameDog = (a: string | null | undefined, b: string | null | undefined) => {
+  const n = (x: string | null | undefined) => String(x || "").replace(/\s+/g, " ").trim().toLowerCase();
+  return !!n(a) && n(a) === n(b);
+};
 
 // ── Change a dog's trainer ────────────────────────────────────────────────
 /** Admin: move a booking to another trainer.
@@ -387,14 +393,18 @@ export async function changeTrainerAction(_: Result | null, f: FormData): Promis
   }
 
   // Split: first trainer keeps pickup → `from`; the new trainer has `from` → drop-off. Same program (same day rate).
+  // Shorten the first booking before adding the second, so the two never overlap (the database refuses a doubled dog).
+  const { error: e2 } = await sb.from("bookings").update({ end_date: from, extra_days: 0 }).eq("id", b.id);
+  if (e2) return { ok: false, message: e2.message };
   const { data: added, error: e1 } = await sb.from("bookings").insert({
     trainer_id: to, client_name: b.client_name, client_email: b.client_email, dog_name: b.dog_name, program: b.program, rehab: b.rehab,
     start_date: from, end_date: b.end_date, weeks: b.weeks, extra_days: b.extra_days ?? 0, status: b.status, notes: b.notes,
     hubspot_deal_id: b.hubspot_deal_id, reports_enabled: b.reports_enabled, created_by: v.userId, source: "app"
   }).select("*").single();
-  if (e1 || !added) return { ok: false, message: e1?.message || "Couldn't make the new trainer's booking." };
-  const { error: e2 } = await sb.from("bookings").update({ end_date: from, extra_days: 0 }).eq("id", b.id);
-  if (e2) { await sb.from("bookings").delete().eq("id", added.id); return { ok: false, message: e2.message }; }
+  if (e1 || !added) {
+    await sb.from("bookings").update({ end_date: b.end_date, extra_days: b.extra_days ?? 0 }).eq("id", b.id); // put it back as it was
+    return { ok: false, message: e1?.message || "Couldn't make the new trainer's booking." };
+  }
   // Forms: no client handover from the first trainer, no client pickup for the second
   for (const [bk, tName, kind] of [[{ ...b, end_date: from } as Booking, oldName, "handover"], [added as Booking, newName, "intake"]] as [Booking, string, "handover" | "intake"][]) {
     try {
@@ -588,9 +598,16 @@ export async function linkDealAction(bookingId: string, input: string): Promise<
   try { const d = (await readDeals([deal], ["dealname", "hs_is_closed_won"])).get(deal); if (!d) return { ok: false, message: `HubSpot has no deal ${deal}. Check the link.` }; dealName = d.dealname || ""; }
   catch { /* HubSpot unreachable: link anyway, the sync checks it later */ }
   // This booking, plus the same client's other hand-made bookings (no deal) with this trainer, starting within a week of it
-  const { data: sibs } = await sb.from("bookings").select("id, start_date, dog_name, hubspot_deal_id").eq("trainer_id", b.trainer_id).ilike("client_name", b.client_name).is("hubspot_deal_id", null).neq("status", "cancelled");
+  const { data: sibs } = await sb.from("bookings").select("id, start_date, end_date, dog_name, hubspot_deal_id").eq("trainer_id", b.trainer_id).ilike("client_name", b.client_name).is("hubspot_deal_id", null).neq("status", "cancelled");
   const near = (x: string) => Math.abs(new Date(x).getTime() - new Date(b.start_date).getTime()) <= 7 * 86400e3;
-  const moving = [b, ...((sibs || []) as { id: string; start_date: string; dog_name: string | null; hubspot_deal_id: string | null }[]).filter((x) => x.id !== b.id && near(x.start_date))];
+  // Never two live bookings for the same dog on one deal (that's two kennels and double pay): refuse, or leave that sibling out
+  const { data: onDeal } = await sb.from("bookings").select("id, dog_name, start_date, end_date, trainers(name)").eq("hubspot_deal_id", deal).neq("status", "cancelled");
+  const already = (onDeal || []) as unknown as { id: string; dog_name: string | null; start_date: string; end_date: string; trainers: { name: string } | null }[];
+  const twinOf = (x: { dog_name: string | null; start_date: string; end_date?: string }) => already.find((o) => sameDog(o.dog_name, x.dog_name) && o.start_date < (x.end_date || "9999") && x.start_date < o.end_date);
+  const twin = twinOf(b);
+  if (twin) return { ok: false, message: `${twin.dog_name || "This dog"} is already booked on that deal (with ${twin.trainers?.name || "a trainer"}, ${short(twin.start_date)} to ${short(twin.end_date)}). This booking is a duplicate: cancel it instead of linking it.` };
+  const sibRows = (sibs || []) as { id: string; start_date: string; end_date?: string; dog_name: string | null; hubspot_deal_id: string | null }[];
+  const moving = [b, ...sibRows.filter((x) => x.id !== b.id && near(x.start_date) && !twinOf(x))];
   const oldKeys = [...new Set(moving.map((x) => x.hubspot_deal_id || x.id))];
   const { error } = await sb.from("bookings").update({ hubspot_deal_id: deal }).in("id", moving.map((x) => x.id));
   if (error) return { ok: false, message: error.message };
