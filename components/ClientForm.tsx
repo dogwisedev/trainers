@@ -1,8 +1,10 @@
 "use client";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Check, ChevronDown } from "lucide-react";
-import { saveFormAction, setFormDogsAction } from "@/app/form-actions";
+import { Check, ChevronDown, FileText, Upload } from "lucide-react";
+import { addFormVaccineAction, saveFormAction, setFormDogsAction } from "@/app/form-actions";
+import { uploadToDrive } from "@/lib/driveUpload";
+import { fileType, shrinkPhoto } from "@/lib/uploadPrep";
 import { Field } from "@/components/DogProfile";
 import type { Answers, Section } from "@/lib/pretrainingFields";
 import type { ClientFormData } from "@/lib/clientForms";
@@ -26,6 +28,7 @@ export function ClientForm({ token, f, sections }: { token: string; f: ClientFor
       {f.dogs.map((d) => (
         <Group key={d.key} title={`About ${d.name}`}>
           {dogs.map((s) => <SectionForm key={s.id} token={token} dogKey={d.key} section={s} answers={d.answers} defs={f.defs} />)}
+          <Vaccines token={token} dog={d} />
         </Group>
       ))}
 
@@ -118,5 +121,49 @@ function DogNames({ token, current, onDone }: { token: string; current: { key: s
       </div>
       {msg && <p className="text-small text-heart">{msg}</p>}
     </section>
+  );
+}
+
+/** Vaccine records for one dog: photos or PDFs, sent straight to the team (they check them). */
+function Vaccines({ token, dog }: { token: string; dog: ClientFormData["dogs"][number] }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState("");
+  const [msg, setMsg] = useState<{ ok: boolean; message: string } | null>(null);
+  const sent = dog.vaccines.length > 0 || dog.sentBefore;
+  const send = async (files: FileList | null) => {
+    if (!files?.length) return;
+    setMsg(null);
+    for (const raw of [...files]) {
+      try {
+        const type = fileType(raw);
+        if (!/^image\//.test(type) && type !== "application/pdf") { setMsg({ ok: false, message: "Send a photo or a PDF." }); continue; }
+        const p = type.startsWith("image/") ? await shrinkPhoto(raw) : { blob: raw as Blob, name: raw.name, type };
+        setBusy(`Sending ${p.name}…`);
+        const r = await fetch("/api/forms/upload", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, name: p.name, type: p.type, size: p.blob.size }) });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) { setMsg({ ok: false, message: d.message || "Couldn't start the upload." }); continue; }
+        const id = await uploadToDrive(p.blob, d.uploadUrl, (n) => setBusy(`Sending ${p.name}… ${Math.round((n / p.blob.size) * 100)}%`), (note) => note && setBusy(note));
+        const res = await addFormVaccineAction(token, dog.key, { id, storedName: d.storedName, folderId: d.folderId, name: p.name });
+        setMsg(res);
+      } catch (e) { setMsg({ ok: false, message: (e as Error).message }); }
+    }
+    setBusy(""); router.refresh();
+  };
+  return (
+    <div className="panel space-y-3 p-4">
+      <div className="flex items-center gap-3">
+        <span className="flex-1 font-bold">Vaccine records</span>
+        {sent ? <span className="flex items-center gap-1 rounded-full bg-mint-wash px-2.5 py-0.5 text-small font-semibold text-fern"><Check size={14} />Sent</span>
+          : <span className="rounded-full bg-biscuit-wash px-2.5 py-0.5 text-small font-semibold text-warn">Needed</span>}
+      </div>
+      <p className="text-small text-ink-soft">A photo or PDF of {dog.name}&apos;s vaccine records (rabies, DHPP/DHLPP, Bordetella). The team checks them.</p>
+      {dog.sentBefore && <p className="text-small text-ink-soft">Records sent earlier on our old form are already with the team.</p>}
+      {dog.vaccines.length > 0 && <ul className="space-y-1">{dog.vaccines.map((v) => <li key={v.id} className="flex items-center gap-2 text-small"><FileText size={15} className="shrink-0 text-lav-deep" /><span className="truncate">{v.name}</span></li>)}</ul>}
+      <label className={`btn-ghost w-full cursor-pointer justify-center ${busy ? "pointer-events-none opacity-60" : ""}`}>
+        <Upload size={17} />{busy || (sent ? "Add another" : "Add vaccine records")}
+        <input type="file" accept="image/*,application/pdf,.heic,.pdf" multiple className="sr-only" onChange={(e) => { send(e.target.files); e.target.value = ""; }} />
+      </label>
+      {msg && <p role="status" className={`text-small font-semibold ${msg.ok ? "text-fern" : "text-heart"}`}>{msg.message}</p>}
+    </div>
   );
 }

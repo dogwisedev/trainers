@@ -1,7 +1,8 @@
 "use server";
 import { auditCall } from "@/lib/audit";
 import { isDemo } from "@/lib/supabase";
-import { contactFromToken, formsLink, saveForm, setFormDogs } from "@/lib/clientForms";
+import { addFormVaccine, contactFromToken, formsLink, saveForm, setFormDogs } from "@/lib/clientForms";
+import { findFile } from "@/lib/drive";
 import { contactByEmail, hubspotConfigured } from "@/lib/hubspot";
 import { mailConfigured, sendMail } from "@/lib/mail";
 
@@ -38,4 +39,16 @@ export async function requestFormLinkAction(_: R | null, f: FormData): Promise<R
     text: `Here's your personal link for your dog's before-training questions:\n${link}\n\nIt saves as you go, so you can come back to it any time.`,
     html: `<p>Here's your personal link for your dog's before-training questions:</p><p><a href="${link}">Open my questions</a></p><p>It saves as you go, so you can come back to it any time.</p>` });
   return { ok: true, message: `Sent. Check ${c.email} for your link.` };
+}
+
+/** After a vaccine record reached Drive: record it with the dog (the id from Drive, or found by its name in the folder). */
+export async function addFormVaccineAction(token: string, dogKey: string, file: { id: string | null; storedName: string; folderId: string; name: string }): Promise<R> {
+  if (isDemo()) return { ok: false, message: "Demo mode." };
+  const contact = contactFromToken(token);
+  if (!contact) return { ok: false, message: "This link isn't valid." };
+  const id = file.id || (await findFile(file.folderId, file.storedName).catch(() => null)) || null;
+  if (!id) return { ok: false, message: "The file reached Google Drive but we couldn't find it yet. Try again in a moment." };
+  const r = await addFormVaccine(contact, dogKey, { id, name: file.name });
+  await auditCall("clientFormVaccine", { contact, dog: dogKey, file: file.name }, { name: `Client (HubSpot contact ${contact})`, role: "client" }, { ok: r.ok, error: r.ok ? null : r.message });
+  return r;
 }

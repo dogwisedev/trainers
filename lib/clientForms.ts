@@ -2,9 +2,9 @@ import "server-only";
 import crypto from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { serviceClient } from "./supabase";
-import { contactDeals, contactsMissing, hubspotConfigured, readContacts, updateContact, updateContacts } from "./hubspot";
-import { Answers, CLIENT_KEYS, CONTACT_PROPS, DOG_KEYS, DOG_NAME_PROPS } from "./pretrainingFields";
-import { fieldDefs, saveAnswers } from "./pretraining";
+import { contactDeals, contactsMissing, hubspotConfigured, propDefs, readContacts, readDeals, updateContact, updateContacts } from "./hubspot";
+import { Answers, CLIENT_KEYS, CONTACT_PROPS, DOG_KEYS, DOG_NAME_PROPS, VACCINE_FILE_PROP, checklist } from "./pretrainingFields";
+import { addVaccineFile, fieldDefs, saveAnswers, writeDealChecklist } from "./pretraining";
 import type { Profile } from "./pretraining";
 
 // The client's personal "Before training" link, one per HubSpot contact: /f/<contact id>-<signature>.
@@ -29,7 +29,8 @@ export const nameKey = (n: unknown) => String(n ?? "").replace(/\s+/g, " ").trim
 export const splitNames = (s: unknown) => String(s ?? "").split(/\s*(?:,|&|\+|\/|\n|\band\b)\s*/i).map((x) => x.replace(/\s+/g, " ").trim()).filter(Boolean).slice(0, 4);
 const pick = (o: Record<string, unknown> | undefined, keys: string[]) => Object.fromEntries(keys.map((k) => [k, String(o?.[k] ?? "")])) as Answers;
 
-export type FormDog = { key: string; name: string; answers: Answers; bookingId: string | null; dogOne: boolean };
+export type SentFile = { id: string; name: string; at: string };
+export type FormDog = { key: string; name: string; answers: Answers; bookingId: string | null; dogOne: boolean; vaccines: SentFile[]; sentBefore: boolean };
 export type ClientFormData = {
   contactId: string; name: string; email: string; client: Answers; dogs: FormDog[]; defs: Profile["defs"];
   dealId: string | null; booked: boolean; namesFrom: "deal" | "contact" | "client" | "none";
@@ -51,7 +52,7 @@ export async function loadForm(contactId: string, sb: SupabaseClient = serviceCl
   const [{ data: fc }, { data: fdogs }, { data: pdogs }, defs] = await Promise.all([
     sb.from("form_contacts").select("*").eq("contact_id", contactId).maybeSingle(),
     sb.from("form_dogs").select("*").eq("contact_id", contactId),
-    myBookings.length ? sb.from("pretraining_dogs").select("booking_id, slot, answers").in("booking_id", myBookings.map((b) => b.id)) : Promise.resolve({ data: [] }),
+    myBookings.length ? sb.from("pretraining_dogs").select("booking_id, slot, answers, vaccines").in("booking_id", myBookings.map((b) => b.id)) : Promise.resolve({ data: [] }),
     fieldDefs()
   ]);
   // Dog names: the deal's dog 1/2/3/4, else the contact's "dog's name" (split), else what the client typed in
@@ -60,19 +61,22 @@ export async function loadForm(contactId: string, sb: SupabaseClient = serviceCl
   const fromClient = (Array.isArray(fc?.names) ? (fc!.names as string[]) : []).filter(Boolean);
   const names = fromDeal.length ? fromDeal : fromClient.length ? fromClient : fromContact;
   const namesFrom: ClientFormData["namesFrom"] = fromDeal.length ? "deal" : fromClient.length ? "client" : fromContact.length ? "contact" : "none";
-  const saved = new Map(((fdogs || []) as { name_key: string; answers: Answers }[]).map((r) => [r.name_key, r.answers || {}]));
+  const fdRows = (fdogs || []) as { name_key: string; answers: Answers; vaccines?: SentFile[] }[];
+  const saved = new Map(fdRows.map((r) => [r.name_key, r.answers || {}]));
+  const sentOf = new Map(fdRows.map((r) => [r.name_key, (r.vaccines || []) as SentFile[]]));
   const booked = myBookings.length > 0;
   // Before booking: if dog 1 changed since the client last answered, its answers follow the dog (see alignDogOne)
   if (!booked && names[0]) await alignDogOne(sb, contactId, names[0], contact, (fc?.dog1_key as string | null) ?? null, saved);
   const fresh = !booked && names[0] ? (await readContacts([contactId], DOG_KEYS)).get(contactId) || contact : contact;
-  const pd = (pdogs || []) as { booking_id: string; slot: number; answers: Answers | null }[];
+  const pd = (pdogs || []) as { booking_id: string; slot: number; answers: Answers | null; vaccines: { files?: SentFile[] } | null }[];
   const dogs: FormDog[] = names.map((name, i) => {
     const k = nameKey(name);
     const b = myBookings.find((x) => nameKey(x.dog_name) === k) || null;
     const slot = b ? pd.find((x) => x.booking_id === b.id)?.slot || null : null;
     const one = booked ? slot === 1 : i === 0;
     const answers = one ? pick(fresh, DOG_KEYS) : b && slot ? { ...pick({}, DOG_KEYS), ...(pd.find((x) => x.booking_id === b.id)?.answers || {}) } : { ...pick({}, DOG_KEYS), ...(saved.get(k) || {}) };
-    return { key: k, name, answers, bookingId: b?.id || null, dogOne: one };
+    const vaccines = b && slot ? ((pd.find((x) => x.booking_id === b.id)?.vaccines?.files || []) as SentFile[]) : sentOf.get(k) || [];
+    return { key: k, name, answers, bookingId: b?.id || null, dogOne: one, vaccines, sentBefore: one && !!String(contact[VACCINE_FILE_PROP] || "").trim() };
   });
   return {
     contactId, name: [contact.firstname, contact.lastname].filter(Boolean).join(" ") || "there", email: String(contact.email || ""),
@@ -119,8 +123,46 @@ export async function saveForm(contactId: string, dogKey: string | null, values:
       await sb.from("form_dogs").upsert({ contact_id: contactId, name_key: dog.key, name: dog.name, answers: { ...((row?.answers as Answers) || {}), ...clean }, updated_at: new Date().toISOString() });
       if (dog.dogOne) await sb.from("form_contacts").upsert({ contact_id: contactId, dog1_key: dog.key, updated_at: new Date().toISOString() });
     }
+    await tickDealForms(contactId, sb).catch(() => {});
     return { ok: true, message: "Saved." };
   } catch (e) { return { ok: false, message: `That didn't save: ${(e as Error).message}` }; }
+}
+
+/** Before a dog is booked, the deal's "Forms" ticks (intake / manager) and "Pre-training missing" follow the form, as they
+ *  do for booked dogs (the 30-minute sync handles those). */
+async function tickDealForms(contactId: string, sb: SupabaseClient) {
+  const f = await loadForm(contactId, sb);
+  if (!f || !f.dealId || f.booked || !f.dogs.length) return;
+  const [deals, defs] = await Promise.all([readDeals([f.dealId], ["forms", "pre_training_missing"]), propDefs("deals")]);
+  const deal = deals.get(f.dealId);
+  if (!deal) return;
+  const dogs = f.dogs.map((d, i) => {
+    const sent = d.vaccines.length > 0 || d.sentBefore;
+    const ready = checklist({ client: f.client, dog: d.answers, vaccines: { ok: false, label: sent ? "Records sent, waiting for the team to check" : "Upload the vaccine records", missing: [], toCheck: sent }, balanceLink: "" });
+    return { slot: i + 1, name: d.name, ready };
+  });
+  await writeDealChecklist(f.dealId, deal, defs, { dogs } as never);
+}
+
+/** A vaccine record (photo or PDF) sent from the link. Booked dogs: onto the booking for the team to check (as in the app).
+ *  Not booked yet: kept with the dog by name, and its booking picks it up later. */
+export async function addFormVaccine(contactId: string, dogKey: string, file: { id: string; name: string }, sb: SupabaseClient = serviceClient()) {
+  const f = await loadForm(contactId, sb);
+  const dog = f?.dogs.find((d) => d.key === dogKey);
+  if (!f || !dog) return { ok: false, message: "We couldn't find that dog. Reload the page and try again." };
+  if (dog.bookingId) return addVaccineFile(dog.bookingId, file, { name: f.name, role: "client" });
+  const { data: row } = await sb.from("form_dogs").select("answers, vaccines").eq("contact_id", contactId).eq("name_key", dog.key).maybeSingle();
+  const list = [...(((row?.vaccines as SentFile[]) || [])), { id: file.id, name: file.name, at: new Date().toISOString() }];
+  await sb.from("form_dogs").upsert({ contact_id: contactId, name_key: dog.key, name: dog.name, answers: (row?.answers as Answers) || {}, vaccines: list, updated_at: new Date().toISOString() });
+  await tickDealForms(contactId, sb).catch(() => {});
+  return { ok: true, message: "Thanks! The team will check it." };
+}
+
+export async function formVaccinesFor(sb: SupabaseClient, contactId: string, names: (string | null | undefined)[]): Promise<SentFile[]> {
+  const keys = [...new Set(names.map(nameKey).filter(Boolean))];
+  if (!keys.length) return [];
+  const { data } = await sb.from("form_dogs").select("vaccines").eq("contact_id", contactId).in("name_key", keys).limit(1);
+  return (((data || [])[0]?.vaccines as SentFile[]) || []);
 }
 
 /** The client sets or fixes their dogs' names (up to 4). A renamed dog keeps its answers. */

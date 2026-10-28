@@ -7,7 +7,7 @@ import { raiseIncident, resolveIncidents } from "./incidents";
 import { alertAdmins } from "./adminAlert";
 import { auditSystem } from "./audit";
 import { PROGRAM_SOLD } from "./programs";
-import { formAnswersFor, formsLink } from "./clientForms";
+import { formAnswersFor, formVaccinesFor, formsLink } from "./clientForms";
 import { uniqueDogs } from "./chatOps";
 import { DealProps, PropDef, dealContacts, hubspotConfigured, optionValue, propDefs, readContacts, readDeals, updateContact, updateDeal } from "./hubspot";
 import {
@@ -225,7 +225,9 @@ export async function syncPretraining(opts: { dealIds?: string[]; sb?: SupabaseC
           // A dog 2–4 answered on the client's form before it was booked: its booking starts with those answers
           const slot = slots.get(b.id) || 1;
           const pre = slot > 1 && contactId ? await formAnswersFor(sb, contactId, [b.dog_name, str(deal[DOG_NAME_PROPS[slot - 1]])]).catch(() => null) : null;
-          await sb.from("pretraining_dogs").insert({ booking_id: b.id, deal_id: dealId, slot, ...(pre ? { answers: pre } : {}) });
+          const sent = contactId ? await formVaccinesFor(sb, contactId, [b.dog_name, str(deal[DOG_NAME_PROPS[slot - 1]])]).catch(() => []) : [];
+          await sb.from("pretraining_dogs").insert({ booking_id: b.id, deal_id: dealId, slot, ...(pre ? { answers: pre } : {}),
+            ...(sent.length ? { vaccines: { files: sent.map((f) => ({ ...f, source: "app" })), status: "review" } } : {}) });
         }
         else if (!d.slot_set_by && d.slot !== slots.get(b.id)) await sb.from("pretraining_dogs").update({ slot: slots.get(b.id), updated_at: now }).eq("booking_id", b.id);
         out.dogs++;
@@ -288,7 +290,7 @@ async function raiseVaccineCheck(dog: { booking: BookingRow; name: string }, cha
  * Client manager answers are in (an option with a number, e.g. "Client manager 2", is that dog; without one, every dog).
  * A single Yes / tick: set once both forms are complete for every dog. Also fills pre_training_missing if that property exists.
  */
-async function writeDealChecklist(dealId: string, deal: DealProps, defs: Map<string, PropDef>, p: Profile) {
+export async function writeDealChecklist(dealId: string, deal: DealProps, defs: Map<string, PropDef>, p: Pick<Profile, "dogs">) {
   const props: Record<string, string> = {};
   const formsDef = defs.get("forms");
   if (formsDef && p.dogs.length) {
