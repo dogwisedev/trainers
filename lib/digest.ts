@@ -30,6 +30,6 @@ export async function sendDailyDigest(sb: SupabaseClient): Promise<boolean> {
   ];
   const more = now.length - 12 + Math.max(0, week.length - 8);
   await alertAdmins(`To do today: ${total} thing${total > 1 ? "s" : ""}${now.length ? ` (${now.length} now)` : ""}`,
-    `Good morning. Here's what needs a person today${more > 0 ? ` (and ${more} more on the list)` : ""}.`, lines, { label: "Open To do", link: `${site()}/a` });
+    `Good morning. Here's what needs a person today${more > 0 ? ` (and ${more} more on the list)` : ""}.`, lines, { label: "Open To do", link: `${site()}/a` }, { email: true }); // the one admin email of the day
   return true;
 }

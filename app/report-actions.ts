@@ -1,5 +1,6 @@
 "use server";
 import { audited } from "@/lib/audit";
+import { pushToAdmins } from "@/lib/push";
 import { revalidatePath } from "next/cache";
 import { getViewer } from "@/lib/data";
 import { isDemo, serverClient, serviceClient } from "@/lib/supabase";
@@ -42,10 +43,9 @@ function cleanMedia(incoming: MediaItem[], existing: MediaItem[], bookingId: str
     .map((m) => ({ id: m.id, name: String(m.name || "").slice(0, 160), kind: (m.kind === "photo" ? "photo" : "video") as MediaItem["kind"], slot: (["training", "homework", "health"].includes(m.slot) ? m.slot : "training") as MediaItem["slot"], description: s(m.description).slice(0, 400), sig: m.sig, size: Number(m.size) || undefined })).slice(0, 60);
 }
 
+/** Admins' phones only: handovers to review and health checks with flags are on To do and in the 8 AM summary email. */
 async function adminNotify(subject: string, text: string, link: string) {
-  const to = process.env.ADMIN_NOTIFY_EMAIL || process.env.PAYROLL_NOTIFY_EMAIL;
-  if (!to || !mailConfigured()) return;
-  await sendMail({ to, subject, text: `${text}\n${link}`, html: `<p style="font-family:Arial,sans-serif;font-size:15px">${text}</p><p><a href="${link}" style="background:#281870;color:#fff;padding:10px 18px;border-radius:9px;text-decoration:none;font-weight:bold">Review it</a></p>` }).catch(() => {});
+  await pushToAdmins({ title: subject, body: text.slice(0, 160), url: link.replace(/^https?:\/\/[^/]+/, ""), tag: subject.slice(0, 60) }).catch(() => {});
 }
 
 // ── Saving ────────────────────────────────────────────────────────────

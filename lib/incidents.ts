@@ -36,8 +36,10 @@ export async function raiseIncident(i: NewIncident, sb: SupabaseClient = service
     if (!email) return true;
     const link = i.link || (i.chatId ? `${site()}/a/chats/${i.chatId}` : i.bookingId ? `${site()}/a/dogs/${i.bookingId}` : `${site()}/a`);
     const intro = i.office ? `${i.detail} Please check whether a refund or partial pay is needed, and fix it.` : i.detail;
+    // Phones straight away; an email only for a trainer's incident report (injury, bite, escape). The rest is in the 8 AM summary.
+    const now_ = i.kind === "trainer_report";
     await alertAdmins(`${INCIDENT_LABEL[i.kind]}: ${i.title}`, intro, [{ text: `${INCIDENT_LABEL[i.kind]}: ${i.title}`, link }],
-      { label: "Open To do", link: `${site()}/a` }, i.office ? { alsoTo: [officeEmail()] } : {}).catch(() => {});
+      { label: "Open To do", link: `${site()}/a` }, { email: now_, alsoTo: now_ && i.office ? [officeEmail()] : [] }).catch(() => {});
     return true;
   } catch (e) { console.error("incident", (e as Error).message); return false; }
 }

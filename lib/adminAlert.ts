@@ -6,13 +6,15 @@ import { BRAND_LOGO_PNG_BASE64 } from "./brandLogo";
 /** The office inbox for money matters (refunds, partial pay). OFFICE_EMAIL overrides it. */
 export const officeEmail = () => (process.env.OFFICE_EMAIL || "info@dogwiseacademy.com").trim();
 
-/** Email every admin at once. ADMIN_NOTIFY_EMAIL can hold several addresses, separated by commas. `alsoTo` adds more (e.g. the office). */
-export async function alertAdmins(subject: string, intro: string, lines: { text: string; link: string }[], button?: { label: string; link: string }, opts: { alsoTo?: string[] } = {}) {
+/** Tells the admins: a phone notification always; an EMAIL only when `email: true`. Admin emails are one a day: the 8 AM
+ *  Eastern "To do today" summary (lib/digest.ts), plus a trainer's incident report (injury, bite, escape) straight away.
+ *  Everything else is on To do and in that summary. ADMIN_NOTIFY_EMAIL can hold several addresses, separated by commas. */
+export async function alertAdmins(subject: string, intro: string, lines: { text: string; link: string }[], button?: { label: string; link: string }, opts: { alsoTo?: string[]; email?: boolean } = {}) {
   const list = [...(process.env.ADMIN_NOTIFY_EMAIL || process.env.PAYROLL_NOTIFY_EMAIL || "").split(","), ...(opts.alsoTo || [])].map((s) => s.trim()).filter(Boolean);
   const to = [...new Map(list.map((a) => [a.toLowerCase(), a])).values()];
   // Admins' phones too (anyone who turned notifications on)
   await pushToAdmins({ title: subject, body: intro, url: (lines[0]?.link || button?.link || "/a").replace(/^https?:\/\/[^/]+/, ""), tag: subject.slice(0, 60) });
-  if (!to.length || !mailConfigured()) return false;
+  if (!opts.email || !to.length || !mailConfigured()) return false;
   const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
   await sendMail({
     to: to.join(", "), subject,
