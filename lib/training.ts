@@ -43,6 +43,7 @@ export async function runTrainingSends(sb: SupabaseClient = serviceClient()) {
   const now = etParts(new Date());
   const minute = now.hour * 60 + now.minute;
   if (now.hour < 12 || now.hour >= 18) return out;
+  if (await sendingPaused(sb)) return out; // TRAINING_MATERIALS=off in Vercel, or "Pause sending" on the Training materials page
   const today = now.date;
   const materials = await loadMaterials(sb).catch(() => [] as Material[]);
   if (!materials.length) return out; // nothing set up yet (or migration 035 not run)
@@ -127,3 +128,11 @@ export async function dealTraining(dealKey: string, sb: SupabaseClient = service
     return { program: sch.program, paused: sch.paused, leadId: sch.lead.id, rows: [...sch.during.map((p) => row(p, "during")), ...sch.after.map((p) => row(p, "after"))] };
   } catch { return null; } // migration 035 not run yet
 }
+
+/** All sending stopped: TRAINING_MATERIALS=off in Vercel, or the switch on the Training materials page. */
+export async function sendingPaused(sb: SupabaseClient = serviceClient()): Promise<boolean> {
+  if ((process.env.TRAINING_MATERIALS || "").trim().toLowerCase() === "off") return true;
+  const { data } = await sb.from("app_state").select("value").eq("key", "training_paused").maybeSingle();
+  return data?.value === "yes";
+}
+export const pausedByEnv = () => (process.env.TRAINING_MATERIALS || "").trim().toLowerCase() === "off";

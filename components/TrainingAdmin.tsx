@@ -3,7 +3,7 @@ import { useState, useTransition } from "react";
 import { useFormState, useFormStatus } from "react-dom";
 import { useRouter } from "next/navigation";
 import { ArrowDown, ArrowUp, ExternalLink, FileText, Play, Trash2 } from "lucide-react";
-import { addMaterialAction, importFolderAction, moveMaterialAction, removeMaterialAction, saveIntroAction, saveMaterialAction, savePlanAction } from "@/app/training-actions";
+import { addMaterialAction, importFolderAction, moveMaterialAction, removeMaterialAction, saveIntroAction, saveMaterialAction, savePlanAction, setSendingPausedAction } from "@/app/training-actions";
 import { driveView } from "@/lib/chatTypes";
 
 type Item = { id: string; position: number; title: string; message: string | null; drive_id: string; kind: "video" | "file" | "photo" };
@@ -130,5 +130,19 @@ function Intro({ intro }: { intro: string }) {
       <textarea name="intro" value={v} onChange={(e) => setV(e.target.value)} rows={3} maxLength={600} className="field" />
       <div className="flex items-center gap-3"><Save /><Note r={r} /></div>
     </form>
+  );
+}
+
+/** Stop or restart all sending, at the top of the page. */
+export function SendingSwitch({ paused, byEnv }: { paused: boolean; byEnv: boolean }) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [msg, setMsg] = useState("");
+  return (
+    <div className={`mb-4 flex flex-wrap items-center gap-3 rounded-2xl border px-4 py-3 ${paused ? "border-heart/40 bg-heart-wash" : "border-line bg-white"}`}>
+      <p className="min-w-0 flex-1 text-body"><b>{paused ? "Sending is paused." : "Sending is on."}</b> {paused ? (byEnv ? "TRAINING_MATERIALS=off is set in Vercel: remove it and redeploy to restart." : "Nothing goes out until you restart it.") : "Items go out between 12 and 6 PM Eastern."}</p>
+      {!byEnv && <button type="button" disabled={pending} onClick={() => start(async () => { const r = await setSendingPausedAction(!paused); setMsg(r.message); router.refresh(); })} className={paused ? "btn-ink" : "btn-ghost"}>{pending ? "…" : paused ? "Restart sending" : "Pause sending"}</button>}
+      {msg && <p role="status" className="w-full text-small text-ink-soft">{msg}</p>}
+    </div>
   );
 }
