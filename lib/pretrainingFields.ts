@@ -94,6 +94,28 @@ export const SECTIONS: Section[] = [
 ];
 
 export const QUESTIONS = SECTIONS.flatMap((s) => s.questions);
+/**
+ * Must haves: the only answers that hold up a dog's start (To do, "Not ready", what the client is chased for, pre_training_missing).
+ * Every other required question is still asked on the client's form, but it's optional for starting.
+ * To change what's a must have, add or remove a key here.
+ */
+export const MUST_KEYS = new Set([
+  // The client: contact details, pickup address, household
+  "phone", "address", "city", "state", "zip", "is_the_pickup_address_the_same_as_the_address_provided_above", "if_no_please_provide_the_full_pickup_address",
+  "number_of_people_in_your_household", "are_there_children_in_your_household", "if_so__how_many_children_are_in_your_household_and_how_old_are_they_",
+  "are_there_other_dogs_in_your_household", "are_there_other_pets_in_your_household",
+  // Vet, emergencies, CPR consent, Terms & Conditions
+  "full_address_of_veterinary_clinic", "phone_number_of_veterinary_clinic", "emergency_contact_name___number",
+  "in_the_event_of_a_life_threatening_situation__would_you_give_consent_for_our_trainer_to_perform_cpr", "signature",
+  // The dog: health, food, medication
+  "does_your_dog_have_any_allergies_or_medical_conditions_", "has_your_dog_displayed_any_medical_illness_within_the_last_7_days__i_e__coughing__nasal_discharge__",
+  "company", "is_your_dog_on_any_medication__", "if_so__please_list_the_medication_",
+  // What the client wants us to work on, bites, and aggression towards other dogs (the trainer boards other dogs)
+  "what_are_the_most_important_things_you_would_like_to_change_about_your_dog_s_behaviours_",
+  "has_your_dog_ever_bitten_another_dog___if_so__please_describe_", "has_your_dog_ever_bitten_a_person___if_so__please_describe_",
+  "how_often_does_your_dog_show_aggressive_behaviours_towards_other_dogs_"
+]);
+export const isMust = (q: Q) => MUST_KEYS.has(q.key);
 /** Which HubSpot form each question comes from: the Client manager form (one per dog) or the Client intake form (everything else). */
 export const MANAGER_KEYS = new Set([
   "has_your_dog_been_spayed__neutered", "are_your_dogs_crate_trained_", "does_your_dog_get_car_sick_", "have_you_hired_a_professional_dog_trainer_before_",
@@ -131,8 +153,12 @@ export const isYes = (v: unknown) => /^(yes|true|y)$/i.test(String(v ?? "").trim
 export const isNo = (v: unknown) => /^(no|false|n)$/i.test(String(v ?? "").trim());
 /** Is this question asked, given the other answers? */
 export const asked = (q: Q, a: Answers) => !q.showIf || (q.showIf.is === "yes" ? isYes(a[q.showIf.key]) : isNo(a[q.showIf.key]));
-/** Required questions still unanswered. */
+/** Required questions still unanswered (the client's form is complete when there are none). */
 export const missingIn = (qs: Q[], a: Answers) => qs.filter((q) => q.required && asked(q, a) && blank(a[q.key]));
+/** Must haves still unanswered: these hold up the start. */
+export const mustMissingIn = (qs: Q[], a: Answers) => qs.filter((q) => isMust(q) && asked(q, a) && blank(a[q.key]));
+/** Required but not a must have, still unanswered: asked for, but they don't hold up the start. */
+export const optionalMissingIn = (qs: Q[], a: Answers) => qs.filter((q) => q.required && !isMust(q) && asked(q, a) && blank(a[q.key]));
 
 // ── Vaccines ─────────────────────────────────────────────────────────────────
 export type VaccineFile = { id: string; name: string; at: string; by: string; source?: "app" | "hubspot" };
@@ -149,7 +175,8 @@ export function vaccineStatus(v: VaccineState, dealSaysYes: boolean, hasFile: bo
 
 // ── The checklist ────────────────────────────────────────────────────────────
 export type Item = { key: string; label: string; done: boolean; detail?: string; count?: number; who: "client" | "admin"; section?: SectionId };
-export type Ready = { items: Item[]; missing: Item[]; formsDone: boolean; intakeDone: boolean; managerDone: boolean; ready: boolean; waived?: Item[] };
+/** `missing` and `ready` count must haves only. `optional`: other questions still unanswered (they don't hold up the start). */
+export type Ready = { items: Item[]; missing: Item[]; optional: number; formsDone: boolean; intakeDone: boolean; managerDone: boolean; ready: boolean; waived?: Item[] };
 /** An admin said "OK to start": nothing counts as missing any more (the client isn't asked, no incidents). What was missing is kept in `waived`. */
 export const clearReady = (r: Ready): Ready => ({ ...r, ready: true, missing: [], waived: r.missing });
 
@@ -157,17 +184,17 @@ export function checklist(o: {
   client: Answers; dog: Answers; vaccines: ReturnType<typeof vaccineStatus>; balanceLink: string; dogsMismatch?: string | null;
 }): Ready {
   const sec = (id: SectionId) => SECTIONS.find((s) => s.id === id)!.questions;
-  const gaps = (ids: SectionId[], a: Answers) => ids.flatMap((id) => missingIn(sec(id), a));
+  const gaps = (ids: SectionId[], a: Answers) => ids.flatMap((id) => mustMissingIn(sec(id), a)); // must haves only
   // Name the questions when there are only a few, so it's obvious what's missing
   const n = (qs: Q[]) => qs.length;
   const say = (qs: Q[]) => (!qs.length ? undefined : qs.length <= 3 ? qs.map((q) => q.label.replace(/\?$/, "")).join("; ") : `${qs.length} questions left`);
   const homeQ = gaps(["home", "vet"], o.client), dogQ = gaps(["dog", "health"], o.dog), goalsQ = gaps(["goals", "behaviour", "handling"], o.dog);
   const home = homeQ.length, dog = dogQ.length, goals = goalsQ.length;
   const count = (_n: number, qs: Q[]) => say(qs);
-  const food = missingIn(sec("food").slice(0, 1), o.dog).length, meds = missingIn(sec("food").slice(1), o.dog).length;
+  const food = mustMissingIn(sec("food").slice(0, 1), o.dog).length, meds = mustMissingIn(sec("food").slice(1), o.dog).length;
   const items: Item[] = [
     { key: "home", label: "Your details, vet and emergency contact", done: !home, detail: count(home, homeQ), count: n(homeQ), who: "client", section: "home" },
-    { key: "dog", label: "About the dog and health", done: !dog, detail: count(dog, dogQ), count: n(dogQ), who: "client", section: dogQ.some((q) => sec("dog").includes(q)) ? "dog" : "health" },
+    { key: "dog", label: "Health", done: !dog, detail: count(dog, dogQ), count: n(dogQ), who: "client", section: dogQ.some((q) => sec("dog").includes(q)) ? "dog" : "health" },
     { key: "goals", label: "Training goals and behavior", done: !goals, detail: count(goals, goalsQ), count: n(goalsQ), who: "client", section: goalsQ.some((q) => sec("goals").includes(q)) ? "goals" : goalsQ.some((q) => sec("behaviour").includes(q)) ? "behaviour" : "handling" },
     { key: "food", label: "Food", done: !food, who: "client", section: "food" },
     { key: "meds", label: "Medication", done: !meds, who: "client", section: "food" },
@@ -178,7 +205,8 @@ export function checklist(o: {
   const missing = items.filter((i) => !i.done);
   const both = { ...o.dog, ...o.client };
   const intakeDone = !missingIn(INTAKE_QS(), both).length, managerDone = !missingIn(MANAGER_QS(), o.dog).length;
-  return { items, missing, formsDone: intakeDone && managerDone, intakeDone, managerDone, ready: !missing.length };
+  const optional = SECTIONS.reduce((k, x) => k + optionalMissingIn(x.questions, x.scope === "client" ? o.client : o.dog).length, 0);
+  return { items, missing, optional, formsDone: intakeDone && managerDone, intakeDone, managerDone, ready: !missing.length };
 }
 
 /** Which deal name slot a booking's dog is: matched by name, case and spaces ignored. */

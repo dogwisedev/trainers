@@ -53,6 +53,14 @@ export function weeklyWindows(start: string, end: string): Window[] {
 }
 export const handoverWindow = (end: string): Window => ({ kind: "handover", week: 0, opens: end, deadline: addDays(end, 2) });
 
+/**
+ * The day the app took over the trainer forms. Intake forms and weekly checks due before it were done the old way, so the
+ * app doesn't ask for them (nothing late, no penalty). Handover reports due before it are still needed: they make the
+ * client's certificate and report, so they stay on the lists as "Needed for the certificate" (never late).
+ */
+export const FORMS_CUTOVER = "2026-10-23";
+export const beforeApp = (w: Window) => w.deadline < FORMS_CUTOVER;
+
 export type BookingForReports = { id: string; trainer_id: string; client_name: string; dog_name: string | null; start_date: string; end_date: string; weeks: number | null; status: string; reports_enabled?: boolean | null };
 /** Every form a booking should produce, with its window. */
 export function expectedReports(b: BookingForReports): Window[] {
@@ -60,7 +68,7 @@ export function expectedReports(b: BookingForReports): Window[] {
 }
 
 export type RowLike = { booking_id: string; kind: Kind; week_number: number; status: Status; submitted_at?: string | null; due_by?: string | null; id?: string };
-export type Todo = { booking: BookingForReports; window: Window; state: "open" | "overdue" | "draft" | "changes" | "waiting" | "approved"; report?: RowLike; daysLate: number };
+export type Todo = { booking: BookingForReports; window: Window; state: "open" | "overdue" | "draft" | "changes" | "waiting" | "approved"; report?: RowLike; daysLate: number; beforeApp?: boolean };
 
 /** What a trainer (or admin) still owes, from bookings + the reports that exist. `now` is injectable for tests. */
 export function todos(bookings: BookingForReports[], reports: RowLike[], now = new Date(), horizonDays = 60): Todo[] {
@@ -77,6 +85,11 @@ export function todos(bookings: BookingForReports[], reports: RowLike[], now = n
       if (r?.status === "approved" || r?.status === "waived") { continue; }
       if (r?.status === "submitted") { out.push({ booking: b, window: w, state: "waiting", report: r, daysLate: 0 }); continue; }
       if (late && daysLate > horizonDays) continue;                  // ancient: ignore
+      if (beforeApp(w)) {
+        if (w.kind !== "handover") continue;                          // done the old way, before the app
+        out.push({ booking: b, window: w, report: r, daysLate: 0, beforeApp: true, state: r?.status === "changes_requested" ? "changes" : r ? "draft" : "open" });
+        continue;
+      }
       out.push({ booking: b, window: w, report: r, daysLate,
         state: r?.status === "changes_requested" ? "changes" : r ? (late ? "overdue" : "draft") : late ? "overdue" : "open" });
     }

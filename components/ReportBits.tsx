@@ -9,6 +9,7 @@ export const todoLabel = (t: Todo) => kindName(t.window.kind);
 
 export function TodoPill({ t }: { t: Todo }) {
   if (t.state === "changes") return <Pill tone="biscuit">Sent back</Pill>;
+  if (t.beforeApp && t.state !== "waiting") return <Pill tone="biscuit">Needed for the certificate</Pill>;
   if (t.state === "overdue") return <Pill tone="heart">{t.daysLate} day{t.daysLate > 1 ? "s" : ""} late</Pill>;
   if (t.state === "waiting") return <Pill tone="line">With the team</Pill>;
   return <Pill tone={t.state === "draft" ? "biscuit" : "mint"}>{t.state === "draft" ? "Draft, " : ""}due {when(t.window.deadline)}</Pill>;

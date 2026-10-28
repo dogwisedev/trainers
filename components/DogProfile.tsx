@@ -9,7 +9,7 @@ import { Pill } from "@/components/ui";
 import { addVaccineFileAction, reviewVaccinesAction, saveProfileAction, setClearedAction, setSlotAction } from "@/app/pretraining-actions";
 import { uploadToDrive } from "@/lib/driveUpload";
 import { driveView } from "@/lib/chatTypes";
-import { Answers, INTAKE_QS, MANAGER_QS, Q, SECTIONS, Section, VACCINES, asked, blank, missingIn } from "@/lib/pretrainingFields";
+import { Answers, INTAKE_QS, MANAGER_QS, Q, SECTIONS, Section, VACCINES, asked, blank, isMust, mustMissingIn, optionalMissingIn } from "@/lib/pretrainingFields";
 import type { Profile } from "@/lib/pretraining";
 
 type Role = "admin" | "trainer" | "client";
@@ -117,6 +117,13 @@ export function DogProfile({ chatId, role, edit, open, profile, dogId, base, dog
             </li>
           ))}
         </ul>
+        {!dog.cleared && dog.ready.optional > 0 && (
+          <p className="mt-3 text-small text-ink-soft">
+            {role === "client"
+              ? `There ${dog.ready.optional > 1 ? `are also ${dog.ready.optional} optional questions` : "is also 1 optional question"}. They help your trainer get to know ${dog.name}.`
+              : `Also ${dog.ready.optional} optional question${dog.ready.optional > 1 ? "s" : ""} unanswered. They don't hold up the start.`}
+          </p>
+        )}
         {profile.balanceLink && (role === "client"
           ? <a href={profile.balanceLink} target="_blank" rel="noopener" className="btn-ink mt-4 w-full"><CreditCard size={18} />Pay the remaining balance</a>
           : <p className="mt-3 text-small text-ink-soft">Balance link: <a href={profile.balanceLink} target="_blank" rel="noopener" className="underline">open</a> (clears when the link is removed in HubSpot)</p>)}
@@ -268,7 +275,7 @@ function SectionCard({ chatId, bookingId, section, answers, defs, edit, changes,
   const [vals, setVals] = useState<Answers>(answers);
   const [pending, start] = useTransition();
   const [msg, setMsg] = useState("");
-  const left = missingIn(section.questions, answers).length;
+  const need = mustMissingIn(section.questions, answers).length, opt = optionalMissingIn(section.questions, answers).length, left = need + opt;
   const visible = useMemo(() => section.questions.filter((q) => asked(q, editing ? vals : answers)), [section, vals, answers, editing]);
   const set = (k: string, v: string) => setVals((cur) => ({ ...cur, [k]: v }));
   const save = () => start(async () => {
@@ -282,7 +289,8 @@ function SectionCard({ chatId, bookingId, section, answers, defs, edit, changes,
       <div className="mb-3 flex items-center justify-between gap-2">
         <h2 id={`${section.id}-title`} className="text-lead font-extrabold">{section.title}{shared && <span className="ml-1.5 text-caption font-normal text-ink-faint">{role === "client" ? "(for all your dogs)" : "(same for every dog on the deal)"}</span>}</h2>
         <div className="flex items-center gap-2">
-          {left > 0 && <Pill tone="heart">{left} to answer</Pill>}
+          {need > 0 && <Pill tone="heart">{need} needed</Pill>}
+          {opt > 0 && <Pill tone="line">{opt} optional</Pill>}
           {edit && !editing && <button type="button" className="btn-ghost h-9 min-h-0 px-3 text-small" onClick={() => { setVals(answers); setEditing(true); setMsg(""); }}><Pencil size={14} />{left ? "Answer" : "Edit"}</button>}
         </div>
       </div>
@@ -300,7 +308,7 @@ function SectionCard({ chatId, bookingId, section, answers, defs, edit, changes,
             const v = shown(q, defs[q.key], answers[q.key] || ""), c = changes[q.key];
             return (
               <div key={q.key}>
-                <dt className="text-small text-ink-soft">{q.label}{q.required && !v && <span className="text-heart"> *</span>}</dt>
+                <dt className="text-small text-ink-soft">{q.label}{isMust(q) && !v && <span className="text-heart"> *</span>}</dt>
                 <dd className={`whitespace-pre-wrap text-body ${v ? "" : "text-ink-faint"}`}>{v || "Not answered"}{c && role !== "client" && <span className="ml-1.5 text-micro font-semibold text-warn">updated by {c.by}, {when(c.at)}</span>}</dd>
               </div>
             );
@@ -315,7 +323,8 @@ function SectionCard({ chatId, bookingId, section, answers, defs, edit, changes,
 export function Field({ q, d, value, onChange, idPrefix = "f", plain = false }: { q: Q; d: Def; value: string; onChange: (v: string) => void; idPrefix?: string; plain?: boolean }) {
   const id = `${idPrefix}-${q.key}`;
   // plain: no red stars; optional questions say "(optional)" instead (the client's form)
-  const mark = plain ? (q.required ? null : <span className="font-normal text-ink-faint"> (optional)</span>) : (q.required ? <span className="text-heart"> *</span> : null);
+  // not plain: a red star marks a must have (needed before training starts)
+  const mark = plain ? (q.required ? null : <span className="font-normal text-ink-faint"> (optional)</span>) : (isMust(q) ? <span className="text-heart"> *</span> : null);
   if (q.key === "signature" && d?.type === "bool") q = { ...q, label: "I agree to the Terms & Conditions", input: "yesno" }; // HubSpot may store it as a tick box
   const label = <label htmlFor={id} className="label">{q.label}{mark}{q.hint && <span className="block text-caption font-normal text-ink-faint">{q.hint}</span>}</label>;
   if (isMulti(q, d)) {

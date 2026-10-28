@@ -8,7 +8,7 @@ import type { ChatRow } from "@/lib/chatTypes";
 import type { Booking } from "@/lib/types";
 import { etParts, INCIDENT_LABEL, IncidentKind } from "@/lib/chatRules";
 import { daysBetween, short } from "@/lib/dates";
-import { expectedReports, kindName, Kind, Status } from "@/lib/reports";
+import { beforeApp, expectedReports, kindName, Kind, Status } from "@/lib/reports";
 import { datesFromHubspot } from "@/lib/hubspot";
 import { loadProfile, readinessFor } from "@/lib/pretraining";
 import { dogPage, hubspotDeal } from "@/lib/todo";
@@ -24,8 +24,6 @@ import { emailTrainerAboutBooking, setBookingStatus } from "@/app/actions";
 import { ActionButton, ExtraDays } from "@/components/forms";
 import { ReportsToggle } from "@/components/ReportsToggle";
 import { StartChat } from "@/components/StartChat";
-import { CloseChat } from "@/components/ChatActions";
-import { trainingOver } from "@/lib/chatOps";
 import { AdminChatPanel } from "@/components/AdminChatPanel";
 import { DogProfile } from "@/components/DogProfile";
 import { TodoDone } from "@/components/TodoDone";
@@ -51,8 +49,6 @@ export default async function DogPageView({ params, searchParams }: { params: { 
   const key = dealKey(b), deal = hubspotDeal(b.hubspot_deal_id), today = etParts(new Date()).date;
   const { data: chatRows } = await sb.from("chats").select("*").eq("deal_key", key).order("created_at", { ascending: false });
   const chat = (((chatRows || []) as ChatRow[]).find((c) => c.status === "open") || (chatRows || [])[0] || null) as ChatRow | null;
-  const over = chat ? await trainingOver(chat.id) : null;
-  const closeAfter = over && !over.over ? (over.lastDropOff ? short(over.lastDropOff) : "the last drop-off") : null;
   const { data: activeTrainers } = await sb.from("trainers").select("id, name").eq("active", true).order("name");
   const [{ data: siblings }, { data: reps }, { data: incs }, ready, { data: ireports }, { data: trips }, { data: money }, { data: rate }] = await Promise.all([
     b.hubspot_deal_id ? sb.from("bookings").select("id, dog_name, status").eq("hubspot_deal_id", b.hubspot_deal_id).neq("id", b.id) : Promise.resolve({ data: [] }),
@@ -205,7 +201,6 @@ export default async function DogPageView({ params, searchParams }: { params: { 
 
         {tab === "chat" && (chat ? (
           <>
-            {chat.status === "open" && <div className="mb-3 flex justify-end"><CloseChat chatId={chat.id} title={chat.title || "this dog"} after={closeAfter} /></div>}
             <AdminChatPanel chat={chat} me={{ userId: v.userId, name: v.name }} />
           </>
         ) : <div className="panel p-5"><p className="mb-3 text-ink-soft">No chat for this dog yet.</p><StartChat bookingId={b.id} /></div>)}
@@ -245,6 +240,7 @@ function FormsTab({ b, reps, today }: { b: Booking; reps: { id: string; kind: Ki
           const late = today > w.deadline ? daysBetween(w.deadline, today) : 0;
           const st = r?.status === "approved" ? { t: "Done", tone: "mint" as const } : r?.status === "submitted" ? { t: "To review", tone: "biscuit" as const }
             : r?.status === "changes_requested" ? { t: "Sent back", tone: "biscuit" as const } : r?.status === "waived" ? { t: "Not needed", tone: "line" as const }
+            : beforeApp(w) ? (w.kind === "handover" ? { t: "Needed for the certificate", tone: "biscuit" as const } : { t: "Before the app", tone: "line" as const })
             : today < w.opens ? { t: `Opens ${short(w.opens)}`, tone: "line" as const } : late ? { t: `${late} day${late > 1 ? "s" : ""} late`, tone: "heart" as const } : { t: `Due ${short(w.deadline)}`, tone: "mint" as const };
           const href = r ? `/a/reports/${r.id}` : `/a/reports/new?booking=${b.id}&kind=${w.kind}&week=${w.week}`;
           const verb = r?.status === "submitted" ? "Review" : r ? "Open" : "Fill in";

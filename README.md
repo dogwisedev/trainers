@@ -56,6 +56,15 @@ The client's answers to the two HubSpot forms, per dog, plus the checklist: form
 - The app ticks `forms` on the deal once every answer is in, and fills `pre_training_missing` if you create that deal property (single-line text).
 - HubSpot token scopes: `crm.objects.deals.read/write`, `crm.objects.contacts.read/write`, `crm.schemas.deals.read`, `crm.schemas.contacts.read`.
 
+### Must haves
+Only the **must haves** hold up a dog's start: To do, "Not ready", the client's reminders and `pre_training_missing`. The list is `MUST_KEYS` in `lib/pretrainingFields.ts`: the client's details, address and household, vet and emergency contact, CPR consent, Terms & Conditions, medical conditions, illness in the last 7 days, food, medication, training goals, bite history and aggression towards other dogs. The other questions are still asked on the client's form and show as "optional"; they don't hold anything up.
+
+### Dog names
+A dog name on the deal that looks like two dogs ("Francesca & Jack") or like a person ("William Smith" for a Smith) shows on To do with **Fix in HubSpot** and **Keep dog name**. Fixing it in HubSpot clears it within 30 minutes; a kept name is never flagged again.
+
+## Forms before the app (Oct 23, 2026)
+`FORMS_CUTOVER` in `lib/reports.ts`. Intake forms and weekly checks due before it were done the old way: the app doesn't ask for them (not late, no penalty). Handover reports due before it are still needed for the client's certificate: they show as "Needed for the certificate" (never late), grouped on To do. Press "Not needed" on any that already went out the old way.
+
 ## October 2026 update (run once)
 1. Supabase → SQL editor: run `supabase/migrations/032_audit_outcomes_and_integrity.sql`, then `033_server_notifications_and_direct_edit_log.sql` (in that order; don't re-run 032 after 033).
 2. Vercel variables (optional, defaults shown):

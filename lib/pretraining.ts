@@ -9,6 +9,7 @@ import { auditSystem } from "./audit";
 import { PROGRAM_SOLD } from "./programs";
 import { formAnswersFor, formVaccinesFor, formsLink } from "./clientForms";
 import { uniqueDogs } from "./chatOps";
+import { dogNameProblem, dogNameRef } from "./dogNames";
 import { DealProps, PropDef, dealContacts, hubspotConfigured, optionValue, propDefs, readContacts, readDeals, updateContact, updateDeal } from "./hubspot";
 import {
   Answers, CLIENT_KEYS, CONTACT_PROPS, DEAL_PROPS, DOG_KEYS, DOG_NAME_PROPS, QUESTIONS, Ready, VACCINE_FILE_PROP, VACCINES, VaccineFile, VaccineState,
@@ -235,6 +236,11 @@ export async function syncPretraining(opts: { dealIds?: string[]; sb?: SupabaseC
       // 2b. HubSpot is the source of truth for names: each dog's name (by its slot) and the client's name go onto the
       //     booking, the chat and unsent forms. The email is only filled in when the booking has none (it's the client's login).
       try { await namesFromHubspot(sb, dealId, deal, contact, bks, mine, slots); } catch (e) { out.errors.push(`names ${dealId}: ${(e as Error).message}`); }
+      // 2c. Dog names that look like two dogs in one box, or like a person: a To do item each
+      try {
+        const chat = ((chats || []) as { id: string; deal_key: string }[]).find((c) => c.deal_key === dealId)?.id || null;
+        for (const n of await flagDogNames(sb, dealId, deal, contact, bks, chat, !!opts.quietIncidents)) out.incidents.push(`Dog name: ${n}`);
+      } catch (e) { out.errors.push(`dog names ${dealId}: ${(e as Error).message}`); }
       // 3. Readiness: tick "forms" in HubSpot, list what's missing, incidents a week out
       const { data: fresh } = await sb.from("pretraining_dogs").select("*").eq("deal_id", dealId);
       const p = buildProfile(dealId, { deal_id: dealId, contact_id: contactId, deal, contact, pending, synced_at: now, sync_error: syncError }, (fresh || []) as DogRow[], bks, {});
@@ -272,6 +278,40 @@ export async function syncPretraining(opts: { dealIds?: string[]; sb?: SupabaseC
     } catch (e) { out.errors.push(`deal ${dealId}: ${(e as Error).message}`); }
   }
   return out;
+}
+
+/**
+ * Dog names on the HubSpot deal that look like two dogs in one box ("Francesca & Jack") or like a person ("William Smith").
+ * One To do item each ("Fix in HubSpot" / "Keep dog name"). It closes itself once the name is fixed in HubSpot; a name an
+ * admin chose to keep is never flagged again. Returns the names newly flagged.
+ */
+async function flagDogNames(sb: SupabaseClient, dealId: string, deal: DealProps, contact: DealProps, bks: BookingRow[], chatId: string | null, quiet: boolean): Promise<string[]> {
+  const t = today(), live = bks.filter((b) => b.status !== "cancelled" && b.end_date >= t);
+  const client = { first: str(contact.firstname), last: str(contact.lastname) };
+  const flagged = new Map<string, { name: string; why: "two" | "person" }>();
+  if (live.length) for (const p of DOG_NAME_PROPS) {
+    const name = str(deal[p]).replace(/\s+/g, " ").trim(), why = dogNameProblem(name, client);
+    if (why) flagged.set(dogNameRef(dealId, name), { name, why });
+  }
+  // Fixed in HubSpot (or the training is over): close what's no longer flagged
+  const { data: open } = await sb.from("chat_incidents").select("ref").eq("kind", "hubspot_problem").like("ref", `dogname:${dealId}:%`).neq("status", "resolved");
+  for (const i of (open || []) as { ref: string }[]) if (!flagged.has(i.ref)) await resolveIncidents({ kinds: ["hubspot_problem"], ref: i.ref }, "automatic", "Dog name fixed in HubSpot", sb);
+  if (quiet || !flagged.size) return [];
+  const raised: string[] = [];
+  for (const [ref, f] of flagged) {
+    // An admin pressed "Keep dog name" for this name before: leave it alone
+    const { data: kept } = await sb.from("chat_incidents").select("id").eq("kind", "hubspot_problem").eq("ref", ref).eq("status", "resolved").eq("auto_resolved", false).limit(1);
+    if (kept?.length) continue;
+    const who = [client.first, client.last].filter(Boolean).join(" ");
+    const detail = f.why === "two"
+      ? `"${f.name}" looks like two dogs in one name box on the HubSpot deal. Put each dog in its own box (Dog 1, Dog 2…) and the app follows within 30 minutes.`
+      : `"${f.name}" looks like a person's name, not a dog's${who ? ` (the client is ${who})` : ""}. Fix it on the HubSpot deal and the app follows within 30 minutes.`;
+    if (await raiseIncident({
+      kind: "hubspot_problem", title: `${f.name} (${live[0].client_name})`, ref, bookingId: live[0].id, chatId, urgent: false,
+      detail: `${detail} If it really is the dog's name, press Keep dog name.`, link: `https://app.hubspot.com/contacts/21869370/record/0-3/${dealId}`
+    }, sb)) raised.push(f.name);
+  }
+  return raised;
 }
 
 /** "Check vaccines" incident: records are in (uploaded in the app or on the HubSpot form) and nobody has checked them. */
@@ -415,8 +455,8 @@ export function missingSummary(items: Item[]): string {
   const q = (k: number) => (k ? ` (${k} question${k > 1 ? "s" : ""})` : "");
   const sum = new Map<string, number>();
   for (const i of items) sum.set(i.key, (sum.get(i.key) || 0) + (i.count || 0));
-  const NAME: Record<string, string> = { home: "your details", dog: "about your dog", goals: "training goals", food: "food", meds: "medication", vaccines: "vaccine records", balance: "the balance" };
-  const parts = [...sum.entries()].filter(([k]) => NAME[k]).map(([k, c]) => `${NAME[k]}${["home", "dog", "goals"].includes(k) ? q(c) : ""}`);
+  const NAME: Record<string, string> = { home: "your details", dog: "health questions", goals: "training goals", food: "food", meds: "medication", vaccines: "vaccine records", balance: "the balance" };
+  const parts = [...sum.entries()].filter(([k]) => NAME[k]).map(([k, c]) => `${NAME[k]}${["home", "goals"].includes(k) ? q(c) : ""}`);
   return parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}` : parts[0] || "";
 }
 

@@ -73,7 +73,7 @@ async function formsFor(bookings: BookingRow[]): Promise<(Todo & { trainerName: 
 }
 const formLine = (t: Todo & { trainerName: string }) => ({
   dog: t.booking.dog_name || "Dog", client: t.booking.client_name, trainer: t.trainerName, form: formName(t), due: t.window.deadline,
-  state: STATE[t.state], daysLate: t.daysLate || undefined, link: link(t.report?.id ? `/a/reports/${t.report.id}` : `/a/dogs/${t.booking.id}`)
+  state: t.beforeApp && t.state !== "waiting" ? "before the app: needed for the certificate" : STATE[t.state], daysLate: t.daysLate || undefined, link: link(t.report?.id ? `/a/reports/${t.report.id}` : `/a/dogs/${t.booking.id}`)
 });
 
 const CAP = 100;
@@ -120,7 +120,8 @@ export const CLAUDE_TOOLS: ClaudeTool[] = [
       const [d] = await Promise.all([buildTodo(), check]);
       return {
         items: capped(d.items.map((i) => ({ when: i.group, what: i.text, detail: i.detail, since: i.since, open: link(i.primary?.href) || link(i.dogHref), hubspot: i.hubspot })), "Open the To do page for the rest."),
-        lateForms: capped(d.late.map(formLine), "Use the forms tool with a trainer's name.")
+        lateForms: capped(d.late.map(formLine), "Use the forms tool with a trainer's name."),
+        handoversBeforeApp: capped(d.beforeApp.map(formLine), "Use the forms tool with a trainer's name.")
       };
     }
   },

@@ -15,8 +15,8 @@ export const maxDuration = 60;
 // Admin home: one list of everything that needs a person, most urgent first. Each line has one obvious button.
 export default async function ToDo() {
   const v = await requireRole("admin");
-  const { items, late } = await buildTodo();
-  const total = todoTotal({ items, late });
+  const todo = await buildTodo();
+  const total = todoTotal(todo);
   return (
     <>
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -30,7 +30,7 @@ export default async function ToDo() {
         </div>
       </div>
       {!total && <div className="mt-6"><Empty title="All done.">New things show up here as they happen: clients waiting, forms to check, vaccines, payslips.</Empty></div>}
-      <TodoList items={items} late={late} />
+      <TodoList items={todo.items} late={todo.late} beforeApp={todo.beforeApp} />
     </>
   );
 }

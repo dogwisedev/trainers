@@ -23,7 +23,8 @@ export type TodoItem = {
   primary?: { label: string; href: string; external?: boolean };
   dogHref?: string; hubspot?: string; incidentId?: string; doneLabel?: string;
 };
-export type TodoData = { items: TodoItem[]; late: (Todo & { trainerName: string })[] };
+/** late: forms past their deadline. beforeApp: handover reports due before the app took over the forms (still needed for the certificate). */
+export type TodoData = { items: TodoItem[]; late: (Todo & { trainerName: string })[]; beforeApp: (Todo & { trainerName: string })[] };
 
 export const hubspotDeal = (id: string | null | undefined) => (id && /^\d+$/.test(id) ? `https://app.hubspot.com/contacts/21869370/record/0-3/${id}` : undefined);
 export const dogPage = (bookingId: string, tab?: string, hash?: string) => `/a/dogs/${bookingId}${tab ? `?tab=${tab}` : ""}${hash ? `#${hash}` : ""}`;
@@ -39,12 +40,12 @@ const NOW_KINDS: IncidentKind[] = ["trainer_report", "client_waiting", "client_p
 
 /** To do, worked out once per page load (the menu badge and the To do page use the same list, so the numbers always match). */
 export const buildTodo = cache(buildTodoUncached);
-/** The number on the To do badge and at the top of To do: every row, with the late forms counted as one row (as shown). */
-export const todoTotal = (d: TodoData) => d.items.length + (d.late.length ? 1 : 0);
+/** The number on the To do badge and at the top of To do: every row, with the late forms (and the handovers from before the app) counted as one row each (as shown). */
+export const todoTotal = (d: TodoData) => d.items.length + (d.late.length ? 1 : 0) + (d.beforeApp.length ? 1 : 0);
 export async function todoCount(): Promise<number> { return todoTotal(await buildTodo()); }
 
 async function buildTodoUncached(): Promise<TodoData> {
-  if (isDemo()) return { items: [], late: [] };
+  if (isDemo()) return { items: [], late: [], beforeApp: [] };
   const sb = serviceClient(), today = etParts(new Date()).date;
   const [{ data: incs }, { data: reps }, { data: msgs }, { data: trainers }, signins, { data: bks }] = await Promise.all([
     sb.from("chat_incidents").select("id, kind, status, detail, opened_at, chat_id, booking_id, report_id, ref, chat:chats(id, title, client_name, trainer_name, deal_key), booking:bookings!booking_id(id, dog_name, client_name, start_date, hubspot_deal_id, trainer_id, trainers(name))").neq("status", "resolved").order("opened_at"),
@@ -86,7 +87,16 @@ async function buildTodoUncached(): Promise<TodoData> {
       case "overbooked": add({ group: "now", tone: "heart", text: `${trainer} has more dogs than kennels`, primary: i.booking ? { label: "Open trainer", href: `/a/trainers/${i.booking.trainer_id}` } : undefined }); break;
       case "length_changed": add({ group: "now", tone: "heart", text: `${dog}'s program length changed: check pay and refund`, primary: deal ? { label: "HubSpot deal", href: deal, external: true } : undefined }); break;
       case "booking_cancelled": add({ group: "now", tone: "heart", text: `${dog}'s training was cancelled: refund or partial pay?`, primary: deal ? { label: "HubSpot deal", href: deal, external: true } : undefined }); break;
-      case "hubspot_problem": add({ group: "week", tone: "biscuit", text: `Check ${dog}'s HubSpot deal`, primary: deal ? { label: "HubSpot deal", href: deal, external: true } : dogHref ? { label: "Open dog", href: dogHref } : undefined }); break;
+      case "hubspot_problem":
+        if ((i.ref || "").startsWith("dogname:")) {
+          // A dog name on the deal that looks like two dogs, or like a person (lib/dogNames.ts)
+          const name = (i.detail || "").match(/^"(.+?)"/)?.[1] || dog, two = /two dogs/.test(i.detail || "");
+          add({ group: startsSoon ? "now" : "week", tone: "biscuit", icon: "dog", text: two ? `Looks like 2 dogs in one name: ${name}` : `Dog name looks like a person's: ${name}`,
+            detail: `${client}. ${two ? "Put each dog in its own name box (Dog 1, Dog 2…) on the deal." : "Fix the dog's name on the deal."} The app follows within 30 minutes. If the name is right, press Keep dog name.`,
+            primary: deal ? { label: "Fix in HubSpot", href: deal, external: true } : undefined, doneLabel: "Keep dog name" });
+          break;
+        }
+        add({ group: "week", tone: "biscuit", text: `Check ${dog}'s HubSpot deal`, primary: deal ? { label: "HubSpot deal", href: deal, external: true } : dogHref ? { label: "Open dog", href: dogHref } : undefined }); break;
       case "not_ready": add({ group: startsSoon ? "now" : "week", tone: "heart", detail: (i.detail || "").replace(/^.*?isn't ready:\s*/, "Missing: ").replace(/\.$/, "") || undefined, text: `${dog} starts ${i.booking ? short(i.booking.start_date) : "soon"} and isn't ready`, primary: bookingId ? { label: "See what's missing", href: dogPage(bookingId, "before") } : chat }); break;
       case "trainer_report": add({ group: "now", tone: "heart", text: `${trainer} reported an incident with ${dog}`, primary: bookingId ? { label: "Read the report", href: dogPage(bookingId, undefined, "incident-reports") } : chat }); break;
       case "deal_not_booked": {
@@ -163,7 +173,9 @@ async function buildTodoUncached(): Promise<TodoData> {
     const { data } = await sb.from("reports").select("id, booking_id, kind, week_number, status, submitted_at, due_by").in("booking_id", withForms.slice(i, i + 150).map((b) => b.id));
     rows.push(...((data || []) as RowLike[]));
   }
-  const late = todos(withForms, rows).filter((t) => t.state === "overdue" || t.state === "changes").map((t) => ({ ...t, trainerName: tName.get(t.booking.trainer_id) || "" }));
+  const forms = todos(withForms, rows).map((t) => ({ ...t, trainerName: tName.get(t.booking.trainer_id) || "" }));
+  const late = forms.filter((t) => !t.beforeApp && (t.state === "overdue" || t.state === "changes"));
+  const beforeApp = forms.filter((t) => t.beforeApp && t.state !== "waiting");
 
   const order: Record<TodoGroup, number> = { now: 0, week: 1, later: 2 };
   items.sort((a, b) => order[a.group] - order[b.group] || (a.since || "~").localeCompare(b.since || "~"));
@@ -176,5 +188,5 @@ async function buildTodoUncached(): Promise<TodoData> {
       items.push({ key: "pay", group: isPayMonday(todayIso()) ? "now" : "week", tone: "biscuit", icon: "pay", text: `${list.length} payslip${list.length > 1 ? "s" : ""} to approve`, detail: r ? periodLabel(r.period_start, r.period_end) : undefined, primary: { label: "Open payslips", href: "/a/trainers?view=pay" } });
     }
   }
-  return { items, late };
+  return { items, late, beforeApp };
 }
