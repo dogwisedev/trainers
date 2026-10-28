@@ -48,6 +48,25 @@ async function byIds<T>(ids: string[], page: (chunk: string[], from: number, to:
   const chunks = Array.from({ length: Math.ceil(list.length / 100) }, (_, i) => list.slice(i * 100, i * 100 + 100));
   return (await Promise.all(chunks.map((c) => allRows<T>((f, t) => page(c, f, t))))).flat();
 }
+/** Every new chat starts with a welcome note (lib/chat.ts postWelcome, or "New chat started" when a client starts one). When
+ *  a chat's oldest message still in the app isn't that note and came more than an hour after the chat was made, its earlier
+ *  messages were moved to Drive (closed and archived, then reopened): the chat as people see it started then. One small
+ *  indexed query per chat, 20 at a time. Returns, per chat, when that restart was. */
+async function historyMovedAt(chats: { id: string; created_at: string }[]): Promise<Map<string, string>> {
+  const sb = serviceClient(), out = new Map<string, string>(), list = [...new Map(chats.map((c) => [c.id, c])).values()];
+  for (let i = 0; i < list.length; i += 20) {
+    const got = await Promise.all(list.slice(i, i + 20).map(async (c) => {
+      const { data, error } = await sb.from("chat_messages").select("created_at, kind, body").eq("chat_id", c.id).order("created_at").limit(1);
+      if (error) throw new Error(error.message);
+      return [c, ((data || []) as { created_at: string; kind: string; body: string | null }[])[0]] as const;
+    }));
+    for (const [c, m] of got) {
+      const welcome = m && m.kind === "system" && /^(👋 Welcome to|New chat started)/.test(m.body || "");
+      if (m && !welcome && ms(m.created_at) - ms(c.created_at) > 3600000) out.set(c.id, m.created_at);
+    }
+  }
+  return out;
+}
 function groupBy<T>(rows: T[], key: (r: T) => string) {
   const m = new Map<string, T[]>();
   for (const r of rows) { const k = key(r); const l = m.get(k); if (l) l.push(r); else m.set(k, [r]); }
@@ -59,8 +78,9 @@ type Chat = {
   id: string; deal_key: string; trainer_id: string | null; trainer_name: string | null; client_user_id: string | null; client_name: string | null;
   title: string | null; status: string; last_message_at: string | null; last_preview: string | null; last_sender: string | null;
   last_trainer_at: string | null; last_client_at: string | null; last_admin_at: string | null; admin_seen_at: string | null; invited_at: string | null; created_at: string;
+  archived_at: string | null;
 };
-const CHAT_COLS = "id, deal_key, trainer_id, trainer_name, client_user_id, client_name, title, status, last_message_at, last_preview, last_sender, last_trainer_at, last_client_at, last_admin_at, admin_seen_at, invited_at, created_at";
+const CHAT_COLS = "id, deal_key, trainer_id, trainer_name, client_user_id, client_name, title, status, last_message_at, last_preview, last_sender, last_trainer_at, last_client_at, last_admin_at, admin_seen_at, invited_at, created_at, archived_at";
 type Booking = { id: string; hubspot_deal_id: string | null; dog_name: string | null; client_name: string; start_date: string; end_date: string; status: string; trainer_id: string; trainers?: { name: string } | null };
 const BOOKING_COLS = "id, hubspot_deal_id, dog_name, client_name, start_date, end_date, status, trainer_id, trainers(name)";
 type Msg = { id: string; chat_id: string; sender_id?: string | null; sender_role: "client" | "trainer" | "admin" | "system"; sender_name: string | null; kind: string; body: string | null; media: { kind?: string }[] | null; created_at: string };
@@ -160,6 +180,12 @@ export async function commsOverview(o: { trainer?: string; all?: boolean; now?: 
 
   const phases = new Map(chats.map((c) => [c.id, phaseOf(bookings.get(c.deal_key) || [], today)]));
   const ourSide = (c: Chat) => Math.max(ms(c.last_trainer_at), ms(officeAt(c)));    // the trainer or a person in the office, whoever wrote last
+  // When each chat started as people see it: its creation, the moment its history was moved to Drive, or (for a chat reopened
+  // after that) its oldest message still here. Silence is counted from then at the earliest. The oldest message is looked up
+  // only for chats with a dog in care that have been quiet for 12 hours or more.
+  const pick8 = (c: Chat) => { const p = phases.get(c.id)!; return p.pickup ? etAt(p.pickup, 8) : 0; };
+  const moved = await historyMovedAt(chats.filter((c) => CARE.includes(phases.get(c.id)!.phase) && now - Math.max(ourSide(c), pick8(c)) >= 12 * 3600000));
+  const openedAt = (c: Chat) => iso(Math.max(ms(c.created_at), ms(c.archived_at), ms(moved.get(c.id))));
   const waitingChats = chats.filter((c) => ms(c.last_client_at) > ourSide(c));
   const careChats = chats.filter((c) => CARE.includes(phases.get(c.id)!.phase));
   const fromOldest = waitingChats.length ? iso(Math.min(...waitingChats.map(ourSide))) : "";
@@ -216,6 +242,7 @@ export async function commsOverview(o: { trainer?: string; all?: boolean; now?: 
       clientInvited: !!c.invited_at, invitedAt: c.invited_at || undefined, clientOpenedChat: clientRead > 0, clientLastRead: clientRead ? iso(clientRead) : undefined,
       lastMessage: c.last_message_at ? { at: c.last_message_at, from: c.last_sender === "admin" && autoLast.has(c.id) ? "automatic" : ROLE[c.last_sender || ""] || c.last_sender, text: cut(c.last_preview, 120) } : null,
       lastClientAt: c.last_client_at, lastTrainerAt: c.last_trainer_at, lastTeamAt: officeAt(c), lastAutomaticAt: lastAuto.get(c.id),
+      openedAt: openedAt(c), archived: c.archived_at ? true : undefined,   // archived: the app shows the archive notice instead of the chat
       hoursSinceTrainer: c.last_trainer_at ? hoursBetween(ms(c.last_trainer_at), now) : null,
       hoursSinceTrainerOrTeam: us ? hoursBetween(us, now) : null,
       waiting, trainerPosts,
@@ -369,8 +396,8 @@ export async function trainerComms(o: { days: number; trainer?: string; now?: Da
   ]);
   const tName = new Map(trainers.map((t) => [t.id, t]));
   const keys = [...new Set(bookingRows.map(dealKey))];
-  type C = { id: string; deal_key: string; trainer_id: string | null; title: string | null; closed_at: string | null; archived_at: string | null };
-  const COLS = "id, deal_key, trainer_id, title, closed_at, archived_at";
+  type C = { id: string; deal_key: string; trainer_id: string | null; title: string | null; closed_at: string | null; archived_at: string | null; created_at: string };
+  const COLS = "id, deal_key, trainer_id, title, closed_at, archived_at, created_at";
   const chats = await byIds<C>([...new Set([...msgs.map((m) => m.chat_id)])], (c, f, t) => sb.from("chats").select(COLS).in("id", c).order("id").range(f, t));
   const byKey = await byIds<C>(keys, (c, f, t) => sb.from("chats").select(COLS).in("deal_key", c).order("id").range(f, t));
   const chatOf = new Map([...chats, ...byKey].map((c) => [c.id, c]));
@@ -381,6 +408,16 @@ export async function trainerComms(o: { days: number; trainer?: string; now?: Da
     if (!c.archived_at) continue;
     const d = etDate(ms(c.closed_at || c.archived_at));
     if (d > (archivedThrough.get(c.deal_key) || "")) archivedThrough.set(c.deal_key, d);
+  }
+  // A chat reopened after its history was moved to Drive: the days up to its reopening can't be checked here either.
+  // And the days before a deal's first chat was created had no chat at all.
+  const moved = await historyMovedAt(byKey.filter((c) => !c.archived_at));
+  const chatSince = new Map<string, string>();
+  for (const c of chatOf.values()) {
+    const made = etDate(ms(c.created_at));
+    if (made < (chatSince.get(c.deal_key) || "9999")) chatSince.set(c.deal_key, made);
+    const m = moved.get(c.id);
+    if (m && etDate(ms(m)) > (archivedThrough.get(c.deal_key) || "")) archivedThrough.set(c.deal_key, etDate(ms(m)));
   }
   const bookingsForKey = groupBy(bookingRows, dealKey);
   const msgsByChat = groupBy(msgs, (m) => m.chat_id);
@@ -407,7 +444,7 @@ export async function trainerComms(o: { days: number; trainer?: string; now?: Da
       careDone.add(`${b.trainer_id}|${k}`);
       const s = score(b.trainer_id), dog = chatsForKey.get(dealKey(b))?.[0]?.title || b.dog_name || "Dog";
       s.careDays++;
-      if (!chatsForKey.get(dealKey(b))?.length) { s.noChat++; continue; }
+      if (!chatsForKey.get(dealKey(b))?.length || d < (chatSince.get(dealKey(b)) || "")) { s.noChat++; continue; }
       if (d <= (archivedThrough.get(dealKey(b)) || "")) { s.archived++; continue; }
       const p = posted.get(k);
       if (p?.media) s.photo++;
@@ -466,7 +503,7 @@ export async function trainerComms(o: { days: number; trainer?: string; now?: Da
   return {
     from, to, days: o.days,
     standard: "A photo or video in the dog's chat every day it is in care (pickup day up to the night before drop-off); reply to clients within 2 to 3 hours. Waking hours are 8 am to 9 pm Eastern.",
-    note: "A turn is a client message (or several in a row) and the first reply after it from the trainer or a person in the office (the app's automatic posts, such as training materials, are not replies). Turns are counted for the trainer who had the dog that day, or the chat's trainer after training. chatArchived: days whose chat was closed and archived to Drive, so they can't be checked here (and their client messages aren't counted).",
+    note: "A turn is a client message (or several in a row) and the first reply after it from the trainer or a person in the office (the app's automatic posts, such as training materials, are not replies). Turns are counted for the trainer who had the dog that day, or the chat's trainer after training. chatArchived: days whose messages were moved to Drive (a chat closed and archived, or reopened after that), so they can't be checked here. noChat: days before the dog had a chat.",
     trainers: rows
   };
 }
