@@ -8,8 +8,10 @@ const day = (iso: string) => new Date(`${iso}T12:00:00Z`).toLocaleDateString("en
 const SOURCE: Record<string, string> = { address: "address", profile: "map point on their profile", zip: "ZIP centre" };
 
 /** On the payslip: each trip's declared miles next to the driving route, with a Google Maps link to check it by hand. */
-export function MileageCheck({ rows, payslipId, setUp }: { rows: MileageRow[]; payslipId: string; setUp: boolean }) {
+/** onSlip: each trip's pay line amount on this payslip, or null when the trip isn't on it (shown as a warning). */
+export function MileageCheck({ rows, payslipId, setUp, onSlip }: { rows: MileageRow[]; payslipId: string; setUp: boolean; onSlip?: Record<string, number | null> }) {
   if (!rows.length) return null;
+  const missing = onSlip ? rows.filter((r) => onSlip[r.tripId] === null).length : 0;
   const flagged = rows.filter((r) => r.check.over || r.check.paid).length, unchecked = rows.filter((r) => !r.route).length;
   return (
     <section className="panel overflow-hidden" aria-labelledby="miles-title">
@@ -17,6 +19,7 @@ export function MileageCheck({ rows, payslipId, setUp }: { rows: MileageRow[]; p
         <div className="min-w-0">
           <h2 id="miles-title" className="text-lead font-extrabold">Mileage check</h2>
           <p className="text-small text-ink-soft">{flagged ? `${flagged} trip${flagged > 1 ? "s" : ""} to look at.` : "Nothing to look at."} Declared miles are round trips; the route is doubled to match.</p>
+          {missing > 0 && <p className="mt-1 text-small font-semibold text-heart">{missing} trip{missing > 1 ? "s aren't" : " isn't"} on the payslip yet. Reload this page; if it&apos;s still missing, add a Route line below.</p>}
         </div>
         <CheckRoutesButton payslipId={payslipId} label={unchecked ? `Check ${unchecked} now` : "Check again"} />
       </div>
@@ -35,6 +38,8 @@ export function MileageCheck({ rows, payslipId, setUp }: { rows: MileageRow[]; p
                 {c.over && <Pill tone="heart">Over the route by {c.overBy} mi</Pill>}
                 {c.paid && <Pill tone="biscuit">Paid mileage: check it</Pill>}
                 {!c.over && !c.paid && c.round != null && <Pill tone="mint">Matches the route</Pill>}
+                {onSlip && onSlip[r.tripId] === null && <Pill tone="heart">Not on the payslip</Pill>}
+                {onSlip && onSlip[r.tripId] != null && <Pill tone="line">On the payslip: ${onSlip[r.tripId]!.toFixed(2)}</Pill>}
                 {route?.google_url && <a href={route.google_url} target="_blank" rel="noopener" className="btn-ghost h-9 min-h-0 px-3 text-small">Check on Google Maps<ExternalLink size={13} /></a>}
               </div>
               {route && (route.from_label || route.note) && (

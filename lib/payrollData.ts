@@ -57,7 +57,8 @@ export async function getRates(trainerId: string): Promise<Rates> {
 
 // ── Building drafts ─────────────────────────────────────────────────────
 /** Creates the run if needed and (re)builds every draft from bookings. Approved payslips are never touched; manual lines are kept. */
-export async function buildDrafts(sb: SupabaseClient, submitDate: string) {
+/** Rebuilds the run's draft payslips from bookings, trips and follow-ups (hand edits kept, approved ones left alone). `onlyTrainer`: just that trainer's payslip. */
+export async function buildDrafts(sb: SupabaseClient, submitDate: string, onlyTrainer?: string) {
   // A run that already exists keeps the dates it was made with (the pay calendar changed on Oct 26, 2026); new runs use today's rule
   const { data: saved } = await sb.from("pay_runs").select("*").eq("submit_date", submitDate).maybeSingle();
   const fresh = runDates(submitDate);
@@ -85,7 +86,7 @@ export async function buildDrafts(sb: SupabaseClient, submitDate: string) {
   type L = { booking_id: string | null; kind: string; auto: boolean; days?: number | null; amount: number | string; program?: string | null; client?: string | null; dog?: string | null };
   const sig = (l: L) => [l.kind, l.booking_id, l.days ?? "", Number(l.amount ?? 0).toFixed(2), l.program ?? "", l.client ?? "", l.dog ?? ""].join("|");
 
-  for (const t of trainers || []) {
+  for (const t of (trainers || []).filter((x) => !onlyTrainer || x.id === onlyTrainer)) {
     const prev = (existing || []).find((p) => p.trainer_id === t.id) as { id: string; status: string; payslip_lines?: L[] } | undefined;
     // A booking line edited by hand stays as it is: don't add an automatic one next to it.
     const handEdited = new Set((prev?.payslip_lines || []).filter((l) => l.kind === "training" && !l.auto && l.booking_id).map((l) => l.booking_id));

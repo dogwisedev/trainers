@@ -189,7 +189,7 @@ export async function checkTripRoutes(o: { trainerId?: string; from?: string; to
 // ── For the payslip ──────────────────────────────────────────────────────────
 
 export type MileageRow = {
-  tripId: string; kind: "pickup" | "dropoff" | "followup"; date: string; declared: number; dog: string; client: string;
+  tripId: string; bookingId: string | null; kind: "pickup" | "dropoff" | "followup"; date: string; declared: number; dog: string; client: string;
   route: RouteRow | null; check: ReturnType<typeof mileCheck>;
 };
 async function ratesOf(sb: SupabaseClient, trainerIds: string[]): Promise<Map<string, Rates>> {
@@ -213,7 +213,7 @@ export async function mileageRows(trainerId: string, start: string, end: string,
   const r = rates.get(trainerId) || EMPTY_RATES;
   return trips.map((t) => {
     const route = routes.find((x) => x.booking_id === t.booking_id && x.trainer_id === t.trainer_id) || null;
-    return { tripId: t.id, kind: t.kind, date: t.trip_date, declared: Number(t.miles), dog: t.bookings?.dog_name || "", client: t.bookings?.client_name || "",
+    return { tripId: t.id, bookingId: t.booking_id, kind: t.kind, date: t.trip_date, declared: Number(t.miles), dog: t.bookings?.dog_name || "", client: t.bookings?.client_name || "",
       route, check: mileCheck(Number(t.miles), route?.one_way_miles == null ? null : Number(route.one_way_miles), Number(r.mileage_free_miles || 0), r.mileage_rate == null ? null : Number(r.mileage_rate)) };
   });
 }
