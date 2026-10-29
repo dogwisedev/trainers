@@ -6,12 +6,18 @@ import { getPayslip } from "@/lib/payrollData";
 import { periodLabel, usDate } from "@/lib/payroll";
 import { PayslipEditor } from "@/components/PayslipEditor";
 import { Avatar } from "@/components/ui";
+import { MileageCheck } from "@/components/MileageCheck";
+import { freerouteOn, mileageRows } from "@/lib/tripRoutes";
+import { isDemo } from "@/lib/supabase";
+
+export const maxDuration = 60; // "Check now" on the mileage check works out routes
 
 export default async function PayslipPage({ params, searchParams }: { params: { id: string }; searchParams: { edit?: string } }) {
   await requireRole("admin");
   const p = await getPayslip(params.id);
   if (!p) notFound();
   const name = p.trainer?.name || p.slip.trainer_name || "Trainer";
+  const miles = isDemo() ? [] : await mileageRows(p.slip.trainer_id, p.run.period_start, p.run.period_end).catch(() => []);
   return (
     <>
       <div className="mb-4 flex items-center gap-3">
@@ -22,6 +28,7 @@ export default async function PayslipPage({ params, searchParams }: { params: { 
           <p className="text-small text-ink-soft">{periodLabel(p.run.period_start, p.run.period_end)}, paid {usDate(p.run.paid_date)}</p>
         </div>
       </div>
+      {miles.length > 0 && <div className="mb-4"><MileageCheck rows={miles} payslipId={p.slip.id} setUp={freerouteOn()} /></div>}
       <PayslipEditor
         id={p.slip.id} approved={p.slip.status === "approved"}
         initial={p.lines.map((l) => ({ kind: l.kind, booking_id: l.booking_id, weeks_completed: l.weeks_completed, days: l.days ?? null, week_from: l.week_from, pct: l.pct, client: l.client, dog: l.dog, program: l.program, description: l.description, amount: Number(l.amount), auto: l.auto }))}

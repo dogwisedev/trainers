@@ -7,7 +7,8 @@ import { money } from "@/lib/payroll";
 import { lineClient, lineLead, lineProgram } from "@/lib/payslipDoc";
 import type { Line } from "@/lib/payrollData";
 
-export type BoardSlip = { id: string; name: string; status: "draft" | "approved"; total: number; notes: string | null; sent_at: string | null; send_error: string | null; missing: number; lines: Line[] };
+/** miles: trips in the period the mileage check flags (over the route, or paid mileage). */
+export type BoardSlip = { id: string; name: string; status: "draft" | "approved"; total: number; notes: string | null; sent_at: string | null; send_error: string | null; missing: number; miles?: number; lines: Line[] };
 type Filter = "pending" | "approved" | "all";
 
 export function PayslipBoard({ slips: initial, submit, label, paid, demo }: { slips: BoardSlip[]; submit: string; label: string; paid: string; demo: boolean }) {
@@ -133,6 +134,7 @@ export function PayslipBoard({ slips: initial, submit, label, paid, demo }: { sl
               </ul>
               {s.notes && <p className="mt-2 line-clamp-2 text-caption italic text-ink-soft">{s.notes}</p>}
               {s.missing > 0 && <p className="mt-2 text-caption font-semibold text-heart">{s.missing} line{s.missing > 1 ? "s" : ""} without a pay rate</p>}
+              {!!s.miles && <p className="mt-2 text-caption font-semibold text-warn">{s.miles} trip{s.miles > 1 ? "s" : ""} to check in the mileage check</p>}
               <div className="mt-3 flex items-center gap-2">
                 {s.status === "approved" ? (
                   <span className={`text-small font-semibold ${s.send_error ? "text-heart" : "text-fern"}`}>{s.send_error ? "Approved, email failed" : (s.sent_at ? `Approved and sent ${new Date(s.sent_at).toLocaleDateString("en-US")}` : "Approved, not emailed")}</span>

@@ -11,6 +11,7 @@ import { sendMail } from "@/lib/mail";
 import { BRAND_LOGO_PNG_BASE64 } from "@/lib/brandLogo";
 import { usDate, periodLabel } from "@/lib/payroll";
 import type { Result } from "./actions";
+import { checkTripRoutes } from "@/lib/tripRoutes";
 
 const DEMO: Result = { ok: false, message: "Demo mode: connect Supabase to save payroll." };
 async function admin() {
@@ -271,5 +272,23 @@ export async function setGustoCodeAction(trainerId: string, code: string): Promi
   if (code && !/^[A-Za-z0-9]{3,20}$/.test(code)) return { ok: false, message: "That's not a Gusto worker code." };
   const { error } = await serviceClient().from("trainers").update({ gusto_code: code || null }).eq("id", trainerId);
   return error ? { ok: false, message: error.message } : { ok: true, message: "Saved." };
+});
+}
+
+/** "Check now" on a payslip's mileage check: works out the routes for that trainer's trips in the pay period (re-checks all of them). */
+export async function checkRoutesAction(payslipId: string): Promise<Result> {
+  return audited("checkRoutesAction", { payslipId }, async () => {
+  if (isDemo()) return DEMO;
+  try {
+    await admin();
+    const sb = serviceClient();
+    const { data: slip } = await sb.from("payslips").select("trainer_id, pay_runs(period_start, period_end)").eq("id", payslipId).maybeSingle();
+    const run = (slip as unknown as { trainer_id: string; pay_runs: { period_start: string; period_end: string } | null } | null);
+    if (!run?.pay_runs) return { ok: false, message: "Payslip not found." };
+    const r = await checkTripRoutes({ trainerId: run.trainer_id, from: run.pay_runs.period_start, to: run.pay_runs.period_end, budgetMs: 45000, limit: 20, force: true }, sb);
+    revalidatePath(`/a/payroll/${payslipId}`);
+    if (r.errors.length) return { ok: false, message: r.errors[0] };
+    return { ok: true, message: `${r.checked} checked${r.waiting ? `, ${r.waiting} more next time (press again)` : ""}.` };
+  } catch (e) { return { ok: false, message: (e as Error).message }; }
 });
 }

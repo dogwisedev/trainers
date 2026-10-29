@@ -6,6 +6,7 @@ import { short, todayIso, weekStart, weeksFrom } from "@/lib/dates";
 import { Row, TrainerList } from "./TrainerList";
 import { PayslipBoard } from "@/components/PayslipBoard";
 import { buildDrafts, currentRunDate, getRun } from "@/lib/payrollData";
+import { mileageFlags } from "@/lib/tripRoutes";
 import { serverClient } from "@/lib/supabase";
 import { isPayMonday, periodLabel, runDates, usDate } from "@/lib/payroll";
 import { isDemo } from "@/lib/supabase";
@@ -51,11 +52,12 @@ export default async function Trainers({ searchParams }: { searchParams: { view?
   );
   if (payView) {
     const d = pay.run || runDates(submit); // a saved run keeps its own dates
+    const miles = isDemo() ? new Map<string, number>() : await mileageFlags(pay.slips.map((x) => x.trainer_id), d.period_start, d.period_end);
     return (
       <>
         {header}
         <PayslipBoard key={submit} submit={submit} demo={isDemo()} label={periodLabel(d.period_start, d.period_end)} paid={usDate(d.paid_date)}
-          slips={pay.slips.map((x) => ({ id: x.id, name: x.name, status: x.status, total: Number(x.total), notes: x.notes, sent_at: x.sent_at, send_error: x.send_error, missing: x.missing, lines: x.lines }))} />
+          slips={pay.slips.map((x) => ({ id: x.id, name: x.name, status: x.status, total: Number(x.total), notes: x.notes, sent_at: x.sent_at, send_error: x.send_error, missing: x.missing, miles: miles.get(x.trainer_id) || 0, lines: x.lines }))} />
       </>
     );
   }

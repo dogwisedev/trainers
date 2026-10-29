@@ -65,6 +65,12 @@ A dog name on the deal that looks like two dogs ("Francesca & Jack") or like a p
 ## Forms before the app (Oct 23, 2026)
 `FORMS_CUTOVER` in `lib/reports.ts`. Intake forms and weekly checks due before it were done the old way: the app doesn't ask for them (not late, no penalty). Handover reports due before it are still needed for the client's certificate: they show as "Needed for the certificate" (never late), grouped on To do. Press "Not needed" on any that already went out the old way.
 
+## Mileage check (payslips)
+Each payslip has a **Mileage check**: every pickup, drop-off and follow-up trip in the period, the miles the trainer declared, the driving route from the trainer to the client (doubled for the round trip), and a **Check on Google Maps** link for the same trip.
+- Flags: more than 25% **and** 15 miles over the route, or any trip that earns mileage pay (over the trainer's free miles). Pay is still worked out from the declared miles; fix the line by hand if it's wrong. The payslip cards show how many trips to check.
+- Routes come from FreeRoute (`FREEROUTE_API_KEY` in Vercel; free tier 1,000 requests a day, we use a few). Its address search can pick a same-name town in another state, so an address only counts when the result is in the same ZIP (or state); otherwise the ZIP's centre is used. If FreeRoute errors or doesn't answer, it's a straight-line estimate + 25% for roads, marked "estimate", tried again 6 hours later. No key = estimates only. FreeRoute doesn't report tolls; Google does, on the link.
+- One check per booking and trainer, kept in `trip_routes` (migration 038), redone only when an address changes. The 20-minute forms job checks a few at a time; **Check now** on the payslip does that trainer's trips straight away.
+
 ## October 2026 update (run once)
 1. Supabase → SQL editor: run `supabase/migrations/032_audit_outcomes_and_integrity.sql`, then `033_server_notifications_and_direct_edit_log.sql` (in that order; don't re-run 032 after 033).
 2. Vercel variables (optional, defaults shown):
