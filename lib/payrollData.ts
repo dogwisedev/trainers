@@ -67,15 +67,19 @@ export async function buildDrafts(sb: SupabaseClient, submitDate: string, onlyTr
   if (runErr || !run) throw new Error(runErr?.message || "Couldn't create the pay run.");
 
   const lastDay = addDays(r.weeks[1], 6);
+  // trips and deal_money are server-only tables (no read rule for signed-in users), so they're always read with the server
+  // key, whoever asked for the rebuild. Read as the signed-in admin (the Payslips list, Refresh drafts, opening a payslip)
+  // they came back empty, and every refresh dropped the mileage and follow-up session lines the Monday job had added.
+  const svc = isDemo() ? sb : serviceClient();
   const [{ data: trainers }, { data: bookings }, { data: rateRows }, { data: existing }, { data: tripRows }, { data: fupRows }] = await Promise.all([
     sb.from("trainers").select("id, name, address, probation, probation_release_run, probation_release_amount"),
     sb.from("bookings").select("id, trainer_id, client_name, dog_name, start_date, end_date, weeks, extra_days, rehab, status").neq("status", "cancelled").lte("start_date", lastDay).gte("end_date", r.weeks[0]),
     sb.from("trainer_rates").select("*"),
     sb.from("payslips").select("id, trainer_id, status, adjustments, total, hand_edited, skip_keys, payslip_lines(id, booking_id, kind, auto, days, weeks_completed, amount, program, client, dog)").eq("pay_run_id", run.id),
     // Trips in these two weeks (pickups, drop-offs, follow-up sessions), for mileage pay. No table yet = no mileage lines.
-    sb.from("trips").select("id, trainer_id, booking_id, kind, trip_date, miles, bookings(client_name, dog_name)").gte("trip_date", r.weeks[0]).lte("trip_date", lastDay),
+    svc.from("trips").select("id, trainer_id, booking_id, kind, trip_date, miles, bookings(client_name, dog_name)").gte("trip_date", r.weeks[0]).lte("trip_date", lastDay),
     // Follow-up sessions booked on the deal (follow_up_session__1..3) in these two weeks. No table yet = none.
-    sb.from("deal_money").select("deal_id, followups").overlaps("followups", Array.from({ length: 14 }, (_, i) => addDays(r.weeks[0], i)))
+    svc.from("deal_money").select("deal_id, followups").overlaps("followups", Array.from({ length: 14 }, (_, i) => addDays(r.weeks[0], i)))
   ]);
   const fupDeals = (fupRows || []) as { deal_id: string; followups: string[] }[];
   const { data: fupBookings } = fupDeals.length ? await sb.from("bookings").select("id, trainer_id, client_name, dog_name, hubspot_deal_id, start_date").in("hubspot_deal_id", fupDeals.map((d) => d.deal_id)).neq("status", "cancelled").order("start_date") : { data: [] };
