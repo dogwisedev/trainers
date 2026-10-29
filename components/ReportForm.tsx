@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Plus } from "lucide-react";
 import { approveReportAction, resendReportAction, saveReportAction, sendBackAction, submitReportAction, ReportResult } from "@/app/report-actions";
 import { MediaPicker } from "@/components/MediaPicker";
+import { FormUpload } from "@/components/FormUpload";
 import { Answers, Field, HANDOVER_AFTER, HANDOVER_ROUTE, HANDOVER_SIMPLE, INTAKE_SECTIONS, Item, Kind, MEDIA_ADVICE, MediaItem, Status, WEEKLY_SECTIONS, arr, deadlineHint, hasTrainerPhoto, raw, rawItems, s, validate } from "@/lib/reports";
 import { buildReport, reportHtml } from "@/lib/reportDoc";
 import { WaiveButton } from "@/components/WaiveButton";
@@ -67,6 +68,8 @@ export function ReportForm(p: Props) {
   const missing = useMemo(() => validate(p.kind, answers, media, p.mode === "admin" ? { skip: ["mileage"] } : {}), [p.kind, answers, media, p.mode]);
   const set = (k: string, v: unknown) => { setAnswers((a) => ({ ...a, [k]: v })); setDirty(true); };
   const setM = (m: MediaItem[]) => { setMedia(m); setDirty(true); };
+  // Uploaded on the form (and posted in the chat): attached to this part of the report, like one picked from the chat
+  const attach = (slot: MediaItem["slot"]) => (items: Omit<MediaItem, "slot" | "description">[]) => { setMedia((cur) => [...cur, ...items.filter((i) => !cur.some((m) => m.slot === slot && m.id === i.id)).map((i) => ({ ...i, slot, description: "" }))]); setDirty(true); };
 
   // Autosave 1.5 s after the last change, so a dropped signal or a closed tab doesn't lose work
   const latest = useRef({ answers, media }); latest.current = { answers, media };
@@ -163,7 +166,12 @@ export function ReportForm(p: Props) {
               <p><b>{s(answers.dogName) || "Dog"}</b> <span className="text-ink-soft">with {s(answers.clientName)}. Trainer {s(answers.trainerName)}.</span></p>
               <p className="text-ink-soft">{deadlineHint(p.kind)}{p.due ? ` Due ${new Date(p.due).toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric", timeZone: "America/New_York" })}.` : ""}</p>
               {p.kind !== "handover" && (
-                <p className={`rounded-xl p-3 text-body ${p.kind === "intake" ? "bg-biscuit-wash font-semibold text-warn" : "bg-paper"}`}>{MEDIA_ADVICE[p.kind]} {chatHref ? <Link prefetch={false} href={chatHref} className="underline">Open the chat</Link> : "This dog has no chat yet: ask the team to start one."}</p>
+                <div className="space-y-2">
+                  <p className={`rounded-xl p-3 text-body ${p.kind === "intake" ? "bg-biscuit-wash font-semibold text-warn" : "bg-paper"}`}>{MEDIA_ADVICE[p.kind]} {chatHref && <Link prefetch={false} href={chatHref} className="font-normal underline">Open the chat</Link>}</p>
+                  {/* Only posts to the chat (the form isn't changed), so it stays available after the form is sent in */}
+                  {!waived && <FormUpload chatId={p.chatId} bookingId={p.bookingId} demo={p.demo} label="Add photos or videos"
+                    caption={p.kind === "intake" ? `Pickup photos and video of ${s(answers.dogName) || "the dog"}` : `Week ${p.week ?? ""} health check`.replace("  ", " ")} />}
+                </div>
               )}
               {p.kind === "handover" && (
                 <>
@@ -181,12 +189,14 @@ export function ReportForm(p: Props) {
               {card("Training details", (
                 <>
                   <ItemList title="Training" value={rawItems(answers.training)} onChange={(v) => set("training", v)} hint="What was done, and an explanation." />
+                  {editable && <div className="mt-3"><FormUpload chatId={p.chatId} bookingId={p.bookingId} demo={p.demo} kinds="video" label="Add a training video" caption="Training video" onAdded={attach("training")} /></div>}
                   <MediaPicker bookingId={p.bookingId} slot="training" kind="video" label="Training videos from the chat (optional)" items={media} onChange={setM} describe chatHref={chatHref} />
                 </>
               ))}
               {card("Homework details", (
                 <>
                   <ItemList title="Homework" value={rawItems(answers.homework)} onChange={(v) => set("homework", v)} hint="Clear directions, personalized for this client." />
+                  {editable && <div className="mt-3"><FormUpload chatId={p.chatId} bookingId={p.bookingId} demo={p.demo} kinds="video" label="Add a homework video" caption="Homework video" onAdded={attach("homework")} /></div>}
                   <MediaPicker bookingId={p.bookingId} slot="homework" kind="video" label="Homework videos from the chat (optional)" items={media} onChange={setM} describe chatHref={chatHref} />
                 </>
               ))}
@@ -196,7 +206,8 @@ export function ReportForm(p: Props) {
                 <>
                   <span className="label">Photo of the dog with the trainer</span>
                   {!hasTrainerPhoto(media) && <p className="mb-2 rounded-xl bg-biscuit-wash p-3 text-body font-semibold text-warn">{MEDIA_ADVICE.handover}{p.mode === "trainer" ? " You can still submit without it, but the team will be told." : ""}</p>}
-                  <MediaPicker bookingId={p.bookingId} slot="health" kind="photo" label="Pick a photo from the chat" items={media} onChange={setM} describe={false} chatHref={chatHref} />
+                  {editable && <div className="mb-3"><FormUpload chatId={p.chatId} bookingId={p.bookingId} demo={p.demo} kinds="photo" label="Add the photo" caption={`${s(answers.dogName) || "The dog"} with ${s(answers.trainerName) || "the trainer"}`} onAdded={attach("health")} /></div>}
+                  <MediaPicker bookingId={p.bookingId} slot="health" kind="photo" label="Or pick a photo from the chat" items={media} onChange={setM} describe={false} chatHref={chatHref} />
                 </>
               ))}
             </>

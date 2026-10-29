@@ -234,10 +234,11 @@ export function validate(kind: Kind, a: Answers, media: MediaItem[], opts: { ski
 /** Has the handover got its photo of the dog with the trainer? */
 export const hasTrainerPhoto = (media: MediaItem[]) => media.some((m) => m.slot === "health" && m.kind === "photo");
 /** The reminder shown on the form instead of blocking it. */
+/** What each form asks for in photos and videos. They're added on the form and posted in the dog's chat too (components/FormUpload.tsx). */
 export const MEDIA_ADVICE: Record<Kind, string> = {
-  intake: "Please update video on chat: post the pickup photos and a video in the dog's chat (show any injuries, cuts, scars or missing parts clearly).",
-  weekly: "Please update video on chat: send photos and videos in the dog's chat, not on this form.",
-  handover: "Please update video on chat: post a photo of you with the dog in the chat, then pick it below."
+  intake: "Add the pickup photos and a video (show any injuries, cuts, scars or missing parts clearly).",
+  weekly: "Add this week's photos and videos.",
+  handover: "Add a photo of you with the dog, or pick one that's already in the chat."
 };
 
 export const kindName = (kind: Kind) => (kind === "weekly" ? "Weekly health check" : kind === "intake" ? "Intake form" : "Handover report");

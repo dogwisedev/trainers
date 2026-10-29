@@ -89,7 +89,7 @@ export async function submitReportAction(id: string, answers: Answers, media: Me
       await raiseIncident({ kind: "intake_media_missing", title: label, chatId: pickup.chatId, bookingId: b.booking.id, reportId: id, ref: `report:${id}`,
         detail: `${b.trainer.name} submitted the intake form for ${dog || "the dog"} with no pickup photos or video in the chat${pickup.chatId ? "" : " (the dog has no chat yet)"}.`,
         link: pickup.chatId ? `${site()}/a/chats/${pickup.chatId}` : `${site()}/a/reports/${id}` });
-      mediaNote = " Please update video on chat: post the pickup photos and a video in the dog's chat.";
+      mediaNote = " No pickup photos or video yet: tap Add photos or videos on this form (they go into the dog's chat too).";
     }
     if (b.report.kind === "handover" && !hasTrainerPhoto(m)) {
       await raiseIncident({ kind: "handover_photo_missing", title: label, chatId: b.chat?.id || null, bookingId: b.booking.id, reportId: id, ref: `report:${id}`,
