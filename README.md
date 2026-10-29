@@ -65,6 +65,9 @@ A dog name on the deal that looks like two dogs ("Francesca & Jack") or like a p
 ## Forms before the app (Oct 23, 2026)
 `FORMS_CUTOVER` in `lib/reports.ts`. Intake forms and weekly checks due before it were done the old way: the app doesn't ask for them (not late, no penalty). Handover reports due before it are still needed for the client's certificate: they show as "Needed for the certificate" (never late), grouped on To do. Press "Not needed" on any that already went out the old way.
 
+## Pulse (dashboard preview)
+`/a/pulse`, for admins on `PULSE_EMAILS` (default alma@dogwiseacademy.com); others get a 404. A date range (presets or custom), compared with the period before: decision cards (rules in `lib/pulse.ts`), six numbers with 90-day sparklines and "how it's worked out", trainers ranked by daily updates (Wilson lower bound; under a week of data = no rank) then reply time, and lost deals from HubSpot by reason, with "lost for lack of a nearby trainer" by area. Rules: quiet (Signal) chats and days before the Oct 23 cutover don't count; reply times are waking hours (8 AM–8 PM Eastern), medians not averages (`lib/pulseMath.ts`). Live queries for now; a nightly facts table comes later.
+
 ## Cancel training (dog page)
 Asks why (`lib/cancelReasons.ts`, saved on the booking: migration 040) and says plainly who's told: the trainer gets a cancellation with a calendar removal, the office gets a "Training cancelled" alert with the reason, and the kennel frees up. Only for trainings that were really cancelled. The reason isn't in the trainer's email.
 

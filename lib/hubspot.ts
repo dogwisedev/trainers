@@ -1,4 +1,5 @@
 import "server-only";
+import { addDays } from "./dates";
 
 // HubSpot, read-only: deal dates and whether the deal is still Closed Won.
 // Vercel variables:
@@ -206,6 +207,30 @@ export async function closedWonSince(since: string, properties: string[]): Promi
   // Filtering on "is closed won" keeps the search small; if this portal won't filter on it, filter here instead
   const all = await run(true).catch(() => run(false));
   return all.filter((d) => d.properties.hs_is_closed_won === "true");
+}
+
+/** Deals lost between two dates (Eastern): closed lost, "No Trainers Available" and "Cancelled/Refunded", with why. For Pulse. */
+export async function lostDealsBetween(from: string, to: string): Promise<{ id: string; properties: DealProps }[]> {
+  const LOST_STAGES = ["173324394", "173376666", "1166729018", "93900622", "142034212", "107667607"];
+  const out: { id: string; properties: DealProps }[] = [];
+  let after: string | undefined;
+  for (let page = 0; page < 10; page++) {
+    const res = await hs<SearchPage>("/crm/v3/objects/deals/search", {
+      method: "POST", body: JSON.stringify({
+        filterGroups: [{ filters: [
+          { propertyName: "closedate", operator: "GTE", value: String(etMidnightMs(from)) },
+          { propertyName: "closedate", operator: "LT", value: String(etMidnightMs(addDays(to, 1))) },
+          { propertyName: "dealstage", operator: "IN", values: LOST_STAGES }
+        ] }],
+        properties: ["dealname", "amount", "closedate", "dealstage", "closed_lost_reason_new", "trainer_in_range", "type_of_program_sold", "lead_source"],
+        sorts: [{ propertyName: "closedate", direction: "DESCENDING" }], limit: 100, ...(after ? { after } : {})
+      })
+    });
+    out.push(...(res.results || []).map((r) => ({ id: String(r.id), properties: r.properties || {} })));
+    after = res.paging?.next?.after;
+    if (!after) break;
+  }
+  return out;
 }
 
 // ── Client form links ──
