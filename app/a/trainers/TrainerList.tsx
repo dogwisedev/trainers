@@ -39,7 +39,7 @@ export function TrainerList({ rows }: { rows: Row[] }) {
                 <p className="mt-1 text-small">{r.away ? <span className="text-heart">Away this week</span> : <><span className="font-semibold">{r.freeNow} free</span><span className="text-ink-soft"> of {r.cap}. 3-week opening {r.opening}</span></>}</p>
               </div>
               <div className="flex flex-col-reverse gap-[3px]" aria-hidden>
-                {Array.from({ length: Math.min(r.cap, 8) }, (_, i) => <span key={i} className={`h-2.5 w-2.5 rounded-[3px] ${r.away ? "kennel-blocked" : i < r.inNow ? "bg-ink" : i < r.cap - r.freeNow ? "kennel-blocked" : "bg-mint"}`} />)}
+                {Array.from({ length: Math.min(r.cap, 8) }, (_, i) => <span key={i} className={`h-2.5 w-2.5 rounded-[3px] ${r.away ? "kennel-blocked" : i < r.inNow ? "bg-ink" : i < r.cap - r.freeNow ? "kennel-blocked" : "bg-mint dark:bg-transparent dark:ring-1 dark:ring-inset dark:ring-lav"}`} />)}
               </div>
             </Link>
           </li>

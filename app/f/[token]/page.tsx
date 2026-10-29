@@ -3,7 +3,7 @@ import { isDemo } from "@/lib/supabase";
 import { contactFromToken, loadForm } from "@/lib/clientForms";
 import { SECTIONS } from "@/lib/pretrainingFields";
 import { ClientForm } from "@/components/ClientForm";
-import Image from "next/image";
+import { BrandLogo } from "@/components/BrandLogo";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60; // reads HubSpot
@@ -17,7 +17,7 @@ export default async function ClientFormPage({ params }: { params: { token: stri
   const f = await loadForm(id).catch(() => null);
   return (
     <main className="mx-auto max-w-xl px-4 pb-24 pt-[max(20px,env(safe-area-inset-top))]">
-      <div className="mb-5"><Image src="/brand-logo.png" alt="Dogwise Academy" width={132} height={41} priority /></div>
+      <div className="mb-5"><BrandLogo width={132} height={41} /></div>
       {f ? <ClientForm token={params.token} f={f} sections={SECTIONS} />
         : <p className="panel p-5 text-body">We couldn&apos;t load your questions just now. Please try again in a minute, or reply to your Dogwise email.</p>}
     </main>

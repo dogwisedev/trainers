@@ -3,13 +3,32 @@
 @tailwind components;
 @tailwind utilities;
 
-:root { color-scheme: light; }
-html, body { overflow-x: clip; background: #F8F6FD; color: #281870; -webkit-tap-highlight-color: transparent; }
+:root {
+  color-scheme: light;
+  /* Dogwise palette (light): r g b. Text colours */
+  --ink: 40 24 112; --ink-soft: 93 88 128; --ink-faint: 107 102 137;
+  --lav: 152 120 248; --lav-deep: 110 79 224; --fern: 63 37 120; --warn: 122 84 24; --heart: 144 75 39; --biscuit: 201 181 158; --mint-deep: 63 37 120;
+  /* Surfaces */
+  --surface: 255 255 255; --canvas: 248 246 253; --paper: 240 232 248; --line: 227 222 242;
+  --mint-wash: 240 232 248; --heart-wash: 251 238 232; --biscuit-wash: 247 241 232;
+  /* Strong backgrounds (white text sits on these) */
+  --ink-bg: 40 24 112; --fern-bg: 63 37 120; --heart-bg: 144 75 39; --lav-bg: 152 120 248; --mint-bg: 152 120 248; --lav-deep-bg: 110 79 224; --mint-deep-bg: 63 37 120; --biscuit-bg: 201 181 158;
+}
+/* Dark mode (Your account → Appearance). Every text colour here passes 4.5:1 on the surfaces it sits on. */
+[data-theme="dark"] {
+  color-scheme: dark;
+  --ink: 237 232 255; --ink-soft: 190 182 222; --ink-faint: 160 152 196;
+  --lav: 176 150 255; --lav-deep: 190 168 255; --fern: 196 178 255; --warn: 232 188 110; --heart: 245 160 122; --biscuit: 150 125 85; --mint-deep: 110 91 184;
+  --surface: 28 22 62; --canvas: 17 13 40; --paper: 38 30 80; --line: 58 49 102;
+  --mint-wash: 40 31 92; --heart-wash: 58 30 24; --biscuit-wash: 52 42 24;
+  --ink-bg: 98 71 214; --fern-bg: 116 87 232; --heart-bg: 176 88 50; --lav-bg: 124 98 240; --mint-bg: 58 47 122; --lav-deep-bg: 110 79 224; --mint-deep-bg: 72 52 160; --biscuit-bg: 110 90 56;
+}
+html, body { overflow-x: clip; background: rgb(var(--canvas)); color: rgb(var(--ink)); -webkit-tap-highlight-color: transparent; }
 body { font-feature-settings: "ss01"; font-variation-settings: "wdth" 96; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; }
 h1, h2, h3 { font-variation-settings: "wdth" 78; letter-spacing: -0.02em; text-wrap: balance; }
 p { text-wrap: pretty; }
-::selection { background: #F0E8F8; color: #281870; }
-:focus-visible { outline: 2px solid #9878F8; outline-offset: 2px; }
+::selection { background: rgb(var(--paper)); color: rgb(var(--ink)); }
+:focus-visible { outline: 2px solid rgb(var(--lav)); outline-offset: 2px; }
 
 @layer components {
   .field { @apply block w-full rounded-xl border border-line bg-white px-3.5 py-3 text-input text-ink placeholder:text-ink-faint focus:border-lav focus:outline-none focus:ring-4 focus:ring-lav/15 md:text-body; }
@@ -26,6 +45,8 @@ p { text-wrap: pretty; }
   .count { @apply inline-grid h-[22px] min-w-[22px] place-items-center rounded-full bg-paper px-1.5 text-caption font-bold text-ink-soft; }
   .skeleton { @apply animate-shimmer rounded-xl bg-[linear-gradient(90deg,#EFEAF8_0%,#F8F5FD_40%,#EFEAF8_80%)] bg-[length:800px_100%]; }
   .kennel-blocked { background: repeating-linear-gradient(135deg, #FDE8EC 0 4px, #F7C4CE 4px 8px); }
+  [data-theme="dark"] .kennel-blocked { background: repeating-linear-gradient(135deg, #3A1E2A 0 4px, #5A2C3C 4px 8px); }
+  [data-theme="dark"] .skeleton { background-image: linear-gradient(90deg, #241D4A 0%, #2E2660 40%, #241D4A 80%); }
 }
 
 @keyframes fadein { from { opacity: 0; } to { opacity: 1; } }

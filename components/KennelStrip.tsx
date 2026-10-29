@@ -24,7 +24,7 @@ export function KennelStrip({ use, compact = false }: { use: WeekUse[]; compact?
               <div className={`flex flex-col-reverse gap-1 rounded-[14px] p-1.5 ${now ? "bg-biscuit-wash ring-2 ring-biscuit" : over ? "bg-heart-wash" : "bg-paper"}`}>
                 {cells.map((c, i) => (
                   <span key={i} style={{ width: size, height: size }}
-                    className={`grid place-items-center rounded-[7px] text-micro font-bold ${c.kind === "dog" ? "bg-ink text-white" : c.kind === "off" ? "kennel-blocked" : "bg-mint"}`}>
+                    className={`grid place-items-center rounded-[7px] text-micro font-bold ${c.kind === "dog" ? "bg-ink text-white" : c.kind === "off" ? "kennel-blocked" : "bg-mint dark:bg-transparent dark:ring-1 dark:ring-inset dark:ring-lav"}`}>
                     {!compact && c.label}
                   </span>
                 ))}
@@ -43,7 +43,7 @@ export function KennelLegend() {
   return (
     <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-caption text-ink-soft">
       <span className="inline-flex items-center gap-1.5"><span className="h-3 w-3 rounded-[4px] bg-ink" />Dog in training</span>
-      <span className="inline-flex items-center gap-1.5"><span className="h-3 w-3 rounded-[4px] bg-mint" />Free kennel</span>
+      <span className="inline-flex items-center gap-1.5"><span className="h-3 w-3 rounded-[4px] bg-mint dark:bg-transparent dark:ring-1 dark:ring-inset dark:ring-lav" />Free kennel</span>
       <span className="inline-flex items-center gap-1.5"><span className="kennel-blocked h-3 w-3 rounded-[4px]" />Time off</span>
     </div>
   );

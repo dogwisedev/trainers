@@ -75,9 +75,9 @@ export function MediaViewer({ m, onClose }: { m: MediaRef | null; onClose: () =>
     <div role="dialog" aria-modal="true" aria-label={m.name} className="fixed inset-0 z-50 flex flex-col bg-[#120B33]/95 text-white">
       <div className="flex items-center gap-2 px-3 pb-2 pt-[max(10px,env(safe-area-inset-top))]">
         <p className="min-w-0 flex-1 truncate text-body font-semibold">{m.name}</p>
-        <a href={driveDownload(m.id)} className="grid h-11 w-11 place-items-center rounded-full hover:bg-white/10" aria-label="Download"><Download size={20} /></a>
-        <a href={driveView(m.id)} target="_blank" rel="noopener" className="grid h-11 w-11 place-items-center rounded-full hover:bg-white/10" aria-label="Open in Google Drive"><ExternalLink size={19} /></a>
-        <button type="button" onClick={onClose} className="grid h-11 w-11 place-items-center rounded-full bg-white/10 hover:bg-white/20" aria-label="Close"><X size={22} /></button>
+        <a href={driveDownload(m.id)} className="grid h-11 w-11 place-items-center rounded-full hover:bg-[rgb(255_255_255/0.1)]" aria-label="Download"><Download size={20} /></a>
+        <a href={driveView(m.id)} target="_blank" rel="noopener" className="grid h-11 w-11 place-items-center rounded-full hover:bg-[rgb(255_255_255/0.1)]" aria-label="Open in Google Drive"><ExternalLink size={19} /></a>
+        <button type="button" onClick={onClose} className="grid h-11 w-11 place-items-center rounded-full bg-[rgb(255_255_255/0.1)] hover:bg-[rgb(255_255_255/0.2)]" aria-label="Close"><X size={22} /></button>
       </div>
       <div className="relative min-h-0 flex-1 px-2 pb-[max(12px,env(safe-area-inset-bottom))]">
         {photo ? (

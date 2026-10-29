@@ -1,7 +1,6 @@
 "use client";
 import Link from "next/link";
 import { useState } from "react";
-import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { CalendarDays, ClipboardList, Home, KeyRound, LayoutGrid, MessageCircle, MessagesSquare, TriangleAlert, UserRound, Users, Wallet, PawPrint, ListChecks, TrendingUp } from "lucide-react";
 import { PasswordForm } from "@/components/forms";
@@ -9,6 +8,7 @@ import { Avatar } from "@/components/ui";
 import { AppSetup } from "@/components/AppSetup";
 import { SignOutButton } from "@/components/SignOutButton";
 import { TourInvite } from "@/components/TrainerTour";
+import { BrandLogo } from "@/components/BrandLogo";
 
 const ICONS = { home: Home, calendar: CalendarDays, messages: MessageCircle, profile: UserRound, grid: LayoutGrid, users: Users, pay: Wallet, reports: ClipboardList, chats: MessagesSquare, alert: TriangleAlert, paw: PawPrint, todo: ListChecks, sales: TrendingUp };
 export type NavItem = { href: string; label: string; icon: keyof typeof ICONS; badge?: number; also?: string[] };
@@ -98,7 +98,7 @@ function DemoNote() {
 export function Brand({ small = false }: { small?: boolean }) {
   return (
     <Link prefetch={false} href="/" className="flex items-center gap-2.5">
-      <Image src="/brand-logo.png" alt="Dogwise Academy" width={small ? 112 : 140} height={small ? 36 : 45} priority />
+      <BrandLogo width={small ? 112 : 140} height={small ? 36 : 45} />
     </Link>
   );
 }

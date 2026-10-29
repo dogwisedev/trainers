@@ -8,23 +8,44 @@ import type { Config } from "tailwindcss";
 //  heart    #904B27  rust: urgent
 //  biscuit  #C9B59E  sand: needs attention (backgrounds only); warn #7A5418 is its text colour
 //
+//
+// Dark mode: every colour is a CSS variable (app/globals.css), switched by <html data-theme="dark"> (Your account → Appearance).
+// Text and background versions of a colour can differ, so white text stays readable on buttons and badges in both themes:
+// bg-ink, bg-fern, bg-heart, bg-lav/mint, bg-biscuit stay strong in dark mode; text-ink and friends turn light. bg-white is the
+// card surface (dark in dark mode); text-white is always white. Use bg-[#fff] for things that must stay white (document previews).
+//
 // Type scale: use these, never text-[NNpx]. Inputs stay 16px on phones so iPhone doesn't zoom in when you tap them.
+const v = (name: string) => `rgb(var(--${name}) / <alpha-value>)`;
+
 export default {
   content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}"],
+  darkMode: ["selector", '[data-theme="dark"]'],
   theme: {
     extend: {
       colors: {
-        ink: { DEFAULT: "#281870", soft: "#5D5880", faint: "#6B6689" },
-        lav: { DEFAULT: "#9878F8", deep: "#6E4FE0" },
-        mint: { DEFAULT: "#9878F8", deep: "#3F2578", wash: "#F0E8F8" },
-        fern: "#3F2578",
-        biscuit: { DEFAULT: "#C9B59E", wash: "#F7F1E8" },
-        warn: "#7A5418",
-        heart: { DEFAULT: "#904B27", wash: "#FBEEE8" },
-        paper: "#F0E8F8",
-        canvas: "#F8F6FD",
-        line: "#E3DEF2"
+        ink: { DEFAULT: v("ink"), soft: v("ink-soft"), faint: v("ink-faint") },
+        lav: { DEFAULT: v("lav"), deep: v("lav-deep") },
+        mint: { DEFAULT: v("lav"), deep: v("mint-deep"), wash: v("mint-wash") },
+        fern: v("fern"),
+        biscuit: { DEFAULT: v("biscuit"), wash: v("biscuit-wash") },
+        warn: v("warn"),
+        heart: { DEFAULT: v("heart"), wash: v("heart-wash") },
+        paper: v("paper"),
+        canvas: v("canvas"),
+        line: v("line")
       },
+      // Backgrounds that carry white text keep their own (strong) colour in dark mode; bg-white is the card surface
+      backgroundColor: {
+        white: v("surface"),
+        ink: { DEFAULT: v("ink-bg") },
+        fern: v("fern-bg"),
+        heart: { DEFAULT: v("heart-bg") },
+        lav: { DEFAULT: v("lav-bg"), deep: v("lav-deep-bg") },
+        mint: { DEFAULT: v("mint-bg"), deep: v("mint-deep-bg") },
+        biscuit: { DEFAULT: v("biscuit-bg") }
+      },
+      borderColor: { white: v("surface") },
+      ringColor: { white: v("surface") },
       fontSize: {
         micro: ["11px", { lineHeight: "14px" }],
         caption: ["12px", { lineHeight: "16px" }],
