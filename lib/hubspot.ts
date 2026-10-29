@@ -260,6 +260,34 @@ export async function dealsCreatedBetween(from: string, to: string, maxPages = 2
   return { rows, total: Math.max(total, rows.length), capped: !!after };
 }
 
+/** How many records match, without fetching them (HubSpot's `total`): deals created by an owner, calls made, emails sent… */
+export async function countObjects(object: "deals" | "calls" | "emails" | "meetings", filters: { propertyName: string; operator: string; value?: string; values?: string[] }[]): Promise<number> {
+  const res = await hs<{ total?: number }>(`/crm/v3/objects/${object}/search`, { method: "POST", body: JSON.stringify({ filterGroups: [{ filters }], properties: ["hs_object_id"], limit: 1 }) });
+  return res.total || 0;
+}
+/** Closed Won deals with a close date inside [from, to] (Eastern), up to `maxPages` × 100. For "same range last year" and "next month, last year". */
+export async function closedWonBetween(from: string, to: string, maxPages = 5): Promise<{ rows: { id: string; properties: DealProps }[]; total: number }> {
+  const rows: { id: string; properties: DealProps }[] = [];
+  let after: string | undefined, total = 0;
+  for (let page = 0; page < maxPages; page++) {
+    const res = await hs<SearchPage & { total?: number }>("/crm/v3/objects/deals/search", {
+      method: "POST", body: JSON.stringify({
+        filterGroups: [{ filters: [
+          { propertyName: "closedate", operator: "GTE", value: String(etMidnightMs(from)) }, { propertyName: "closedate", operator: "LT", value: String(etMidnightMs(addDays(to, 1))) },
+          { propertyName: "hs_is_closed_won", operator: "EQ", value: "true" }
+        ] }], properties: ["dealname", "amount", "closedate", "createdate", "hubspot_owner_id", "lead_source", "deal_source", "bark_credits_paid", "type_of_program_sold"], limit: 100, ...(after ? { after } : {})
+      })
+    });
+    total = res.total ?? total;
+    rows.push(...(res.results || []).map((r) => ({ id: String(r.id), properties: r.properties || {} })));
+    after = res.paging?.next?.after;
+    if (!after) break;
+  }
+  return { rows, total: Math.max(total, rows.length) };
+}
+/** Epoch ms for a date's Eastern midnight, for callers outside this file. */
+export const etMidnight = (date: string) => etMidnightMs(date);
+
 // ── Client form links ──
 /** A contact's deals, newest first (by close date, else created). */
 export async function contactDeals(contactId: string, properties: string[]): Promise<{ id: string; properties: DealProps }[]> {

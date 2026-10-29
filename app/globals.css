@@ -46,6 +46,7 @@ p { text-wrap: pretty; }
   .skeleton { @apply animate-shimmer rounded-xl bg-[linear-gradient(90deg,#EFEAF8_0%,#F8F5FD_40%,#EFEAF8_80%)] bg-[length:800px_100%]; }
   .kennel-blocked { background: repeating-linear-gradient(135deg, #FDE8EC 0 4px, #F7C4CE 4px 8px); }
   [data-theme="dark"] .kennel-blocked { background: repeating-linear-gradient(135deg, #3A1E2A 0 4px, #5A2C3C 4px 8px); }
+  @keyframes fade-in { to { opacity: 1; } }
   [data-theme="dark"] .skeleton { background-image: linear-gradient(90deg, #241D4A 0%, #2E2660 40%, #241D4A 80%); }
 }
 

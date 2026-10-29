@@ -16,6 +16,21 @@ async function stripe<T>(path: string, form: Record<string, string>): Promise<T>
   return d as T;
 }
 
+/** Card payments that failed between two instants (epoch seconds): how many, and how much. For Pulse (Sales). */
+export async function failedCharges(fromSec: number, toSec: number): Promise<{ n: number; amount: number }> {
+  let n = 0, amount = 0, starting: string | undefined;
+  for (let page = 0; page < 10; page++) {
+    const qs = new URLSearchParams({ limit: "100", "created[gte]": String(fromSec), "created[lte]": String(toSec), ...(starting ? { starting_after: starting } : {}) });
+    const r = await fetch(`https://api.stripe.com/v1/charges?${qs}`, { cache: "no-store", headers: { Authorization: `Bearer ${process.env.STRIPE_SECRET_KEY}` } });
+    const d = await r.json() as { data?: { id: string; status: string; amount: number; currency: string }[]; has_more?: boolean; error?: { message: string } };
+    if (!r.ok) throw new Error(`Stripe: ${d?.error?.message || r.status}`);
+    for (const c of d.data || []) if (c.status === "failed") { n++; amount += c.amount / 100; }
+    if (!d.has_more || !d.data?.length) break;
+    starting = d.data[d.data.length - 1].id;
+  }
+  return { n, amount: Math.round(amount) };
+}
+
 /** A one-time payment link for exactly the remaining balance, tagged with the HubSpot deal id. */
 export async function createRemainingLink(o: { dealId: string; amount: number; label: string }): Promise<{ url: string; id: string }> {
   const cents = Math.round(o.amount * 100);
