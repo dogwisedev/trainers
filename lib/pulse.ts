@@ -2,7 +2,9 @@ import "server-only";
 import { serviceClient, isDemo } from "./supabase";
 import { addDays, daysBetween, todayIso } from "./dates";
 import { FORMS_CUTOVER } from "./reports";
-import { hubspotConfigured, lostDealsBetween } from "./hubspot";
+import { closedWonSince, dealsCreatedBetween, hubspotConfigured, lostDealsBetween } from "./hubspot";
+import { stateOf } from "./usTiles";
+import { buildTodo } from "./todo";
 import { dayET, delta, median, percentile, replyRuns, wilsonLower } from "./pulseMath";
 
 // Pulse: the dashboard's numbers for a date range (and the period before it, for comparison). Preview for Alma.
@@ -24,7 +26,7 @@ export function pulseRange(q: { r?: string; from?: string; to?: string }): Range
 }
 
 type BookingRow = { id: string; trainer_id: string; hubspot_deal_id: string | null; dog_name: string | null; client_name: string; start_date: string; end_date: string; status: string; created_at: string; cancelled_at?: string | null; cancel_reason?: string | null; program: string | null; trainers: { name: string } | null };
-type ChatRow = { id: string; deal_key: string; trainer_id: string | null; quiet_at?: string | null };
+type ChatRow = { id: string; deal_key: string; trainer_id: string | null; quiet_at?: string | null; client_user_id: string | null; client_name: string | null; title: string | null; status: string };
 type MsgRow = { chat_id: string; sender_role: string; kind: string; created_at: string };
 
 export type Tile = { key: string; label: string; value: string; sub: string; delta: { text: string; up: boolean | null }; good?: "up" | "down"; n?: string; how: string; spark: number[] };
@@ -33,10 +35,20 @@ export type TrainerRow = {
   id: string; name: string; dogs: number; careDays: number; postDays: number; updateRate: number | null; updateLow: number; replyMedian: number | null; replyN: number;
   formsOnTime: number | null; formsN: number; alerts: number; pay: number; weeks: number; rank: number | null;
 };
+export type View = "clients" | "trainers" | "sales" | "office";
+export type StateCell = { st: string; created: number; won: number; wonAmount: number; credits: number; coverageLost: number };
+export type SalesView = {
+  created: number; createdTotal: number; capped: boolean; won: number; wonAmount: number; credits: number; creditCost: number | null;
+  perLead: string; perSale: string; closeDays: number | null; closeN: number;
+  bySource: { source: string; created: number; won: number; credits: number }[];
+  states: StateCell[]; wonList: { name: string; amount: number; closedOn: string; st: string | null }[];
+};
+export type ClientsView = { chats: number; joined: number; silent24: { dog: string; client: string; trainer: string; hours: number; href: string }[] };
+export type OfficeView = { todo: number; now: number; toReview: number; lateForms: number; notBooked: number; notSignedIn: number; items: { text: string; href?: string; group: string }[] };
 export type Pulse = {
-  range: Range; tiles: Tile[]; cards: Card[]; trainers: TrainerRow[];
+  range: Range; view: View; tiles: Tile[]; cards: Card[]; trainers: TrainerRow[];
   lost: { total: number; amount: number; coverage: number; coverageAmount: number; reasons: { reason: string; n: number; amount: number }[]; regions: { region: string; n: number }[] } | null;
-  notes: string[];
+  sales: SalesView | null; clients: ClientsView | null; office: OfficeView | null; notes: string[];
 };
 
 const money = (n: number) => `$${Math.round(n).toLocaleString("en-US")}`;
@@ -49,9 +61,10 @@ function careDaysIn(b: { start_date: string; end_date: string }, from: string, t
   return out;
 }
 
-export async function pulse(q: { r?: string; from?: string; to?: string }): Promise<Pulse> {
+export async function pulse(q: { r?: string; from?: string; to?: string; v?: string; state?: string }): Promise<Pulse> {
   const range = pulseRange(q), notes: string[] = [];
-  const empty: Pulse = { range, tiles: [], cards: [], trainers: [], lost: null, notes: ["Demo mode: no data."] };
+  const view: View = (["clients", "trainers", "sales", "office"] as View[]).find((x) => x === q.v) || "clients";
+  const empty: Pulse = { range, view, tiles: [], cards: [], trainers: [], lost: null, sales: null, clients: null, office: null, notes: ["Demo mode: no data."] };
   if (isDemo()) return empty;
   const sb = serviceClient();
   const sparkFrom = addDays(range.to, -89); // 90-day sparklines
@@ -59,7 +72,7 @@ export async function pulse(q: { r?: string; from?: string; to?: string }): Prom
 
   const [{ data: bks }, { data: chats }, { data: msgs }, { data: incs }, { data: reps }, { data: slips }, { data: deals }] = await Promise.all([
     sb.from("bookings").select("id, trainer_id, hubspot_deal_id, dog_name, client_name, start_date, end_date, status, created_at, cancelled_at, cancel_reason, program, trainers(name)").lte("start_date", range.to).gte("end_date", loadFrom),
-    sb.from("chats").select("id, deal_key, trainer_id, quiet_at"),
+    sb.from("chats").select("id, deal_key, trainer_id, quiet_at, client_user_id, client_name, title, status"),
     sb.from("chat_messages").select("chat_id, sender_role, kind, created_at").gte("created_at", `${loadFrom}T00:00:00Z`).lte("created_at", `${addDays(range.to, 1)}T12:00:00Z`).in("kind", ["text", "media"]).limit(20000),
     sb.from("chat_incidents").select("chat_id, kind, opened_at, resolved_at, status").gte("opened_at", `${loadFrom}T00:00:00Z`),
     sb.from("reports").select("trainer_id, kind, due_by, submitted_at, status").gte("submitted_at", `${range.prevFrom}T00:00:00Z`).lte("submitted_at", `${addDays(range.to, 1)}T12:00:00Z`),
@@ -156,10 +169,10 @@ export async function pulse(q: { r?: string; from?: string; to?: string }): Prom
   void groupRate;
 
   // ── Lost deals (HubSpot live) ──
-  let lost: Pulse["lost"] = null;
+  let lost: Pulse["lost"] = null, lostRows: { id: string; properties: Record<string, string | null> }[] = [];
   if (hubspotConfigured()) {
     try {
-      const rows = await lostDealsBetween(range.from, range.to);
+      const rows = await lostDealsBetween(range.from, range.to); lostRows = rows;
       const reasons = new Map<string, { n: number; amount: number }>(), regions = new Map<string, number>();
       let coverage = 0, coverageAmount = 0;
       for (const d of rows) {
@@ -185,7 +198,81 @@ export async function pulse(q: { r?: string; from?: string; to?: string }): Prom
   if (now.formsN >= 10 && pct(now.formsOk, now.formsN)! < 70) cards.push({ tone: "biscuit", title: `Forms on time: ${pct(now.formsOk, now.formsN)}%`, evidence: `${now.formsN - now.formsOk} of ${now.formsN} forms were late in this range.`, href: "/a#todo-week", action: "See late forms" });
   if (!cards.length) cards.push({ tone: "mint", title: "Nothing needs a decision in this range", evidence: "Updates, replies, forms and cancellations are all inside their usual bands." });
 
-  return { range, tiles, cards: cards.slice(0, 5), trainers, lost, notes };
+  // ── Clients view: joined the app, and dogs in care with no word from Dogwise for 24 h+ ──
+  let clientsView: ClientsView | null = null;
+  if (view === "clients") {
+    const careNow = live.filter((b) => b.start_date <= range.to && b.end_date > range.to);
+    const chatsNow = careNow.map(chatOf).filter((c): c is ChatRow => !!c && !quiet.has(c.id));
+    const { data: reads } = chatsNow.length ? await sb.from("chat_reads").select("chat_id, user_id").in("chat_id", chatsNow.map((c) => c.id)) : { data: [] };
+    const seen = new Set(((reads || []) as { chat_id: string; user_id: string }[]).filter((r) => chatsNow.some((c) => c.id === r.chat_id && c.client_user_id === r.user_id)).map((r) => r.chat_id));
+    const nowMs = Date.now(), silent24: ClientsView["silent24"] = [];
+    for (const b of careNow) {
+      const c = chatOf(b); if (!c || quiet.has(c.id)) continue;
+      const staff = (byChat.get(c.id) || []).filter((m) => m.role === "trainer" || m.role === "admin").map((m) => Date.parse(m.at));
+      const last = staff.length ? Math.max(...staff) : Date.parse(`${b.start_date}T12:00:00Z`);
+      const hours = Math.round((nowMs - last) / 3600000);
+      if (hours >= 24) silent24.push({ dog: b.dog_name || "Dog", client: b.client_name, trainer: b.trainers?.name || "", hours, href: `/a/chats/${c.id}` });
+    }
+    silent24.sort((a, b) => b.hours - a.hours);
+    clientsView = { chats: chatsNow.length, joined: seen.size, silent24 };
+  }
+
+  // ── Sales view (RevOps): where deals come from, where sales come from, what leads cost ──
+  let salesView: SalesView | null = null;
+  if (view === "sales" && hubspotConfigured()) {
+    try {
+      const [created, wonRows] = await Promise.all([dealsCreatedBetween(range.from, range.to, 20), closedWonSince(range.from, ["amount", "createdate", "closedate", "dealname", "bark_credits_paid", "lead_source", "deal_source"])]);
+      const won = wonRows.filter((d) => { const c = (d.properties.closedate || "").slice(0, 10); return c >= range.from && c <= range.to; });
+      const cells = new Map<string, StateCell>();
+      const cell = (st: string) => { if (!cells.has(st)) cells.set(st, { st, created: 0, won: 0, wonAmount: 0, credits: 0, coverageLost: 0 }); return cells.get(st)!; };
+      const bySource = new Map<string, { created: number; won: number; credits: number }>();
+      const src = (p: Record<string, string | null>) => (p.lead_source || p.deal_source || "Unknown").trim() || "Unknown";
+      let credits = 0;
+      for (const d of created.rows) {
+        const p = d.properties, st = stateOf(p.dealname), cr = Number(p.bark_credits_paid || 0);
+        credits += cr; if (st) { const x = cell(st); x.created++; x.credits += cr; }
+        const k = src(p); const b = bySource.get(k) || { created: 0, won: 0, credits: 0 }; b.created++; b.credits += cr; bySource.set(k, b);
+      }
+      const wonList: SalesView["wonList"] = [];
+      let closeDaysArr: number[] = [];
+      for (const d of won) {
+        const p = d.properties, st = stateOf(p.dealname), amt = Number(p.amount || 0);
+        if (st) { const x = cell(st); x.won++; x.wonAmount += amt; }
+        const k = src(p); const b = bySource.get(k) || { created: 0, won: 0, credits: 0 }; b.won++; bySource.set(k, b);
+        if (p.createdate && p.closedate) closeDaysArr.push(Math.max(0, Math.round((Date.parse(p.closedate) - Date.parse(p.createdate)) / 86400000)));
+        wonList.push({ name: String(p.dealname || "Deal"), amount: amt, closedOn: (p.closedate || "").slice(0, 10), st });
+      }
+      for (const d of lostRows) { const p = d.properties; const st = stateOf(p.dealname); if (st && (/local/i.test(p.closed_lost_reason_new || "") || p.dealstage === "173376666" || p.trainer_in_range === "false")) cell(st).coverageLost++; }
+      const creditUsd = Number(process.env.BARK_CREDIT_USD || 0) || null, wonAmount = won.reduce((n, d) => n + Number(d.properties.amount || 0), 0);
+      const fmtCredits = (n: number) => (creditUsd ? money(n * creditUsd) : `${Math.round(n * 10) / 10} credits`);
+      salesView = {
+        created: created.rows.length, createdTotal: created.total, capped: created.capped, won: won.length, wonAmount, credits, creditCost: creditUsd ? credits * creditUsd : null,
+        perLead: created.rows.length ? fmtCredits(credits / created.rows.length) : "–", perSale: won.length ? fmtCredits(credits / won.length) : "–",
+        closeDays: median(closeDaysArr), closeN: closeDaysArr.length,
+        bySource: [...bySource.entries()].map(([source, v]) => ({ source, ...v })).sort((a, b) => b.created - a.created).slice(0, 8),
+        states: [...cells.values()], wonList: wonList.sort((a, b) => b.closedOn.localeCompare(a.closedOn))
+      };
+      if (created.capped) notes.push(`Deals created: the first ${created.rows.length} of ${created.total} in this range (HubSpot is paged; a nightly table will fix this).`);
+      if (!creditUsd) notes.push("Bark credits are shown as credits. Set BARK_CREDIT_USD in Vercel to show dollars.");
+    } catch (e) { notes.push(`Sales: HubSpot didn't answer (${(e as Error).message}).`); }
+  }
+
+  // ── Office view: what's on the team's plate right now ──
+  let officeView: OfficeView | null = null;
+  if (view === "office") {
+    try {
+      const t = await buildTodo();
+      const now = t.items.filter((i) => i.group === "now").length;
+      const toReview = t.items.filter((i) => i.key.startsWith("rep:")).length;
+      const notBooked = t.items.filter((i) => /Closed Won|closed won/i.test(i.text)).length;
+      const signin = t.items.find((i) => i.key === "signin");
+      const notSignedIn = signin ? Number((signin.text.match(/^(\d+)/) || [])[1] || 0) : 0;
+      officeView = { todo: t.items.length + (t.late.length ? 1 : 0) + (t.beforeApp.length ? 1 : 0), now, toReview, lateForms: t.late.length, notBooked, notSignedIn,
+        items: t.items.filter((i) => i.group === "now").slice(0, 12).map((i) => ({ text: i.text, href: i.primary?.href || i.dogHref, group: i.group })) };
+    } catch (e) { notes.push(`Office: ${(e as Error).message}`); }
+  }
+
+  return { range, view, tiles, cards: cards.slice(0, 5), trainers, lost, sales: salesView, clients: clientsView, office: officeView, notes };
 }
 
 function label(m: number) { return m < 60 ? `${m}m` : m < 720 ? `${Math.floor(m / 60)}h ${m % 60 ? `${m % 60}m` : ""}`.trim() : `${Math.floor(m / 720)}d ${Math.floor((m % 720) / 60) ? `${Math.floor((m % 720) / 60)}h` : ""}`.trim(); }

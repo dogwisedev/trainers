@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 /** Pulse: the dashboard preview. Admins on the PULSE_EMAILS list only (default Alma); everyone else gets a 404. */
-export default async function PulsePage({ searchParams }: { searchParams: { r?: string; from?: string; to?: string } }) {
+export default async function PulsePage({ searchParams }: { searchParams: { r?: string; from?: string; to?: string; v?: string; state?: string } }) {
   const v = await requireRole("admin");
   if (!canSeePulse(v.email)) notFound();
   const p = await pulse(searchParams);

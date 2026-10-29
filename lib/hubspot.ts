@@ -233,6 +233,33 @@ export async function lostDealsBetween(from: string, to: string): Promise<{ id: 
   return out;
 }
 
+/**
+ * Deals created between two dates (Eastern), newest first, with what Pulse needs: where they're from (deal name carries
+ * city, state, ZIP), their stage, amount, Bark credits and source. Capped at `maxPages` × 100 so the page stays quick;
+ * `total` is HubSpot's full count for the range so the cap is visible.
+ */
+export async function dealsCreatedBetween(from: string, to: string, maxPages = 20): Promise<{ rows: { id: string; properties: DealProps }[]; total: number; capped: boolean }> {
+  const rows: { id: string; properties: DealProps }[] = [];
+  let after: string | undefined, total = 0, page = 0;
+  for (; page < maxPages; page++) {
+    const res = await hs<SearchPage & { total?: number }>("/crm/v3/objects/deals/search", {
+      method: "POST", body: JSON.stringify({
+        filterGroups: [{ filters: [
+          { propertyName: "createdate", operator: "GTE", value: String(etMidnightMs(from)) },
+          { propertyName: "createdate", operator: "LT", value: String(etMidnightMs(addDays(to, 1))) }
+        ] }],
+        properties: ["dealname", "amount", "createdate", "closedate", "dealstage", "pipeline", "hs_is_closed_won", "bark_credits_paid", "lead_source", "deal_source", "closed_lost_reason_new", "trainer_in_range", "type_of_program_sold"],
+        sorts: [{ propertyName: "createdate", direction: "DESCENDING" }], limit: 100, ...(after ? { after } : {})
+      })
+    });
+    total = res.total ?? total;
+    rows.push(...(res.results || []).map((r) => ({ id: String(r.id), properties: r.properties || {} })));
+    after = res.paging?.next?.after;
+    if (!after) break;
+  }
+  return { rows, total: Math.max(total, rows.length), capped: !!after };
+}
+
 // ── Client form links ──
 /** A contact's deals, newest first (by close date, else created). */
 export async function contactDeals(contactId: string, properties: string[]): Promise<{ id: string; properties: DealProps }[]> {
