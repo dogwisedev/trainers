@@ -1,4 +1,5 @@
 import "server-only";
+import { unstable_cache } from "next/cache";
 import { serviceClient, isDemo } from "./supabase";
 import { addDays, daysBetween, todayIso } from "./dates";
 import { FORMS_CUTOVER } from "./reports";
@@ -49,6 +50,7 @@ export type Pulse = {
   range: Range; view: View; tiles: Tile[]; cards: Card[]; trainers: TrainerRow[];
   lost: { total: number; amount: number; coverage: number; coverageAmount: number; reasons: { reason: string; n: number; amount: number }[]; regions: { region: string; n: number }[] } | null;
   sales: SalesView | null; clients: ClientsView | null; office: OfficeView | null; notes: string[];
+  stats: { points: number; ms: number; at: string }; // how much was pulled, how long it took, when
 };
 
 const money = (n: number) => `$${Math.round(n).toLocaleString("en-US")}`;
@@ -64,7 +66,8 @@ function careDaysIn(b: { start_date: string; end_date: string }, from: string, t
 export async function pulse(q: { r?: string; from?: string; to?: string; v?: string; state?: string }): Promise<Pulse> {
   const range = pulseRange(q), notes: string[] = [];
   const view: View = (["clients", "trainers", "sales", "office"] as View[]).find((x) => x === q.v) || "clients";
-  const empty: Pulse = { range, view, tiles: [], cards: [], trainers: [], lost: null, sales: null, clients: null, office: null, notes: ["Demo mode: no data."] };
+  const t0 = Date.now(); let points = 0;
+  const empty: Pulse = { range, view, tiles: [], cards: [], trainers: [], lost: null, sales: null, clients: null, office: null, notes: ["Demo mode: no data."], stats: { points: 0, ms: 0, at: new Date().toISOString() } };
   if (isDemo()) return empty;
   const sb = serviceClient();
   const sparkFrom = addDays(range.to, -89); // 90-day sparklines
@@ -79,6 +82,7 @@ export async function pulse(q: { r?: string; from?: string; to?: string; v?: str
     sb.from("payslips").select("trainer_id, total, status, pay_runs(period_start, period_end)"),
     sb.from("deal_money").select("deal_id, amount, closed_on, owner_id").gte("closed_on", range.prevFrom).lte("closed_on", range.to)
   ]);
+  points += (bks?.length || 0) + (chats?.length || 0) + (msgs?.length || 0) + (incs?.length || 0) + (reps?.length || 0) + (slips?.length || 0) + (deals?.length || 0);
   const bookings = ((bks || []) as unknown as BookingRow[]);
   const live = bookings.filter((b) => b.status !== "cancelled");
   const chatList = (chats || []) as ChatRow[];
@@ -172,7 +176,7 @@ export async function pulse(q: { r?: string; from?: string; to?: string; v?: str
   let lost: Pulse["lost"] = null, lostRows: { id: string; properties: Record<string, string | null> }[] = [];
   if (hubspotConfigured()) {
     try {
-      const rows = await lostDealsBetween(range.from, range.to); lostRows = rows;
+      const rows = await lostDealsBetween(range.from, range.to); lostRows = rows; points += rows.length;
       const reasons = new Map<string, { n: number; amount: number }>(), regions = new Map<string, number>();
       let coverage = 0, coverageAmount = 0;
       for (const d of rows) {
@@ -222,6 +226,7 @@ export async function pulse(q: { r?: string; from?: string; to?: string; v?: str
   if (view === "sales" && hubspotConfigured()) {
     try {
       const [created, wonRows] = await Promise.all([dealsCreatedBetween(range.from, range.to, 20), closedWonSince(range.from, ["amount", "createdate", "closedate", "dealname", "bark_credits_paid", "lead_source", "deal_source"])]);
+      points += created.rows.length + wonRows.length;
       const won = wonRows.filter((d) => { const c = (d.properties.closedate || "").slice(0, 10); return c >= range.from && c <= range.to; });
       const cells = new Map<string, StateCell>();
       const cell = (st: string) => { if (!cells.has(st)) cells.set(st, { st, created: 0, won: 0, wonAmount: 0, credits: 0, coverageLost: 0 }); return cells.get(st)!; };
@@ -272,7 +277,10 @@ export async function pulse(q: { r?: string; from?: string; to?: string; v?: str
     } catch (e) { notes.push(`Office: ${(e as Error).message}`); }
   }
 
-  return { range, view, tiles, cards: cards.slice(0, 5), trainers, lost, sales: salesView, clients: clientsView, office: officeView, notes };
+  return { range, view, tiles, cards: cards.slice(0, 5), trainers, lost, sales: salesView, clients: clientsView, office: officeView, notes, stats: { points, ms: Date.now() - t0, at: new Date().toISOString() } };
 }
+
+/** The same, kept for 5 minutes per range and view (Refresh on the page drops it). */
+export const pulseCached = unstable_cache(async (q: { r?: string; from?: string; to?: string; v?: string; state?: string }) => pulse({ r: q.r, from: q.from, to: q.to, v: q.v }), ["pulse-v2"], { revalidate: 300, tags: ["pulse"] });
 
 function label(m: number) { return m < 60 ? `${m}m` : m < 720 ? `${Math.floor(m / 60)}h ${m % 60 ? `${m % 60}m` : ""}`.trim() : `${Math.floor(m / 720)}d ${Math.floor((m % 720) / 60) ? `${Math.floor((m % 720) / 60)}h` : ""}`.trim(); }

@@ -5,6 +5,7 @@ import type { Card, Pulse, SalesView, Tile, TrainerRow, View } from "@/lib/pulse
 import { PRESETS } from "@/lib/pulse";
 import { minutesLabel } from "@/lib/pulseMath";
 import { US_COLS, US_ROWS, US_TILES } from "@/lib/usTiles";
+import { PulseRefresh } from "@/components/PulseRefresh";
 
 // Pulse: one screen per audience (Clients, Trainers, Sales, Office), switched like the Chats page. Each view: the range,
 // what needs a decision, a few big numbers (each opens the list behind it), then one main picture and one list.
@@ -176,6 +177,10 @@ export function PulseView({ p, q }: { p: Pulse; q: Q }) {
         <div>
           <h1 className="text-h1 font-extrabold leading-tight">Pulse <Pill tone="line">Preview</Pill></h1>
           <p className="text-body text-ink-soft">{p.range.label} · compared with the {p.range.days} days before</p>
+          <p className="mt-1 flex flex-wrap items-center gap-2 text-caption text-ink-faint">
+            <span>Pulled {p.stats.points.toLocaleString("en-US")} data points in {(p.stats.ms / 1000).toFixed(1)} s, as of {new Date(p.stats.at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" })} ET</span>
+            <PulseRefresh />
+          </p>
         </div>
         <form className="flex flex-wrap items-center gap-2" method="get">
           <input type="hidden" name="v" value={p.view} />
