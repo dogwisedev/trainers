@@ -20,7 +20,8 @@ import { ChangeTrainer } from "@/components/ChangeTrainer";
 import { DogTraining } from "@/components/DogTraining";
 import { dealTraining } from "@/lib/training";
 import { PROGRAMS, programFor } from "@/lib/programs";
-import { emailTrainerAboutBooking, setBookingStatus } from "@/app/actions";
+import { emailTrainerAboutBooking } from "@/app/actions";
+import { CancelTraining } from "@/components/CancelTraining";
 import { ActionButton, ExtraDays } from "@/components/forms";
 import { ReportsToggle } from "@/components/ReportsToggle";
 import { StartChat } from "@/components/StartChat";
@@ -78,6 +79,10 @@ export default async function DogPageView({ params, searchParams }: { params: { 
           <h1 className="flex flex-wrap items-center gap-2 text-h1 font-extrabold leading-tight">{b.dog_name || "Dog"} <Pill tone={status.tone}>{status.label}</Pill>
             {b.status !== "cancelled" && b.end_date >= today && missing !== null && <Link prefetch={false} href={dogPage(b.id, "before")}><Pill tone={missing ? "heart" : "mint"}>{missing ? `${missing} missing before training` : r?.dog.cleared ? "OK to start" : "Ready"}</Pill></Link>}
           </h1>
+          {b.status === "cancelled" && (b as { cancel_reason?: string | null }).cancel_reason && (() => {
+            const c = b as { cancel_reason?: string | null; cancel_note?: string | null; cancelled_by?: string | null; cancelled_at?: string | null };
+            return <p className="mt-1 text-body text-heart">Cancelled{c.cancelled_by ? ` by ${c.cancelled_by}` : ""}{c.cancelled_at ? ` on ${short(c.cancelled_at.slice(0, 10))}` : ""}: {c.cancel_reason}{c.cancel_note ? `. ${c.cancel_note}` : ""}</p>;
+          })()}
           <p className="mt-1 text-body text-ink-soft">{b.client_name}, with {b.trainers ? <Link prefetch={false} href={`/a/trainers/${b.trainers.id}`} className="underline">{b.trainers.name}</Link> : "no trainer"}<span className="block text-body">{short(b.start_date)} to {short(b.end_date)}</span></p>
           </div>
         </div>
@@ -152,7 +157,7 @@ export default async function DogPageView({ params, searchParams }: { params: { 
                 <ActionButton className="btn-ghost" action={emailTrainerAboutBooking.bind(null, b.id)}>{b.notified_at ? "Email the trainer again" : "Email the trainer"}</ActionButton>
                 {!chat && <StartChat bookingId={b.id} />}
                 {b.status !== "cancelled" && b.end_date > today && <ChangeTrainer bookingId={b.id} dog={b.dog_name || "the dog"} current={b.trainers?.name || "the trainer"} start={b.start_date} end={b.end_date} today={today} trainers={((activeTrainers || []) as { id: string; name: string }[]).filter((t) => t.id !== b.trainer_id)} />}
-                {b.status !== "cancelled" && <ActionButton className="btn-danger" confirm={`Cancel ${b.dog_name || "this booking"}? The kennel frees up straight away, and the office is asked about a refund or partial pay.`} action={setBookingStatus.bind(null, b.id, "cancelled")}>Cancel training</ActionButton>}
+                {b.status !== "cancelled" && <CancelTraining bookingId={b.id} dog={b.dog_name || "the dog"} trainer={b.trainers?.name || "The trainer"} />}
               </div>
               <p className="text-small text-ink-soft">{b.notified_at ? `Trainer emailed ${new Date(b.notified_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}.` : "The trainer hasn't been emailed about this booking yet."}</p>
               <div className="flex flex-wrap items-center gap-4 border-t border-line pt-3 text-body">

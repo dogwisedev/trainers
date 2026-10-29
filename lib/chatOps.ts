@@ -13,6 +13,7 @@ import { CHAT_KINDS, INCIDENT_LABEL, IncidentKind, RULES, clientDigestDue, clien
 import { clearFormIncidents } from "./incidents";
 import { catchUpBookings } from "./bookingCatchup";
 import { sendDailyDigest } from "./digest";
+import { QUIET_KINDS } from "./quietChats";
 import { autoInviteClients } from "./autoInvite";
 import { postSystemMessage } from "./chat";
 import { etParts } from "./chatRules";
@@ -133,6 +134,7 @@ export async function runChatChecks(now = new Date()) {
         if (quiet !== null) want.set("ready_to_close", `No messages for ${quiet} days and no dog in care`);
       }
 
+      if (c.quiet_at) for (const k of QUIET_KINDS) want.delete(k); // quiet chat: finishing on Signal
       for (const [kind, detail] of want) if (!live.some((i) => i.chat_id === c.id && i.kind === kind)) fresh.push({ chat: c, kind, detail });
 
       // Clear what has been dealt with. (Not by the clock: a missed update stays flagged until the trainer posts or an admin resolves it.)
@@ -141,6 +143,7 @@ export async function runChatChecks(now = new Date()) {
         const done = i.kind === "trainer_silent" ? ms(c.last_trainer_at) > opened
           : i.kind === "client_waiting" || i.kind === "client_pileup" || i.kind === "reopened" ? Math.max(ms(c.last_trainer_at), ms(c.last_admin_at)) > opened
           : i.kind === "ready_to_close" ? autoClose || ms(c.last_message_at) > opened : false;
+        if (!done && c.quiet_at && QUIET_KINDS.includes(i.kind)) { await sb.from("chat_incidents").update({ status: "resolved", resolved_at: now.toISOString(), resolved_by: "automatic", resolved_note: "Quiet chat", auto_resolved: true }).eq("id", i.id); out.cleared++; continue; }
         if (done) { await sb.from("chat_incidents").update({ status: "resolved", resolved_at: now.toISOString(), resolved_by: "automatic", auto_resolved: true }).eq("id", i.id); out.cleared++; }
       }
     } catch (e) { out.errors.push(`${c.id}: ${(e as Error).message}`); }
@@ -168,7 +171,7 @@ export async function runChatChecks(now = new Date()) {
 
   // Client "you have updates" emails: rare by design (see RULES)
   if (process.env.CHAT_CLIENT_EMAILS !== "off" && mailConfigured()) {
-    const cands = chats.filter((c) => c.client_user_id && c.client_email && c.invited_at && c.client_emails !== false);
+    const cands = chats.filter((c) => c.client_user_id && c.client_email && c.invited_at && c.client_emails !== false && !c.quiet_at);
     const { data: reads } = cands.length ? await sb.from("chat_reads").select("chat_id, user_id, last_read_at").in("chat_id", cands.map((c) => c.id)) : { data: [] };
     for (const c of cands) {
       const latest = ms(c.last_trainer_at) > ms(c.last_admin_at) ? c.last_trainer_at : c.last_admin_at;

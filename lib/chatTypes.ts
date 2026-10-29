@@ -10,6 +10,7 @@ export type ChatRow = {
   last_message_at: string | null; last_preview: string | null; last_sender: string | null; last_trainer_at: string | null; last_client_at: string | null; last_admin_at: string | null;
   admin_seen_at: string | null; invited_at: string | null; created_at: string; closed_at: string | null;
   client_emails: boolean; archived_at: string | null; transcript_url: string | null; notified_client_at?: string | null;
+  quiet_at?: string | null; quiet_by?: string | null; // quiet chat (migration 039): finishing on Signal, no alerts
 };
 export const driveView = (id: string) => `https://drive.google.com/file/d/${id}/view`;
 export const driveDownload = (id: string) => `https://drive.google.com/uc?export=download&id=${id}`;

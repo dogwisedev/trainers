@@ -11,7 +11,7 @@ import { ChatGroupTitle, ChatListRow } from "@/components/ChatBits";
 import { ChatFilters } from "@/components/ChatFilters";
 import { Empty } from "@/components/ui";
 
-export default async function AdminChats({ searchParams }: { searchParams: { f?: string; t?: string; q?: string; j?: string } }) {
+export default async function AdminChats({ searchParams }: { searchParams: { f?: string; t?: string; q?: string; j?: string; o?: string } }) {
   await requireRole("admin");
   const q = (searchParams.q || "").trim(), t = searchParams.t || "";
   const [all, teamUnread, hits] = await Promise.all([listChats(), unreadForAdmin(), q ? searchChatMessages(q) : Promise.resolve(new Map<string, string>())]);
@@ -25,8 +25,10 @@ export default async function AdminChats({ searchParams }: { searchParams: { f?:
   const joined = (c: (typeof scoped)[number]) => seen.has(c.id);
   const who2 = searchParams.j || "";
   const chats = scoped.filter((c) => (closed ? c.status === "closed" : c.status === "open") && (!who2 || (who2 === "yes" ? joined(c) : !joined(c))));
-  const placed = orderChats(chats, await chatSpans(chats.map((c) => c.deal_key)), etParts(new Date()).date);
-  const tab = (k: string) => { const p = new URLSearchParams(); if (k) p.set("f", k); if (t) p.set("t", t); if (q) p.set("q", q); const s = p.toString(); return s ? `/a/chats?${s}` : "/a/chats"; };
+  const by = searchParams.o === "dates" ? "dates" : "latest"; // inside each group: newest message first, or "By dates"
+  const placed = orderChats(chats, await chatSpans(chats.map((c) => c.deal_key)), etParts(new Date()).date, by);
+  const orderHref = (o: "latest" | "dates") => { const p = new URLSearchParams(); if (closed) p.set("f", "closed"); if (t) p.set("t", t); if (q) p.set("q", q); if (who2) p.set("j", who2); if (o === "dates") p.set("o", "dates"); const s = p.toString(); return s ? `/a/chats?${s}` : "/a/chats"; };
+  const tab = (k: string) => { const p = new URLSearchParams(); if (k) p.set("f", k); if (t) p.set("t", t); if (q) p.set("q", q); if (searchParams.o === "dates") p.set("o", "dates"); const s = p.toString(); return s ? `/a/chats?${s}` : "/a/chats"; };
   return (
     <>
       <h1 className="mb-3 text-h1 font-extrabold">Chats</h1>
@@ -39,9 +41,16 @@ export default async function AdminChats({ searchParams }: { searchParams: { f?:
         ))}
         {!closed && ([["yes", "Client joined"], ["no", "Not joined yet"]] as const).map(([k, l]) => {
           const n = scoped.filter((c) => c.status === "open" && (k === "yes" ? joined(c) : !joined(c))).length;
-          const p = new URLSearchParams(); if (t) p.set("t", t); if (q) p.set("q", q); if (who2 !== k) p.set("j", k);
+          const p = new URLSearchParams(); if (t) p.set("t", t); if (q) p.set("q", q); if (who2 !== k) p.set("j", k); if (searchParams.o === "dates") p.set("o", "dates");
           return <Link prefetch={false} key={k} href={`/a/chats${p.toString() ? `?${p}` : ""}`} className={`rounded-full px-3.5 py-1.5 text-small font-semibold ${who2 === k ? "bg-lav-deep text-white" : "border border-line bg-white"}`}>{l} <span className="opacity-70">{n}</span></Link>;
         })}
+      </div>
+      <div className="mb-4 flex items-center gap-2 text-small" role="group" aria-label="Order inside each group">
+        <span className="text-ink-soft">Order:</span>
+        {([["latest", "Newest message first"], ["dates", "By dates"]] as const).map(([k, l]) => (
+          <Link key={k} prefetch={false} href={orderHref(k)} aria-current={by === k ? "true" : undefined}
+            className={`rounded-full px-3 py-1 font-semibold ${by === k ? "bg-ink text-white" : "border border-line bg-white text-ink-soft"}`}>{l}</Link>
+        ))}
       </div>
       {!closed && who2 === "no" && <ResendInvites chatIds={chats.filter((c) => c.client_email).map((c) => c.id)} />}
       {placed.length ? groupWithUnread(placed, (c) => chatUnread(c, "admin")).map((g) => (

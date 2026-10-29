@@ -7,6 +7,7 @@ import { isPayMonday, periodLabel } from "@/lib/payroll";
 import { todayIso } from "@/lib/dates";
 import { isDemo, serviceClient } from "@/lib/supabase";
 import { TodoList } from "@/components/TodoList";
+import { canQuiet } from "@/lib/quietChats";
 import { Empty } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
@@ -30,7 +31,7 @@ export default async function ToDo() {
         </div>
       </div>
       {!total && <div className="mt-6"><Empty title="All done.">New things show up here as they happen: clients waiting, forms to check, vaccines, payslips.</Empty></div>}
-      <TodoList items={todo.items} late={todo.late} beforeApp={todo.beforeApp} />
+      <TodoList items={todo.items} late={todo.late} beforeApp={todo.beforeApp} canQuiet={canQuiet(v.email)} />
     </>
   );
 }

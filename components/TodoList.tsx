@@ -3,6 +3,7 @@ import { Banknote, BriefcaseBusiness, Camera, ClipboardCheck, ExternalLink, Mess
 import type { TodoGroup, TodoIcon, TodoItem } from "@/lib/todo";
 import type { Todo } from "@/lib/reports";
 import { TodoRow } from "@/components/ReportBits";
+import { QuietChatButton } from "@/components/QuietChatButton";
 import { TodoDone } from "@/components/TodoDone";
 import { IconTile } from "@/components/ui";
 
@@ -22,7 +23,7 @@ function ago(iso?: string) {
 }
 
 /** The admin To do list. Mobile first: icon, sentence, details, then the buttons on their own line. */
-export function TodoList({ items, late, beforeApp = [] }: { items: TodoItem[]; late: (Todo & { trainerName?: string })[]; beforeApp?: (Todo & { trainerName?: string })[] }) {
+export function TodoList({ items, late, beforeApp = [], canQuiet = false }: { items: TodoItem[]; late: (Todo & { trainerName?: string })[]; beforeApp?: (Todo & { trainerName?: string })[]; canQuiet?: boolean }) {
   const forms = (late.length ? 1 : 0) + (beforeApp.length ? 1 : 0); // each is one row in "This week"
   const counts = GROUPS.map((g) => ({ ...g, n: items.filter((i) => i.group === g.key).length + (g.key === "week" ? forms : 0) })).filter((g) => g.n);
   return (
@@ -41,7 +42,7 @@ export function TodoList({ items, late, beforeApp = [] }: { items: TodoItem[]; l
             <h2 className="group-title">{g.title}<span className="count">{list.length + (showLate ? 1 : 0) + (showOld ? 1 : 0)}</span></h2>
             {g.hint && <p className="-mt-1.5 mb-2.5 px-1 text-small text-ink-faint">{g.hint}</p>}
             <ul className="panel divide-y divide-line overflow-hidden">
-              {list.map((i) => <Item key={i.key} i={i} />)}
+              {list.map((i) => <Item key={i.key} i={i} canQuiet={canQuiet} />)}
               {showLate && <FormGroup title={`${late.length} form${late.length > 1 ? "s are" : " is"} late`} list={late}
                 note={<>Trainers get reminders. Use &ldquo;Not needed&rdquo; for forms that shouldn&apos;t exist.</>} />}
               {showOld && <FormGroup title={`${beforeApp.length} handover report${beforeApp.length > 1 ? "s" : ""} from before the app`} list={beforeApp}
@@ -72,7 +73,7 @@ function FormGroup({ title, list, note }: { title: string; list: (Todo & { train
   );
 }
 
-function Item({ i }: { i: TodoItem }) {
+function Item({ i, canQuiet = false }: { i: TodoItem; canQuiet?: boolean }) {
   const I = ICONS[i.icon || "alert"];
   const tone = i.tone === "heart" ? "heart" : i.tone === "biscuit" ? "biscuit" : "paper";
   return (
@@ -88,6 +89,7 @@ function Item({ i }: { i: TodoItem }) {
             : <Link prefetch={false} href={i.primary.href} className="btn-ink h-9 min-h-0 px-3.5 text-small">{i.primary.label}</Link>)}
           {i.dogHref && i.primary?.href !== i.dogHref && <Link prefetch={false} href={i.dogHref} className="btn-ghost h-9 min-h-0 px-3 text-small"><PawPrint size={14} />Dog</Link>}
           {i.hubspot && !i.primary?.external && <a href={i.hubspot} target="_blank" rel="noopener" className="btn-ghost h-9 min-h-0 px-3 text-small">HubSpot<ExternalLink size={13} /></a>}
+          {canQuiet && i.quietChatId && <QuietChatButton chatId={i.quietChatId} quiet={false} />}
           {i.incidentId && <span className="ml-auto"><TodoDone id={i.incidentId} label={i.doneLabel} /></span>}
         </div>
       </div>

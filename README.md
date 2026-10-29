@@ -65,6 +65,15 @@ A dog name on the deal that looks like two dogs ("Francesca & Jack") or like a p
 ## Forms before the app (Oct 23, 2026)
 `FORMS_CUTOVER` in `lib/reports.ts`. Intake forms and weekly checks due before it were done the old way: the app doesn't ask for them (not late, no penalty). Handover reports due before it are still needed for the client's certificate: they show as "Needed for the certificate" (never late), grouped on To do. Press "Not needed" on any that already went out the old way.
 
+## Cancel training (dog page)
+Asks why (`lib/cancelReasons.ts`, saved on the booking: migration 040) and says plainly who's told: the trainer gets a cancellation with a calendar removal, the office gets a "Training cancelled" alert with the reason, and the kennel frees up. Only for trainings that were really cancelled. The reason isn't in the trainer's email.
+
+## Chat list order
+Groups stay as they are; inside each group the newest message is first. "By dates" (`?o=dates`) puts the soonest drop-off / start first instead. The trainer's list is still by dates.
+
+## Quiet chats (finishing on Signal)
+Migration 039. On a chat page (or a To do row for "hasn't posted" / "client waiting"), **Quiet chat** stops that chat's "hasn't posted today", "client waiting" and "unanswered messages" alerts (and clears open ones), its client "new updates" emails and its automatic invite. Messages still notify as normal if anyone posts. Only the emails in `QUIET_CHAT_EMAILS` (default alma@dogwiseacademy.com) see the button, and the server checks it; everyone else sees "Quiet: finishing on Signal". **Alerts back on** undoes it.
+
 ## Dark mode
 **Your account → Appearance** (admin and sales), or the trainer's Profile page: Light (default) or Dark. Saved on that device (localStorage `dw-theme`) and set before the page paints, so it doesn't flash light first.
 - Every colour is a CSS variable in `app/globals.css` (light under `:root`, dark under `[data-theme="dark"]`); `tailwind.config.ts` explains the rules. Every text/background pair in the app passes 4.5:1 in both themes.

@@ -22,6 +22,7 @@ export type TodoItem = {
   key: string; group: TodoGroup; tone: "heart" | "biscuit" | "line"; icon?: TodoIcon; text: string; detail?: string; since?: string;
   primary?: { label: string; href: string; external?: boolean };
   dogHref?: string; hubspot?: string; incidentId?: string; doneLabel?: string;
+  quietChatId?: string; // a chat alert that Quiet chat would silence (finishing on Signal)
 };
 /** late: forms past their deadline. beforeApp: handover reports due before the app took over the forms (still needed for the certificate). */
 export type TodoData = { items: TodoItem[]; late: (Todo & { trainerName: string })[]; beforeApp: (Todo & { trainerName: string })[] };
@@ -77,9 +78,9 @@ async function buildTodoUncached(): Promise<TodoData> {
       not_ready: "dog", check_vaccines: "vaccine", trainer_report: "alert" };
     const add = (o: Omit<TodoItem, "key" | "since" | "incidentId" | "dogHref" | "hubspot"> & Partial<TodoItem>) => items.push({ ...base, icon: ICON[i.kind] || "alert", ...o });
     switch (i.kind) {
-      case "client_waiting": add({ group: "now", tone: "heart", text: `${client} is waiting for a reply about ${dog}`, primary: chat ? { ...chat, label: "Reply" } : undefined }); break;
-      case "client_pileup": add({ group: "now", tone: "heart", text: `${client} has sent several messages about ${dog}`, primary: chat ? { ...chat, label: "Reply" } : undefined }); break;
-      case "trainer_silent": add({ group: "now", tone: "heart", text: `${trainer} hasn't posted about ${dog} today`, primary: chat }); break;
+      case "client_waiting": add({ group: "now", tone: "heart", text: `${client} is waiting for a reply about ${dog}`, primary: chat ? { ...chat, label: "Reply" } : undefined, quietChatId: i.chat_id || undefined }); break;
+      case "client_pileup": add({ group: "now", tone: "heart", text: `${client} has sent several messages about ${dog}`, primary: chat ? { ...chat, label: "Reply" } : undefined, quietChatId: i.chat_id || undefined }); break;
+      case "trainer_silent": add({ group: "now", tone: "heart", text: `${trainer} hasn't posted about ${dog} today`, primary: chat, quietChatId: i.chat_id || undefined }); break;
       case "reopened": add({ group: "week", tone: "biscuit", text: `${client} started a new chat about ${dog}`, primary: chat }); break;
       case "ready_to_close": add({ group: "week", tone: "line", text: `${dog}'s chat can be closed`, primary: chat ? { ...chat, label: "Open chat to close" } : undefined }); break;
       case "intake_media_missing": add({ group: "week", tone: "biscuit", text: `${dog}'s intake form came in without pickup photos or video`, primary: chat }); break;
