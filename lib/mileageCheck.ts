@@ -3,8 +3,8 @@
 
 /** Roads are longer than a straight line: used only when the route service can't answer (an estimate). */
 export const ROAD_FACTOR = 1.25;
-/** Declared miles count as "over the route" when they're more than 25% AND more than 15 miles over the round trip. */
-export const OVER_SHARE = 1.25, OVER_MILES = 15;
+/** Declared miles count as "over the route" when they're more than 5% OR more than 15 miles over the round trip. */
+export const OVER_SHARE = 1.05, OVER_MILES = 15;
 
 const STATES: Record<string, string> = {
   AL: "alabama", AK: "alaska", AZ: "arizona", AR: "arkansas", CA: "california", CO: "colorado", CT: "connecticut", DE: "delaware", DC: "district of columbia",
@@ -82,13 +82,13 @@ export const googleUrl = (from: string, to: string) =>
 export type MileStatus = "over" | "paid" | "ok" | "unchecked";
 /**
  * One trip: declared miles (round trip, as the forms ask) against the route (one way, doubled).
- *  over: more than 25% and 15 miles over the route  ·  paid: mileage is paid on it (over the trainer's free miles): check it
+ *  over: more than 5% or 15 miles over the route  ·  paid: mileage is paid on it (over the trainer's free miles): check it
  *  ok: neither  ·  unchecked: no route yet
  */
 export function mileCheck(declared: number, oneWay: number | null | undefined, freeMiles: number, rate: number | null | undefined) {
   const round = oneWay == null ? null : Math.round(oneWay * 2 * 10) / 10;
   const paid = rate != null && declared > (freeMiles || 0);
-  const over = round != null && declared > round * OVER_SHARE && declared - round > OVER_MILES;
+  const over = round != null && (declared > round * OVER_SHARE || declared - round > OVER_MILES);
   const status: MileStatus = over ? "over" : paid ? "paid" : round == null ? "unchecked" : "ok";
   return { round, paid, over, overBy: round == null ? null : Math.round((declared - round) * 10) / 10, status };
 }

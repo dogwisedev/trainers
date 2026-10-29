@@ -67,7 +67,7 @@ A dog name on the deal that looks like two dogs ("Francesca & Jack") or like a p
 
 ## Mileage check (payslips)
 Each payslip has a **Mileage check**: every pickup, drop-off and follow-up trip in the period, the miles the trainer declared, the driving route from the trainer to the client (doubled for the round trip), and a **Check on Google Maps** link for the same trip.
-- Flags: more than 25% **and** 15 miles over the route, or any trip that earns mileage pay (over the trainer's free miles). Pay is still worked out from the declared miles; fix the line by hand if it's wrong. The payslip cards show how many trips to check.
+- Flags: more than 5% **or** 15 miles over the route, or any trip that earns mileage pay (over the trainer's free miles). Pay is still worked out from the declared miles; fix the line by hand if it's wrong. The payslip cards show how many trips to check.
 - Routes come from FreeRoute (`FREEROUTE_API_KEY` in Vercel; free tier 1,000 requests a day, we use a few). Its address search can pick a same-name town in another state, so an address only counts when the result is in the same ZIP (or state); otherwise the ZIP's centre is used. If FreeRoute errors or doesn't answer, it's a straight-line estimate + 25% for roads, marked "estimate", tried again 6 hours later. No key = estimates only. FreeRoute doesn't report tolls; Google does, on the link.
 - One check per booking and trainer, kept in `trip_routes` (migration 038), redone only when an address changes. The 20-minute forms job checks a few at a time; **Check now** on the payslip does that trainer's trips straight away.
 

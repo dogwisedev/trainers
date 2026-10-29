@@ -46,7 +46,7 @@ export function MileageCheck({ rows, payslipId, setUp }: { rows: MileageRow[]; p
           );
         })}
       </ul>
-      <p className="border-t border-line px-4 py-2.5 text-caption text-ink-faint">Flags: more than 25% and 15 miles over the route, or any trip that earns mileage pay. Pay is worked out from the declared miles either way; change the line below if it&apos;s wrong.</p>
+      <p className="border-t border-line px-4 py-2.5 text-caption text-ink-faint">Flags: more than 5% or 15 miles over the route, or any trip that earns mileage pay. Pay is worked out from the declared miles either way; change the line below if it&apos;s wrong.</p>
     </section>
   );
 }
