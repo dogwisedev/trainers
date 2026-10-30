@@ -78,9 +78,19 @@ type Chat = {
   id: string; deal_key: string; trainer_id: string | null; trainer_name: string | null; client_user_id: string | null; client_name: string | null;
   title: string | null; status: string; last_message_at: string | null; last_preview: string | null; last_sender: string | null;
   last_trainer_at: string | null; last_client_at: string | null; last_admin_at: string | null; admin_seen_at: string | null; invited_at: string | null; created_at: string;
-  archived_at: string | null;
+  archived_at: string | null; quiet_at?: string | null; quiet_by?: string | null;
 };
 const CHAT_COLS = "id, deal_key, trainer_id, trainer_name, client_user_id, client_name, title, status, last_message_at, last_preview, last_sender, last_trainer_at, last_client_at, last_admin_at, admin_seen_at, invited_at, created_at, archived_at";
+/** Quiet chats (migration 039, lib/quietChats.ts): dogs finishing their training on Signal, so the app sends no "hasn't posted",
+ *  "client waiting" or "unanswered messages" alerts for them. A database without that migration has no such columns yet:
+ *  `read` is asked with them first and, when they aren't there, again without. */
+const QUIET_COLS = ", quiet_at, quiet_by";
+async function withQuiet<T>(read: (extra: string) => Promise<T>): Promise<T> {
+  try { return await read(QUIET_COLS); }
+  catch (e) { if (!/quiet_(at|by)/.test((e as Error).message)) throw e; }
+  return read("");
+}
+const quietOf = (c: { quiet_at?: string | null; quiet_by?: string | null }) => (c.quiet_at ? { since: c.quiet_at, by: c.quiet_by || undefined } : undefined);
 type Booking = { id: string; hubspot_deal_id: string | null; dog_name: string | null; client_name: string; start_date: string; end_date: string; status: string; trainer_id: string; trainers?: { name: string } | null };
 const BOOKING_COLS = "id, hubspot_deal_id, dog_name, client_name, start_date, end_date, status, trainer_id, trainers(name)";
 type Msg = { id: string; chat_id: string; sender_id?: string | null; sender_role: "client" | "trainer" | "admin" | "system"; sender_name: string | null; kind: string; body: string | null; media: { kind?: string }[] | null; created_at: string };
@@ -142,13 +152,13 @@ function phaseOf(all: Booking[], today: string): PhaseInfo {
 const CARE = ["in care", "going home today"], AHEAD = ["starting soon", "booked"];
 
 // ── Overview ────────────────────────────────────────────────────────────
-/** Every open chat and team thread, with who is waiting on whom. Quiet finished chats only with `all`. */
+/** Every open chat and team thread, with who is waiting on whom. Inactive finished chats only with `all`. */
 export async function commsOverview(o: { trainer?: string; all?: boolean; now?: Date } = {}) {
   const sb = serviceClient(), now = (o.now || new Date()).getTime(), today = etDate(now), who = (o.trainer || "").toLowerCase();
   const mine = (name: string | null | undefined) => !who || (name || "").toLowerCase().includes(who);
   const since30 = iso(now - 30 * 86400000);
   const [chatRows, comingRows, trainers, teamRecent, teamOldUnread] = await Promise.all([
-    allRows<Chat>((f, t) => sb.from("chats").select(CHAT_COLS).eq("status", "open").order("id").range(f, t)),
+    withQuiet((x) => allRows<Chat>((f, t) => sb.from("chats").select(CHAT_COLS + x).eq("status", "open").order("id").range(f, t))),
     allRows<Booking>((f, t) => sb.from("bookings").select(BOOKING_COLS).neq("status", "cancelled").lte("start_date", addDays(today, 7)).gte("end_date", today).order("id").range(f, t)),
     allRows<Trainer>((f, t) => sb.from("trainers").select("id, name, active").order("id").range(f, t)),
     allRows<TeamMsg>((f, t) => sb.from("messages").select(TEAM_COLS).gte("created_at", since30).order("created_at").order("id").range(f, t)),
@@ -243,6 +253,7 @@ export async function commsOverview(o: { trainer?: string; all?: boolean; now?: 
       lastMessage: c.last_message_at ? { at: c.last_message_at, from: c.last_sender === "admin" && autoLast.has(c.id) ? "automatic" : ROLE[c.last_sender || ""] || c.last_sender, text: cut(c.last_preview, 120) } : null,
       lastClientAt: c.last_client_at, lastTrainerAt: c.last_trainer_at, lastTeamAt: officeAt(c), lastAutomaticAt: lastAuto.get(c.id),
       openedAt: openedAt(c), archived: c.archived_at ? true : undefined,   // archived: the app shows the archive notice instead of the chat
+      quiet: quietOf(c),                                                    // quiet: finishing on Signal, the app sends no chat alerts for it
       hoursSinceTrainer: c.last_trainer_at ? hoursBetween(ms(c.last_trainer_at), now) : null,
       hoursSinceTrainerOrTeam: us ? hoursBetween(us, now) : null,
       waiting, trainerPosts,
@@ -254,7 +265,7 @@ export async function commsOverview(o: { trainer?: string; all?: boolean; now?: 
 
   const recent = now - RECENT_HOURS * 3600000;
   const shown = all.filter((x) => o.all || CARE.includes(x.phase) || AHEAD.includes(x.phase) || x.waiting || x.incidents || ms(x.lastMessage?.at) > recent);
-  const rank = (x: (typeof all)[number]) => (x.waiting ? 0 : CARE.includes(x.phase) ? 1 : AHEAD.includes(x.phase) ? 2 : 3);
+  const rank = (x: (typeof all)[number]) => (x.waiting && !x.quiet ? 0 : CARE.includes(x.phase) ? 1 : AHEAD.includes(x.phase) ? 2 : 3);   // a quiet chat raises no alerts
   shown.sort((a, b) => rank(a) - rank(b)
     || (rank(a) === 0 ? ((b.waiting!.hours as number) - (a.waiting!.hours as number)) : 0)
     || (rank(a) === 1 ? ((b.hoursSinceTrainer ?? 1e9) - (a.hoursSinceTrainer ?? 1e9)) : 0)
@@ -305,11 +316,12 @@ export async function commsOverview(o: { trainer?: string; all?: boolean; now?: 
       openChats: all.length, inCare: count((x) => x.phase === "in care"), goingHomeToday: count((x) => x.phase === "going home today"),
       startingSoon: count((x) => x.phase === "starting soon"), finished: count((x) => x.phase === "finished"),
       other: count((x) => !["in care", "going home today", "starting soon", "finished"].includes(x.phase)),
-      clientWaiting: count((x) => !!x.waiting), shown: Math.min(shown.length, CAP), notShown: all.length - Math.min(shown.length, CAP)
+      clientWaiting: count((x) => !!x.waiting), quiet: count((x) => !!x.quiet), shown: Math.min(shown.length, CAP), notShown: all.length - Math.min(shown.length, CAP)
     },
     note: [
       shown.length > CAP ? `Showing the first ${CAP} chats, most urgent first. Give a trainer to narrow it down.` : "",
-      !o.all && shown.length < all.length ? `${all.length - shown.length} quiet chats with no dog in care or coming up (finished, cancelled or no booking: no client waiting, nothing in ${RECENT_HOURS} hours) are left out; all: true lists them.` : ""
+      !o.all && shown.length < all.length ? `${all.length - shown.length} inactive chats with no dog in care or coming up (finished, cancelled or no booking: no client waiting, nothing in ${RECENT_HOURS} hours) are left out; all: true lists them.` : "",
+      all.some((x) => x.quiet) ? "quiet: the office marked the chat Quiet (finishing on Signal), so the app sends no \"hasn't posted\", \"client waiting\" or \"unanswered messages\" alerts for it." : ""
     ].filter(Boolean).join(" ") || undefined,
     chats: shown.slice(0, CAP),
     noChat: noChat.length ? noChat : undefined,
@@ -356,8 +368,8 @@ export async function recentMessages(o: { since: string; now?: Date; trainer?: s
   const upTo = <T extends { created_at: string }>(rows: T[]) => (nextSince ? rows.filter((m) => micros(m.created_at) <= micros(nextSince)) : rows).slice(0, limit);
   const chatShown = upTo(chatMsgs), teamShown = upTo(teamMsgs);
   const [chatRows, trainers] = await Promise.all([
-    byIds<{ id: string; title: string | null; client_name: string | null; trainer_name: string | null; status: string }>(chatShown.map((m) => m.chat_id), (c, f, t) =>
-      sb.from("chats").select("id, title, client_name, trainer_name, status").in("id", c).order("id").range(f, t)),
+    withQuiet((x) => byIds<{ id: string; title: string | null; client_name: string | null; trainer_name: string | null; status: string; quiet_at?: string | null }>(chatShown.map((m) => m.chat_id), (c, f, t) =>
+      sb.from("chats").select("id, title, client_name, trainer_name, status" + x).in("id", c).order("id").range(f, t))),
     byIds<Trainer>(teamShown.map((m) => m.trainer_id), (c, f, t) => sb.from("trainers").select("id, name, active").in("id", c).order("id").range(f, t))
   ]);
   const chatOf = new Map(chatRows.map((c) => [c.id, c])), tName = new Map(trainers.map((t) => [t.id, t.name]));
@@ -368,7 +380,7 @@ export async function recentMessages(o: { since: string; now?: Date; trainer?: s
     chats: [...groupBy(chatShown, (m) => m.chat_id).entries()].map(([id, msgs]) => {
       const c = chatOf.get(id);
       return {
-        chatId: id, dog: c?.title || "Dog", client: c?.client_name || null, trainer: c?.trainer_name || null, chatStatus: c?.status, link: link(`/a/chats/${id}`),
+        chatId: id, dog: c?.title || "Dog", client: c?.client_name || null, trainer: c?.trainer_name || null, chatStatus: c?.status, quiet: c?.quiet_at ? true : undefined, link: link(`/a/chats/${id}`),
         messages: msgs.map((m) => ({
           id: m.id, at: m.created_at, role: roleOf(m), from: isAutomatic(m) ? `${m.sender_name || "Dogwise team"} (automatic)` : m.sender_name || ROLE[m.sender_role],
           text: cut(m.body, m.sender_role === "system" ? 160 : 800) || undefined, attachments: attachments(m), kind: m.kind === "report" ? "report" : undefined
@@ -396,10 +408,10 @@ export async function trainerComms(o: { days: number; trainer?: string; now?: Da
   ]);
   const tName = new Map(trainers.map((t) => [t.id, t]));
   const keys = [...new Set(bookingRows.map(dealKey))];
-  type C = { id: string; deal_key: string; trainer_id: string | null; title: string | null; closed_at: string | null; archived_at: string | null; created_at: string };
+  type C = { id: string; deal_key: string; trainer_id: string | null; title: string | null; closed_at: string | null; archived_at: string | null; created_at: string; quiet_at?: string | null };
   const COLS = "id, deal_key, trainer_id, title, closed_at, archived_at, created_at";
-  const chats = await byIds<C>([...new Set([...msgs.map((m) => m.chat_id)])], (c, f, t) => sb.from("chats").select(COLS).in("id", c).order("id").range(f, t));
-  const byKey = await byIds<C>(keys, (c, f, t) => sb.from("chats").select(COLS).in("deal_key", c).order("id").range(f, t));
+  const chats = await withQuiet((x) => byIds<C>([...new Set([...msgs.map((m) => m.chat_id)])], (c, f, t) => sb.from("chats").select(COLS + x).in("id", c).order("id").range(f, t)));
+  const byKey = await withQuiet((x) => byIds<C>(keys, (c, f, t) => sb.from("chats").select(COLS + x).in("deal_key", c).order("id").range(f, t)));
   const chatOf = new Map([...chats, ...byKey].map((c) => [c.id, c]));
   const chatsForKey = groupBy([...chatOf.values()], (c) => c.deal_key);
   // A chat closed after training is archived to Drive and its messages leave the app: days before that can't be checked here
@@ -419,12 +431,19 @@ export async function trainerComms(o: { days: number; trainer?: string; now?: Da
     const m = moved.get(c.id);
     if (m && etDate(ms(m)) > (archivedThrough.get(c.deal_key) || "")) archivedThrough.set(c.deal_key, etDate(ms(m)));
   }
+  // A quiet chat (finishing on Signal): from the day it was made quiet, its days and client messages aren't the app's to check
+  const quietFrom = new Map<string, string>();
+  for (const c of chatOf.values()) {
+    if (!c.quiet_at) continue;
+    const d = etDate(ms(c.quiet_at));
+    if (d < (quietFrom.get(c.deal_key) || "9999")) quietFrom.set(c.deal_key, d);
+  }
   const bookingsForKey = groupBy(bookingRows, dealKey);
   const msgsByChat = groupBy(msgs, (m) => m.chat_id);
 
-  type Score = { careDays: number; photo: number; textOnly: number; nothing: number; noChat: number; archived: number; missed: { dog: string; date: string; posted: string }[]; turns: number; answered: number; byTrainer: number; byTeam: number; replies: number[]; over3: number; over12: number; waiting: number; teamFromTrainer: number; teamFromOffice: number; inCareToday: number };
+  type Score = { careDays: number; photo: number; textOnly: number; nothing: number; noChat: number; archived: number; quiet: number; missed: { dog: string; date: string; posted: string }[]; turns: number; answered: number; byTrainer: number; byTeam: number; replies: number[]; over3: number; over12: number; waiting: number; teamFromTrainer: number; teamFromOffice: number; inCareToday: number };
   const scores = new Map<string, Score>();
-  const score = (id: string) => { let s = scores.get(id); if (!s) { s = { careDays: 0, photo: 0, textOnly: 0, nothing: 0, noChat: 0, archived: 0, missed: [], turns: 0, answered: 0, byTrainer: 0, byTeam: 0, replies: [], over3: 0, over12: 0, waiting: 0, teamFromTrainer: 0, teamFromOffice: 0, inCareToday: 0 }; scores.set(id, s); } return s; };
+  const score = (id: string) => { let s = scores.get(id); if (!s) { s = { careDays: 0, photo: 0, textOnly: 0, nothing: 0, noChat: 0, archived: 0, quiet: 0, missed: [], turns: 0, answered: 0, byTrainer: 0, byTeam: 0, replies: [], over3: 0, over12: 0, waiting: 0, teamFromTrainer: 0, teamFromOffice: 0, inCareToday: 0 }; scores.set(id, s); } return s; };
 
   // Daily posts: one per chat per day a dog is in care (pickup day up to the night before drop-off)
   const posted = new Map<string, { media: boolean }>();      // "<deal key>|<date>"
@@ -446,6 +465,7 @@ export async function trainerComms(o: { days: number; trainer?: string; now?: Da
       s.careDays++;
       if (!chatsForKey.get(dealKey(b))?.length || d < (chatSince.get(dealKey(b)) || "")) { s.noChat++; continue; }
       if (d <= (archivedThrough.get(dealKey(b)) || "")) { s.archived++; continue; }
+      if (d >= (quietFrom.get(dealKey(b)) || "9999")) { s.quiet++; continue; }
       const p = posted.get(k);
       if (p?.media) s.photo++;
       else { if (p) s.textOnly++; else s.nothing++; s.missed.push({ dog, date: d, posted: p ? "text only" : "nothing" }); }
@@ -459,8 +479,9 @@ export async function trainerComms(o: { days: number; trainer?: string; now?: Da
     const c = chatOf.get(chatId);
     if (!c) continue;
     let open: number | null = null;
+    const quietAt = ms(c.quiet_at);
     const close = (replyAt: number | null, by: string | null) => {
-      if (open === null || open < winStart || open >= winEnd) { open = null; return; }
+      if (open === null || open < winStart || open >= winEnd || (quietAt && open >= quietAt)) { open = null; return; }
       const t = trainerOn(c.deal_key, etDate(open), c.trainer_id);
       if (!t) { open = null; return; }
       const s = score(t);
@@ -490,7 +511,7 @@ export async function trainerComms(o: { days: number; trainer?: string; now?: Da
 
   const rows = [...scores.entries()].filter(([id]) => mine(tName.get(id)?.name)).map(([id, s]) => ({
     trainer: tName.get(id)?.name || "Trainer", active: tName.get(id)?.active ?? null, dogsInCareToday: s.inCareToday,
-    dailyUpdates: { daysInCare: s.careDays, withPhotoOrVideo: s.photo, textOnly: s.textOnly, nothing: s.nothing, noChat: s.noChat || undefined, chatArchived: s.archived || undefined, missed: s.missed.sort((a, b) => b.date.localeCompare(a.date)).slice(0, 20) },
+    dailyUpdates: { daysInCare: s.careDays, withPhotoOrVideo: s.photo, textOnly: s.textOnly, nothing: s.nothing, noChat: s.noChat || undefined, chatArchived: s.archived || undefined, chatQuiet: s.quiet || undefined, missed: s.missed.sort((a, b) => b.date.localeCompare(a.date)).slice(0, 20) },
     clientMessages: {
       turns: s.turns, answered: s.answered, answeredByTrainer: s.byTrainer, answeredByTeam: s.byTeam, stillWaiting: s.waiting,
       medianReplyWakingHours: median(s.replies), longestReplyWakingHours: s.replies.length ? Math.max(...s.replies) : null,
@@ -503,7 +524,7 @@ export async function trainerComms(o: { days: number; trainer?: string; now?: Da
   return {
     from, to, days: o.days,
     standard: "A photo or video in the dog's chat every day it is in care (pickup day up to the night before drop-off); reply to clients within 2 to 3 hours. Waking hours are 8 am to 9 pm Eastern.",
-    note: "A turn is a client message (or several in a row) and the first reply after it from the trainer or a person in the office (the app's automatic posts, such as training materials, are not replies). Turns are counted for the trainer who had the dog that day, or the chat's trainer after training. chatArchived: days whose messages were moved to Drive (a chat closed and archived, or reopened after that), so they can't be checked here. noChat: days before the dog had a chat.",
+    note: "A turn is a client message (or several in a row) and the first reply after it from the trainer or a person in the office (the app's automatic posts, such as training materials, are not replies). Turns are counted for the trainer who had the dog that day, or the chat's trainer after training. chatArchived: days whose messages were moved to Drive (a chat closed and archived, or reopened after that), so they can't be checked here. noChat: days before the dog had a chat. chatQuiet: days from when the office marked the chat Quiet (finishing on Signal); client messages in a quiet chat after that aren't counted either.",
     trainers: rows
   };
 }
