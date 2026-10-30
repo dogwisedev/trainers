@@ -18,13 +18,22 @@ export const syncMode = (): SyncMode => {
 /** Booking dates come from HubSpot (so they're locked in the app) once the sync is writing. */
 export const datesFromHubspot = () => hubspotConfigured() && syncMode() !== "dry";
 
-async function hs<T>(path: string, init: RequestInit = {}, tries = 3): Promise<T> {
+// HubSpot allows 4 search requests a second. Searches queue here, at most 3 a second, so a burst (Pulse's snapshot) never trips it.
+let searchQueue: Promise<void> = Promise.resolve(), lastSearchAt = 0;
+function searchSlot(): Promise<void> {
+  const mine = searchQueue.then(async () => { const wait = lastSearchAt + 340 - Date.now(); if (wait > 0) await new Promise((ok) => setTimeout(ok, wait)); lastSearchAt = Date.now(); });
+  searchQueue = mine.catch(() => {});
+  return mine;
+}
+
+async function hs<T>(path: string, init: RequestInit = {}, tries = 4): Promise<T> {
+  if (path.includes("/search")) await searchSlot();
   const r = await fetch(BASE + path, {
     ...init, cache: "no-store",
     headers: { Authorization: `Bearer ${process.env.HUBSPOT_TOKEN}`, "Content-Type": "application/json", ...(init.headers || {}) }
   });
-  if (r.status === 429 && tries > 1) { // rate limited: wait and try again
-    await new Promise((ok) => setTimeout(ok, (Number(r.headers.get("retry-after")) || 1) * 1000));
+  if (r.status === 429 && tries > 1) { // rate limited: wait and try again (a secondly limit clears in about a second)
+    await new Promise((ok) => setTimeout(ok, Math.max(1100, (Number(r.headers.get("retry-after")) || 1) * 1000)));
     return hs<T>(path, init, tries - 1);
   }
   if (!r.ok && r.status !== 207) throw new Error(`HubSpot ${r.status} on ${path.split("?")[0]}: ${(await r.text()).slice(0, 300)}`);

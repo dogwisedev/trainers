@@ -147,7 +147,7 @@ function Trainers({ rows }: { rows: TrainerRow[] }) {
           <div className="flex items-start gap-3">
             <span className={`w-6 shrink-0 pt-1 text-center text-small font-bold tabular-nums ${t.rank ? "text-ink" : "text-ink-faint"}`}>{t.rank ?? "–"}</span>
             <div className="min-w-0 flex-1">
-              <p className="flex items-baseline gap-2"><Link prefetch={false} href={`/a/trainers/${t.id}`} className="min-w-0 truncate font-bold hover:underline">{t.name}</Link><span className="shrink-0 text-small text-ink-soft">{t.dogs} dog{t.dogs === 1 ? "" : "s"}</span></p>
+              <p className="flex items-baseline gap-2"><Link prefetch={false} href={`/a/trainers/${t.id}`} className="min-w-0 truncate font-bold hover:underline">{t.name}</Link><span className="shrink-0 text-small text-ink-soft">{t.dogs} dog{t.dogs === 1 ? "" : "s"}{t.appDogs && t.appDogs < t.dogs ? ` · ${t.appDogs} in app chats` : ""}</span></p>
               <p className="mt-0.5 text-small text-ink-soft">{t.summary}</p>
             </div>
             <Score t={t} />
@@ -311,7 +311,7 @@ export function PulseView({ p, q }: { p: Pulse; q: Q }) {
           <Trainers rows={p.trainers} />
         </section>
       )}
-      {p.view === "sales" && (p.sales ? <Sales s={p.sales} q={q} /> : <p className="text-body text-ink-soft">Sales needs HubSpot.</p>)}
+      {p.view === "sales" && (p.sales ? <Sales s={p.sales} q={q} /> : <p className="text-body text-ink-soft">Sales couldn&apos;t load from HubSpot this time. Press Refresh to take a new snapshot.</p>)}
       {p.notes.length > 0 && <p className="mt-4 text-caption text-ink-faint">{p.notes.join(" ")}</p>}
     </>
   );

@@ -207,7 +207,7 @@ export async function snapshotCached(): Promise<Snapshot> {
 export type Tile = { key: string; label: string; value: string; sub: string; delta: { text: string; up: boolean | null }; good?: "up" | "down"; n?: string; how: string; spark: number[]; to?: string };
 export type Card = { tone: "heart" | "biscuit" | "mint"; title: string; evidence: string; href?: string; action?: string };
 export type TrainerRow = {
-  id: string; name: string; dogs: number; careDays: number; postDays: number; updateRate: number | null; replyMedian: number | null; replyN: number;
+  id: string; name: string; dogs: number; appDogs: number; careDays: number; postDays: number; updateRate: number | null; replyMedian: number | null; replyN: number;
   formsOnTime: number | null; formsN: number; alerts: number; utilisation: number | null; daysOff: number; cap: number; rank: number | null;
   score: number | null; baseline: number | null; confidence: "ok" | "low" | "none"; unusual: boolean; summary: string;
 };
@@ -278,8 +278,9 @@ function period(s: Snapshot, from: string, to: string) {
 
 /** A trainer's score for a period: updates 40, replies 25, forms 20, alerts 15; parts with no data drop out. */
 function scoreOf(x: { care: number; post: number; replies: number[]; formsOk: number; formsN: number; alerts: number }, groupRate: number): number | null {
+  if (!x.care) return null; // no dog-days in an app chat: nothing to score (a form alone isn't a score)
   const parts: [number, number][] = [];
-  if (x.care) parts.push([shrink((x.post / x.care) * 100, x.care, groupRate * 100, 7), 40]);
+  parts.push([shrink((x.post / x.care) * 100, x.care, groupRate * 100, 7), 40]);
   const m = median(x.replies); if (m != null) parts.push([Math.max(0, Math.min(100, 100 - ((m - 15) / 345) * 100)), 25]);
   if (x.formsN) parts.push([shrink((x.formsOk / x.formsN) * 100, x.formsN, 80, 3), 20]);
   if (x.care) parts.push([Math.max(0, 100 - x.alerts * 15), 15]);
@@ -319,8 +320,8 @@ export async function pulse(q: { r?: string; from?: string; to?: string; v?: str
   const tiles: Tile[] = [
     { key: "care", label: "Dogs in care", value: String(inCareNow), sub: `${now.started} started, ${now.cancelled} cancelled`, delta: delta(now.started, prev.started), good: "up", how: "Dogs in care on the last day of the range. Started and cancelled are counted inside the range.", spark: careSpark, to: "/a/dogs" },
     { key: "update", label: "Daily updates", value: now.careDays ? `${pct(now.postCount, now.careDays)}%` : "–", sub: `${now.postCount} of ${now.careDays} dog-days had a post`, delta: delta(pct(now.postCount, now.careDays), pct(prev.postCount, prev.careDays)), good: "up", n: `${now.careDays} dog-days`, how: "Days a dog was in care (since the Oct 23 cutover) on which its trainer posted in the chat, over all such days. Quiet (Signal) chats left out.", spark: postSpark, to: "/a/chats" },
-    { key: "reply", label: "Trainer reply time", value: now.replyMedian == null ? "–" : label(now.replyMedian), sub: now.replyN ? `median of ${now.replyN}; 90% within ${label(now.replyP90!)}` : "no client messages answered by trainers", delta: delta(now.replyMedian, prev.replyMedian, true), good: "down", n: `${now.replyN} replies`, how: "From a client's first unanswered message to the trainer's reply, 8 AM–8 PM Eastern only. Median, not average. Office replies are in the team figure.", spark: [], to: "/a/chats" },
-    { key: "team", label: "Team reply time", value: now.teamMedian == null ? "–" : label(now.teamMedian), sub: now.teamN ? `median of ${now.teamN} replies by anyone at Dogwise` : "no replies", delta: delta(now.teamMedian, prev.teamMedian, true), good: "down", n: `${now.teamN} replies`, how: "Same as trainer reply time, but whoever at Dogwise replied first.", spark: [], to: "/a/chats" },
+    { key: "reply", label: "Trainer reply time", value: now.replyMedian == null ? "–" : label(now.replyMedian), sub: now.replyN ? `median of ${now.replyN}; 90% within ${label(now.replyP90!)}` : "no client messages answered by trainers", delta: now.replyN >= 5 && prev.replyN >= 5 ? delta(now.replyMedian, prev.replyMedian, true) : { text: "", up: null }, good: "down", n: `${now.replyN} replies`, how: "From a client's first unanswered message to the trainer's reply, 8 AM–8 PM Eastern only. Median, not average. Office replies are in the team figure.", spark: [], to: "/a/chats" },
+    { key: "team", label: "Team reply time", value: now.teamMedian == null ? "–" : label(now.teamMedian), sub: now.teamN ? `median of ${now.teamN} replies by anyone at Dogwise` : "no replies", delta: now.teamN >= 5 && prev.teamN >= 5 ? delta(now.teamMedian, prev.teamMedian, true) : { text: "", up: null }, good: "down", n: `${now.teamN} replies`, how: "Same as trainer reply time, but whoever at Dogwise replied first.", spark: [], to: "/a/chats" },
     { key: "forms", label: "Forms on time", value: now.formsN ? `${pct(now.formsOk, now.formsN)}%` : "–", sub: `${now.formsOk} of ${now.formsN} sent by the deadline`, delta: delta(pct(now.formsOk, now.formsN), pct(prev.formsOk, prev.formsN)), good: "up", n: `${now.formsN} forms`, how: "Intake forms, weekly checks and handover reports sent in during the range, on or before their deadline.", spark: [], to: "/a#todo-week" },
     { key: "waiting", label: "Clients waiting now", value: String(waitingNow), sub: `${now.waiting} left waiting in the range, ${now.silent} days with no update`, delta: delta(now.waiting, prev.waiting), good: "down", how: "Clients with an open \"waiting for a reply\" alert right now. The range figure counts every such alert raised in it (unanswered 3+ waking hours, or 3+ messages).", spark: waitSpark, to: "/a#todo-now" }
   ];
@@ -335,7 +336,7 @@ export async function pulse(q: { r?: string; from?: string; to?: string; v?: str
     const daysOff = snap.timeOff.filter((o) => o.t === id).reduce((n, o) => n + overlapDays(o.start, o.end, range.from, range.to), 0);
     const allCare = live.filter((bk) => bk.t === id).reduce((n, bk) => n + overlapDays(bk.start, addDays(bk.end, -1), range.from, range.to), 0);
     const score = scoreOf(x, groupRate), baseline = b ? scoreOf(b, baseRate) : null;
-    const row: TrainerRow = { id, name: tr?.name || tName(id), dogs: dogsAll.size, careDays: x.care, postDays: x.post, updateRate: x.care ? Math.round((x.post / x.care) * 100) : null,
+    const row: TrainerRow = { id, name: tr?.name || tName(id), dogs: dogsAll.size, appDogs: x.dogs.size, careDays: x.care, postDays: x.post, updateRate: x.care ? Math.round((x.post / x.care) * 100) : null,
       replyMedian: median(x.replies), replyN: x.replies.length, formsOnTime: x.formsN ? Math.round((x.formsOk / x.formsN) * 100) : null, formsN: x.formsN, alerts: x.alerts,
       utilisation: cap ? Math.min(100, Math.round((allCare / (cap * range.days)) * 100)) : null, daysOff, cap, rank: null,
       score, baseline, confidence: score == null ? "none" : x.care < 14 || (x.replies.length < 5 && x.care < 21) ? "low" : "ok", unusual: score != null && baseline != null && b!.care >= 21 && Math.abs(score - baseline) >= 20, summary: "" };
@@ -352,7 +353,8 @@ export async function pulse(q: { r?: string; from?: string; to?: string; v?: str
     const silent24 = careNow.flatMap((b) => { const c = chatOf(b); if (!c || c.quiet) return []; const last = snap.lastStaff[c.id] ? Date.parse(snap.lastStaff[c.id]) : Date.parse(`${b.start}T12:00:00Z`); const hours = Math.round((nowMs - last) / 3600000); return hours >= 24 ? [{ dog: b.dog, client: b.client, trainer: tName(b.t), hours, href: `/a/chats/${c.id}` }] : []; }).sort((a, b) => b.hours - a.hours);
     const wait = new Map<string, number>(); for (const i of now.inc) if ((i.k === "client_waiting" || i.k === "client_pileup") && i.c) wait.set(i.c, (wait.get(i.c) || 0) + 1);
     const waitingClients = [...wait.entries()].filter(([, n]) => n >= 2).map(([id, n]) => { const c = chatById.get(id); return { client: c?.client || "Client", dog: c?.title || "", n, href: `/a/chats/${id}` }; }).sort((a, b) => b.n - a.n);
-    const slowTrainers = trainers.filter((t) => t.alerts >= 3).map((t) => ({ name: t.name, alerts: t.alerts, href: `/a/trainers/${t.id}` })).sort((a, b) => b.alerts - a.alerts);
+    const bar = Math.max(5, Math.round(range.days / 2)); // "repeated": alerts on half the days or more
+    const slowTrainers = trainers.filter((t) => t.alerts >= bar).map((t) => ({ name: t.name, alerts: t.alerts, href: `/a/trainers/${t.id}` })).sort((a, b) => b.alerts - a.alerts);
     const nb = new Map<string, number>(); for (const b of snap.bookings.filter((b) => b.created >= range.from && b.created <= range.to)) nb.set(b.t, (nb.get(b.t) || 0) + 1);
     const moves: Move[] = [...live.filter((b) => b.start >= range.from && b.start <= range.to).map((b) => ({ id: b.id, kind: "pickup" as const, date: b.start, dog: b.dog, client: b.client, trainer: tName(b.t) })),
       ...live.filter((b) => b.end >= range.from && b.end <= range.to).map((b) => ({ id: b.id, kind: "dropoff" as const, date: b.end, dog: b.dog, client: b.client, trainer: tName(b.t) }))].sort((a, b) => a.date.localeCompare(b.date) || a.kind.localeCompare(b.kind));
@@ -421,12 +423,12 @@ export async function pulse(q: { r?: string; from?: string; to?: string; v?: str
       planLost: { n: planLost.length, amount: planLost.reduce((n, d) => n + d.amount, 0) }, failed: snap.failed ? { n: failedIn.length, amount: failedIn.reduce((n, f) => n + f.amount, 0) } : null,
       coverage: { n: coverage.length, where: [...covWhere.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4).map(([k, n]) => `${k} (${n})`) }
     };
-  } else if (view === "sales" && !snap.hs) notes.push("Sales needs HubSpot.");
+  } else if (view === "sales" && !snap.hs && !notes.some((n) => /HubSpot/.test(n))) notes.push("Sales needs HubSpot.");
 
   // Decision cards
   const cards: Card[] = [];
   if (view !== "sales") {
-    for (const t of trainers.filter((t) => t.dogs >= 2 && t.careDays >= 7 && (t.updateRate ?? 100) < 60).slice(0, 2)) cards.push({ tone: "heart", title: `${t.name}: updates on ${t.updateRate}% of days with ${t.dogs} dogs`, evidence: `${t.postDays} of ${t.careDays} dog-days had a post. Clients were promised one a day.`, href: `/a/trainers/${t.id}`, action: "Open trainer" });
+    for (const t of trainers.filter((t) => t.appDogs >= 2 && t.careDays >= 7 && (t.updateRate ?? 100) < 60).slice(0, 2)) cards.push({ tone: "heart", title: `${t.name}: updates on ${t.updateRate}% of days with ${t.appDogs} dogs in app chats`, evidence: `${t.postDays} of ${t.careDays} dog-days had a post. Clients were promised one a day.`, href: `/a/trainers/${t.id}`, action: "Open trainer" });
     if (waitingNow >= 3) cards.push({ tone: "heart", title: `${waitingNow} clients are waiting for a reply right now`, evidence: `Team reply median ${now.teamMedian == null ? "–" : label(now.teamMedian)} in this range.`, href: "/a#todo-now", action: "See To do" });
     if (now.started && now.cancelled / Math.max(1, now.started) > 0.15) cards.push({ tone: "heart", title: `${now.cancelled} cancelled against ${now.started} started`, evidence: "More than 15% cancelled in this range. Reasons are on the bookings.", href: "/a/dogs", action: "See bookings" });
     if (now.formsN >= 10 && pct(now.formsOk, now.formsN)! < 70) cards.push({ tone: "biscuit", title: `Forms on time: ${pct(now.formsOk, now.formsN)}%`, evidence: `${now.formsN - now.formsOk} of ${now.formsN} forms were late.`, href: "/a#todo-week", action: "See late forms" });
