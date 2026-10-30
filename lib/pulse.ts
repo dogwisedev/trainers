@@ -45,7 +45,11 @@ type SChat = { id: string; deal: string; t: string | null; quiet: boolean; joine
 type SRun = { d: string; m: number; by: "t" | "a" };
 type SInc = { c: string | null; b: string | null; k: string; d: string; open: boolean; title: string; detail: string };
 type SDeal = { st: string | null; day: string; closed: string | null; won: boolean; amount: number; credits: number; source: string; owner: string; reason: string; noTrainer: boolean };
-type OwnerCounts = Record<string, Record<string, { leads: number; calls: number; emails: number }>>; // preset → owner id → counts
+type OwnerCounts = Record<string, Record<string, { calls: number; emails: number }>>;   // preset → owner id → counts
+type SourceCounts = Record<string, Record<string, number>>;                              // preset → source → exact leads
+/** HubSpot counts (sources, calls) are taken for these; 7 days uses the 14-day ones. */
+const COUNT_KEYS = ["14d", "30d", "90d"];
+export const countKey = (key: string) => (COUNT_KEYS.includes(key) ? key : key === "7d" ? "14d" : "90d");
 export type Snapshot = {
   builtAt: string; today: string; from: string; points: number; ms: number; notes: string[];
   bookings: SBooking[]; trainers: { id: string; name: string; cap: number; active: boolean; state: string }[]; chats: SChat[];
@@ -54,7 +58,7 @@ export type Snapshot = {
   dealMoney: { amount: number; day: string; owner: string }[]; hs: null | {
     created: SDeal[]; createdTotals: Record<string, { now: number; ly: number }>; won: SDeal[]; wonLY: SDeal[]; lost: SDeal[];
     monthLY: { label: string; n: number; amount: number; toDate: number; toDateAmount: number }; nextMonthLY: { label: string; n: number; amount: number };
-    owners: { id: string; name: string }[]; ownerCounts: OwnerCounts; emailsLogged: boolean;
+    owners: { id: string; name: string }[]; ownerCounts: OwnerCounts; sourceCounts: SourceCounts; emailsLogged: boolean; sample: number;
   };
   failed: { customer: string; amount: number; day: string }[] | null; // customers whose LAST card attempt in the window failed
 };
@@ -140,30 +144,31 @@ export async function buildHsPart(): Promise<{ hs: Snapshot["hs"]; points: numbe
       const compact = (d: { properties: Record<string, string | null> }, won: boolean): SDeal => {
         const p = d.properties, reason = clean(p.closed_lost_reason_new);
         return { st: stateOf(p.dealname), day: day(p.createdate) || day(p.closedate), closed: p.closedate ? day(p.closedate) : null, won, amount: Number(p.amount || 0), credits: Number(p.bark_credits_paid || 0),
-          source: clean(p.lead_source || p.deal_source) || "Unknown", owner: clean(p.hubspot_owner_id), reason, noTrainer: /local/i.test(reason) || p.dealstage === "173376666" || p.trainer_in_range === "false" };
+          source: clean(p.lead_source) || "Unknown", owner: clean(p.hubspot_owner_id), reason, noTrainer: /local/i.test(reason) || p.dealstage === "173376666" || p.trainer_in_range === "false" };
       };
       const createdTotals: Record<string, { now: number; ly: number }> = {};
       PRESETS.forEach((p, i) => { createdTotals[p.key] = { now: totals[i * 2] as number, ly: totals[i * 2 + 1] as number }; });
       const toDate = addDays(today, -365);
-      // Salespeople: leads owned (from the created deals already pulled), calls per preset (counts), emails for 90 days only
-      const ownerCounts: OwnerCounts = {};
-      const createdRows = created.rows.map((d) => ({ owner: clean(d.properties.hubspot_owner_id), day: day(d.properties.createdate) }));
+      // Exact counts (searches queue at 3 a second): leads per source, calls per salesperson, for 14/30/90 days; emails for 90 days
+      const ownerCounts: OwnerCounts = {}, sourceCounts: SourceCounts = {};
+      const sources = [...new Set(created.rows.map((d) => clean(d.properties.lead_source) || "Unknown"))].slice(0, 6);
       const jobs: Promise<void>[] = [];
-      for (const p of PRESETS) {
-        const f = addDays(today, -(p.days - 1)), ms = { from: String(etMidnight(f)), to: String(etMidnight(addDays(today, 1))) };
-        ownerCounts[p.key] = {};
+      for (const key of COUNT_KEYS) {
+        const p = PRESETS.find((x) => x.key === key)!, f = addDays(today, -(p.days - 1)), ms = { from: String(etMidnight(f)), to: String(etMidnight(addDays(today, 1))) };
+        ownerCounts[key] = {}; sourceCounts[key] = {};
+        for (const src of sources) jobs.push(countObjects("deals", [...rng(f, today), src === "Unknown" ? { propertyName: "lead_source", operator: "NOT_HAS_PROPERTY" } : { propertyName: "lead_source", operator: "EQ", value: src }]).then((n) => { sourceCounts[key][src] = n; }).catch(() => {}));
         for (const o of people) {
-          ownerCounts[p.key][o.id] = { leads: createdRows.filter((r) => r.owner === o.id && r.day >= f).length, calls: 0, emails: 0 };
-          jobs.push(countObjects("calls", [{ propertyName: "hs_timestamp", operator: "GTE", value: ms.from }, { propertyName: "hs_timestamp", operator: "LT", value: ms.to }, { propertyName: "hubspot_owner_id", operator: "EQ", value: o.id }]).then((n) => { ownerCounts[p.key][o.id].calls = n; }).catch(() => {}));
-          if (p.key === "90d") jobs.push(countObjects("emails", [{ propertyName: "hs_timestamp", operator: "GTE", value: ms.from }, { propertyName: "hs_timestamp", operator: "LT", value: ms.to }, { propertyName: "hubspot_owner_id", operator: "EQ", value: o.id }]).then((n) => { ownerCounts[p.key][o.id].emails = n; }).catch(() => {}));
+          ownerCounts[key][o.id] = { calls: 0, emails: 0 };
+          jobs.push(countObjects("calls", [{ propertyName: "hs_timestamp", operator: "GTE", value: ms.from }, { propertyName: "hs_timestamp", operator: "LT", value: ms.to }, { propertyName: "hubspot_owner_id", operator: "EQ", value: o.id }]).then((n) => { ownerCounts[key][o.id].calls = n; }).catch(() => {}));
+          if (key === "90d") jobs.push(countObjects("emails", [{ propertyName: "hs_timestamp", operator: "GTE", value: ms.from }, { propertyName: "hs_timestamp", operator: "LT", value: ms.to }, { propertyName: "hubspot_owner_id", operator: "EQ", value: o.id }]).then((n) => { ownerCounts[key][o.id].emails = n; }).catch(() => {}));
         }
       }
-      for (let i = 0; i < jobs.length; i += 12) await Promise.all(jobs.slice(i, i + 12)); // a dozen at a time: inside HubSpot's rate limit
+      await Promise.all(jobs); // the queue in lib/hubspot.ts paces them
       const emailsLogged = Object.values(ownerCounts["90d"] || {}).some((c) => c.emails > 0);
       hs = { created: created.rows.map((d) => compact(d, d.properties.hs_is_closed_won === "true")), createdTotals, won: won.rows.map((d) => compact(d, true)), wonLY: wonLY.rows.map((d) => compact(d, true)), lost: lost.map((d) => compact(d, false)),
         monthLY: { label: monthName(monthStart), n: monthLY.total, amount: monthLY.rows.reduce((n, d) => n + Number(d.properties.amount || 0), 0), toDate: monthLY.rows.filter((d) => day(d.properties.closedate) <= toDate).length, toDateAmount: monthLY.rows.filter((d) => day(d.properties.closedate) <= toDate).reduce((n, d) => n + Number(d.properties.amount || 0), 0) },
         nextMonthLY: { label: monthName(nmFrom), n: nextLY.total, amount: nextLY.rows.reduce((n, d) => n + Number(d.properties.amount || 0), 0) },
-        owners: people.map((o) => ({ id: o.id, name: o.name })), ownerCounts, emailsLogged };
+        owners: people.map((o) => ({ id: o.id, name: o.name })), ownerCounts, sourceCounts, emailsLogged, sample: created.rows.length };
       points += created.rows.length + won.rows.length + wonLY.rows.length + lost.length + monthLY.rows.length + nextLY.rows.length;
     } catch (e) { notes.push(`HubSpot: ${(e as Error).message}`); }
   } else notes.push("HubSpot isn't set up here, so Sales is empty.");
@@ -205,7 +210,7 @@ export async function snapshotCached(): Promise<Snapshot> {
 
 // ── Views, derived from the snapshot ─────────────────────────────────────────
 export type Tile = { key: string; label: string; value: string; sub: string; delta: { text: string; up: boolean | null }; good?: "up" | "down"; n?: string; how: string; spark: number[]; to?: string };
-export type Card = { tone: "heart" | "biscuit" | "mint"; title: string; evidence: string; href?: string; action?: string };
+export type Card = { tone: "heart" | "biscuit" | "mint"; title: string; evidence: string; href?: string; action?: string; more?: { label: string; items: string[] } };
 export type TrainerRow = {
   id: string; name: string; dogs: number; appDogs: number; careDays: number; postDays: number; updateRate: number | null; replyMedian: number | null; replyN: number;
   formsOnTime: number | null; formsN: number; alerts: number; utilisation: number | null; daysOff: number; cap: number; rank: number | null;
@@ -221,7 +226,7 @@ export type OfficeView = {
   counts: { todo: number; now: number; toReview: number; late: number; notBooked: number; notSignedIn: number };
 };
 export type StateCell = { st: string; leads: number; won: number; wonAmount: number; full: boolean };
-export type SalesPerson = { name: string; leads: number; won: number; amount: number; calls: number; emails: number };
+export type SalesPerson = { name: string; leads: number; won: number; amount: number; calls: number; emails: number; conversion: number | null };
 export type SalesView = {
   leads: number; leadsLY: number; won: number; wonAmount: number; wonLY: { n: number; amount: number }; conversion: number | null; conversionLY: number | null;
   perLead: string; perLeadN: number; perSale: string; perSaleN: number; creditUsd: number | null; closeDays: number | null; closeN: number;
@@ -229,7 +234,8 @@ export type SalesView = {
   bySource: { source: string; leads: number; won: number; conversion: number; perSale: string | null }[];
   states: StateCell[]; people: SalesPerson[]; peopleRange: string; emailsLogged: boolean;
   chart: { label: string; now: number; ly: number }[]; chartUnit: "day" | "week"; chartState: string | null;
-  planLost: { n: number; amount: number }; failed: { n: number; amount: number } | null; coverage: { n: number; where: string[] };
+  planLost: { n: number; amount: number }; failed: { n: number; amount: number } | null; coverage: { n: number; amount: number; where: string[]; bySource: { source: string; n: number }[] };
+  sample: number; countKey: string;
 };
 export type Pulse = { range: Range; view: View; tiles: Tile[]; cards: Card[]; trainers: TrainerRow[]; office: OfficeView | null; sales: SalesView | null; notes: string[]; stats: { points: number; ms: number; at: string } };
 
@@ -328,7 +334,8 @@ export async function pulse(q: { r?: string; from?: string; to?: string; v?: str
 
   // Trainers: everyone active, plus anyone else with dogs in the range
   const groupRate = now.careDays ? now.postCount / now.careDays : 0, baseRate = base.careDays ? base.postCount / base.careDays : 0;
-  const ids = new Set([...snap.trainers.filter((t) => t.active).map((t) => t.id), ...now.perTrainer.keys()]);
+  const isTest = (id: string) => /\btest\b/i.test(snap.trainers.find((t) => t.id === id)?.name || "");
+  const ids = new Set([...snap.trainers.filter((t) => t.active).map((t) => t.id), ...now.perTrainer.keys()].filter((id) => !isTest(id)));
   const trainers: TrainerRow[] = [...ids].map((id) => {
     const x = now.perTrainer.get(id) || { dogs: new Set<string>(), care: 0, post: 0, replies: [] as number[], formsOk: 0, formsN: 0, alerts: 0 }, b = base.perTrainer.get(id);
     const tr = snap.trainers.find((t) => t.id === id), cap = tr?.cap || 0;
@@ -357,7 +364,7 @@ export async function pulse(q: { r?: string; from?: string; to?: string; v?: str
     const slowTrainers = trainers.filter((t) => t.alerts >= bar).map((t) => ({ name: t.name, alerts: t.alerts, href: `/a/trainers/${t.id}` })).sort((a, b) => b.alerts - a.alerts);
     const nb = new Map<string, number>(); for (const b of snap.bookings.filter((b) => b.created >= range.from && b.created <= range.to)) nb.set(b.t, (nb.get(b.t) || 0) + 1);
     const moves: Move[] = [...live.filter((b) => b.start >= range.from && b.start <= range.to).map((b) => ({ id: b.id, kind: "pickup" as const, date: b.start, dog: b.dog, client: b.client, trainer: tName(b.t) })),
-      ...live.filter((b) => b.end >= range.from && b.end <= range.to).map((b) => ({ id: b.id, kind: "dropoff" as const, date: b.end, dog: b.dog, client: b.client, trainer: tName(b.t) }))].sort((a, b) => a.date.localeCompare(b.date) || a.kind.localeCompare(b.kind));
+      ...live.filter((b) => b.end >= range.from && b.end <= range.to).map((b) => ({ id: b.id, kind: "dropoff" as const, date: b.end, dog: b.dog, client: b.client, trainer: tName(b.t) }))].sort((a, b) => b.date.localeCompare(a.date) || a.kind.localeCompare(b.kind));
     let counts = { todo: 0, now: 0, toReview: 0, late: 0, notBooked: 0, notSignedIn: 0 }, lateForms: OfficeView["lateForms"] = [], balances: OfficeView["balances"] = [];
     try {
       const t = await buildTodo(); const signin = t.items.find((i) => i.key === "signin");
@@ -378,14 +385,26 @@ export async function pulse(q: { r?: string; from?: string; to?: string; v?: str
     const h = snap.hs, inR = (d: string) => d >= range.from && d <= range.to, lyR = (d: string) => d >= addDays(range.from, -365) && d <= addDays(range.to, -365);
     const created = h.created.filter((d) => inR(d.day)), won = h.won.filter((d) => inR(d.closed || "")), wonLY = h.wonLY.filter((d) => lyR(d.closed || "")), lost = h.lost.filter((d) => inR(d.day));
     const totals = range.exact ? h.createdTotals[range.key] : null;
-    const leads = totals?.now || created.length, leadsLY = totals?.ly || 0; // a custom range counts the deals in the snapshot
+    // The lead total is exact (HubSpot's count). The newest `sample` leads are what the snapshot holds in detail: their shares
+    // are scaled to the total for the map and for people; sources get exact counts; credits are measured per lead on the sample.
+    const leads = totals?.now || created.length, leadsLY = totals?.ly || 0, scale = created.length ? leads / created.length : 1;
+    const ck = countKey(range.key), srcExact = h.sourceCounts[ck] || {};
     const st = q.state || null;
     const sel = <T extends { st: string | null }>(xs: T[]) => (st ? xs.filter((x) => x.st === st) : xs);
-    const creditLeads = created.filter((d) => d.credits > 0), creditSum = creditLeads.reduce((n, d) => n + d.credits, 0), wonCredits = won.filter((d) => d.credits > 0).length;
     const creditUsd = Number(process.env.BARK_CREDIT_USD || 0) || null, fmt = (n: number) => (creditUsd ? money(n * creditUsd) : `${Math.round(n * 10) / 10} cr`);
-    // Map: leads and sales per state; a state is "full" when its active trainers' kennels are 80%+ used today
+    // Per source: exact leads, credits per lead (on the sample), spend = that × exact leads, cost per sale = spend ÷ won deals with credits
+    const srcS = new Map<string, { sample: number; credits: number; creditLeads: number; won: number; wonCredits: number }>();
+    const srcGet = (k: string) => { if (!srcS.has(k)) srcS.set(k, { sample: 0, credits: 0, creditLeads: 0, won: 0, wonCredits: 0 }); return srcS.get(k)!; };
+    for (const d of created) { const x = srcGet(d.source); x.sample++; if (d.credits > 0) { x.credits += d.credits; x.creditLeads++; } }
+    for (const d of won) { const x = srcGet(d.source); x.won++; if (d.credits > 0) x.wonCredits++; }
+    const srcLeads = (k: string, x: { sample: number }) => (range.exact && srcExact[k] != null ? srcExact[k] : Math.round(x.sample * scale));
+    const srcSpend = (k: string, x: { sample: number; credits: number; creditLeads: number }) => (x.sample ? (x.credits / x.sample) * srcLeads(k, x) : 0); // credits per lead on the sample × real leads
+    let spend = 0, creditLeadsAll = 0, wonCredits = 0;
+    for (const [k, x] of srcS) { spend += srcSpend(k, x); creditLeadsAll += x.sample ? Math.round((x.creditLeads / x.sample) * srcLeads(k, x)) : 0; wonCredits += x.wonCredits; }
+    // Map: leads per state (the sample's share, scaled to the total) and sales; "full" = that state's active trainers' kennels are 80%+ used today
     const cells = new Map<string, StateCell>(), cell = (x: string) => { if (!cells.has(x)) cells.set(x, { st: x, leads: 0, won: 0, wonAmount: 0, full: false }); return cells.get(x)!; };
     for (const d of created) if (d.st) cell(d.st).leads++;
+    for (const c of cells.values()) c.leads = Math.round(c.leads * scale);
     for (const d of won) if (d.st) { const c = cell(d.st); c.won++; c.wonAmount += d.amount; }
     for (const t of US_TILES) {
       const trs = snap.trainers.filter((x) => x.active && x.state === t.st), cap = trs.reduce((n, x) => n + x.cap, 0);
@@ -393,9 +412,6 @@ export async function pulse(q: { r?: string; from?: string; to?: string; v?: str
       const used = live.filter((b) => trs.some((x) => x.id === b.t) && b.start <= snap.today && b.end > snap.today).length;
       if (used / cap >= 0.8) cell(t.st).full = true;
     }
-    const src = new Map<string, { leads: number; won: number; credits: number; creditLeads: number; wonCredits: number }>(), s = (k: string) => { if (!src.has(k)) src.set(k, { leads: 0, won: 0, credits: 0, creditLeads: 0, wonCredits: 0 }); return src.get(k)!; };
-    for (const d of created) { const x = s(d.source); x.leads++; if (d.credits > 0) { x.credits += d.credits; x.creditLeads++; } }
-    for (const d of won) { const x = s(d.source); x.won++; if (d.credits > 0) x.wonCredits++; }
     // Chart: sales per day (short ranges) or per week, this range against the same dates last year, for the chosen state
     const unit: "day" | "week" = range.days > 21 ? "week" : "day", buckets: { label: string; now: number; ly: number }[] = [];
     for (let d = range.from; d <= range.to; d = addDays(d, unit === "day" ? 1 : 7)) {
@@ -403,25 +419,30 @@ export async function pulse(q: { r?: string; from?: string; to?: string; v?: str
       const inB = (x: string) => x >= d && x <= end, inBLY = (x: string) => x >= addDays(d, -365) && x <= addDays(end, -365);
       buckets.push({ label: unit === "day" ? d.slice(5).replace("-", "/") : `${d.slice(5).replace("-", "/")}–${end.slice(5).replace("-", "/")}`, now: sel(won).filter((x) => inB(x.closed || "")).length, ly: sel(h.wonLY).filter((x) => inBLY(x.closed || "")).length });
     }
-    const peopleKey = range.key, pc = h.ownerCounts[peopleKey] || {};
+    const pc = h.ownerCounts[ck] || {};
     const wonByOwner = new Map<string, { n: number; amount: number }>(); for (const d of snap.dealMoney.filter((d) => inR(d.day))) { const x = wonByOwner.get(d.owner) || { n: 0, amount: 0 }; x.n++; x.amount += d.amount; wonByOwner.set(d.owner, x); }
-    const people: SalesPerson[] = h.owners.map((o) => { const c = pc[o.id] || { leads: 0, calls: 0, emails: 0 }, w = wonByOwner.get(o.id) || { n: 0, amount: 0 }; return { name: o.name, leads: c.leads, won: w.n, amount: w.amount, calls: c.calls, emails: c.emails }; }).filter((p) => p.leads || p.won || p.calls || p.emails).sort((a, b) => b.amount - a.amount || b.won - a.won);
+    const people: SalesPerson[] = h.owners.map((o) => {
+      const c = pc[o.id] || { calls: 0, emails: 0 }, w = wonByOwner.get(o.id) || { n: 0, amount: 0 }, ol = Math.round(created.filter((d) => d.owner === o.id).length * scale);
+      return { name: o.name, leads: ol, won: w.n, amount: w.amount, calls: c.calls, emails: c.emails, conversion: ol ? Math.round((w.n / ol) * 1000) / 10 : null };
+    }).filter((p) => p.leads || p.won || p.calls || p.emails).sort((a, b) => b.amount - a.amount || b.won - a.won);
     const planLost = lost.filter((d) => /payment plan/i.test(d.reason)), coverage = lost.filter((d) => d.noTrainer);
-    const covWhere = new Map<string, number>(); for (const d of coverage) if (d.st) covWhere.set(d.st, (covWhere.get(d.st) || 0) + 1);
+    const covWhere = new Map<string, number>(), covSrc = new Map<string, number>();
+    for (const d of coverage) { if (d.st) covWhere.set(d.st, (covWhere.get(d.st) || 0) + 1); covSrc.set(d.source, (covSrc.get(d.source) || 0) + 1); }
     const failedIn = (snap.failed || []).filter((f) => inR(f.day));
     const closeDaysArr = won.filter((d) => d.day && d.closed).map((d) => Math.max(0, daysBetween(d.day, d.closed!)));
     sales = {
       leads, leadsLY, won: won.length, wonAmount: won.reduce((n, d) => n + d.amount, 0), wonLY: { n: wonLY.length, amount: wonLY.reduce((n, d) => n + d.amount, 0) },
       conversion: leads ? Math.round((won.length / leads) * 1000) / 10 : null, conversionLY: leadsLY ? Math.round((wonLY.length / leadsLY) * 1000) / 10 : null,
-      perLead: creditLeads.length ? fmt(creditSum / creditLeads.length) : "–", perLeadN: creditLeads.length, perSale: wonCredits ? fmt(creditSum / wonCredits) : "–", perSaleN: wonCredits, creditUsd,
+      perLead: creditLeadsAll ? fmt(spend / creditLeadsAll) : "–", perLeadN: creditLeadsAll, perSale: wonCredits ? fmt(spend / wonCredits) : "–", perSaleN: wonCredits, creditUsd,
       closeDays: median(closeDaysArr), closeN: closeDaysArr.length,
       month: (() => { const ms = `${snap.today.slice(0, 7)}-01`; const m = h.won.filter((d) => (d.closed || "") >= ms && (d.closed || "") <= snap.today); return { label: h.monthLY.label, n: m.length, amount: m.reduce((n, d) => n + d.amount, 0), lyToDate: h.monthLY.toDate, lyToDateAmount: h.monthLY.toDateAmount, lyFull: h.monthLY.n, lyFullAmount: h.monthLY.amount }; })(),
       nextMonth: h.nextMonthLY,
-      bySource: [...src.entries()].map(([source, x]) => ({ source, leads: x.leads, won: x.won, conversion: x.leads ? Math.round((x.won / x.leads) * 1000) / 10 : 0, perSale: x.wonCredits ? fmt(x.credits / x.wonCredits) : null })).sort((a, b) => b.leads - a.leads).slice(0, 8),
-      states: [...cells.values()], people, peopleRange: PRESETS.find((p) => p.key === peopleKey)?.label || range.label, emailsLogged: h.emailsLogged,
+      bySource: [...srcS.entries()].map(([source, x]) => { const l = srcLeads(source, x); return { source, leads: l, won: x.won, conversion: l ? Math.round((x.won / l) * 1000) / 10 : 0, perSale: x.wonCredits && x.credits ? fmt(srcSpend(source, x) / x.wonCredits) : null }; }).sort((a, b) => b.leads - a.leads).slice(0, 8),
+      states: [...cells.values()], people, peopleRange: PRESETS.find((p) => p.key === ck)?.label || range.label, emailsLogged: h.emailsLogged,
       chart: buckets, chartUnit: unit, chartState: st,
       planLost: { n: planLost.length, amount: planLost.reduce((n, d) => n + d.amount, 0) }, failed: snap.failed ? { n: failedIn.length, amount: failedIn.reduce((n, f) => n + f.amount, 0) } : null,
-      coverage: { n: coverage.length, where: [...covWhere.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4).map(([k, n]) => `${k} (${n})`) }
+      coverage: { n: coverage.length, amount: coverage.reduce((n, d) => n + d.amount, 0), where: [...covWhere.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4).map(([k, n]) => `${k} (${n})`), bySource: [...covSrc.entries()].map(([source, n]) => ({ source, n })).sort((a, b) => b.n - a.n) },
+      sample: h.sample, countKey: ck
     };
   } else if (view === "sales" && !snap.hs && !notes.some((n) => /HubSpot/.test(n))) notes.push("Sales needs HubSpot.");
 
@@ -434,8 +455,8 @@ export async function pulse(q: { r?: string; from?: string; to?: string; v?: str
     if (now.formsN >= 10 && pct(now.formsOk, now.formsN)! < 70) cards.push({ tone: "biscuit", title: `Forms on time: ${pct(now.formsOk, now.formsN)}%`, evidence: `${now.formsN - now.formsOk} of ${now.formsN} forms were late.`, href: "/a#todo-week", action: "See late forms" });
   } else if (sales) {
     if (sales.planLost.n >= 2) cards.push({ tone: "biscuit", title: `${sales.planLost.n} people weren't approved for a payment plan (${money(sales.planLost.amount)})`, evidence: "Try splitting the cost into two smaller plans before these go cold." });
-    if (sales.failed && sales.failed.n >= 2) cards.push({ tone: "heart", title: `${sales.failed.n} customers' last card payment failed (${money(sales.failed.amount)})`, evidence: "From Stripe: their most recent attempt in the range didn't go through and nothing succeeded after it. Worth a call.", href: "/a/sales", action: "Open sales" });
-    if (sales.coverage.n >= 3) cards.push({ tone: "biscuit", title: `${sales.coverage.n} deals lost for lack of a nearby trainer`, evidence: `Where: ${sales.coverage.where.join(", ")}.`, action: "Recruit there" });
+    if (sales.failed && sales.failed.n >= 2) cards.push({ tone: "heart", title: `${sales.failed.n} customers' last card payment failed (${money(sales.failed.amount)})`, evidence: "From Stripe: their most recent attempt in the range didn't go through and nothing succeeded after it. Worth a call." });
+    if (sales.coverage.n >= 3) cards.push({ tone: "biscuit", title: `${sales.coverage.n} deals lost for lack of a nearby trainer (${money(sales.coverage.amount)})`, evidence: `Where: ${sales.coverage.where.join(", ")}.`, more: { label: "By lead source", items: sales.coverage.bySource.map((x) => `${x.source}: ${x.n}`) } });
     if (sales.wonLY.n && sales.won < sales.wonLY.n * 0.7) cards.push({ tone: "heart", title: `Sales are ${Math.round((1 - sales.won / sales.wonLY.n) * 100)}% below the same dates last year`, evidence: `${sales.won} now against ${sales.wonLY.n} then.` });
   }
   if (!cards.length) cards.push({ tone: "mint", title: "Nothing needs a decision in this range", evidence: "Everything is inside its usual bands." });

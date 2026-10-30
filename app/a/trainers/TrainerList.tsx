@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useMemo, useState, useRef } from "react";
-import { Search, ChevronRight } from "lucide-react";
+import { Search, ChevronLeft, ChevronRight } from "lucide-react";
 import { Avatar } from "@/components/ui";
 
 export type Row = { id: string; name: string; place: string; state: string; cap: number; inNow: number; freeNow: number; away: boolean; opening: string; active: boolean; flags: number };
@@ -24,19 +24,16 @@ export function TrainerList({ rows }: { rows: Row[] }) {
           <Search size={18} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-faint" />
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search by name or city" className="field pl-10" />
         </label>
-        <div className="relative -mx-4 mt-2.5">
-          <div ref={chips} className="flex gap-1.5 overflow-x-auto px-4 pr-14 [scrollbar-width:none]">
+        <div className="-mx-4 mt-2.5 flex items-center gap-1 px-4 md:mx-0 md:px-0">
+          {/* On a phone the row swipes; on a desktop the arrows scroll it, and they sit beside the row so nothing is hidden under them */}
+          <button type="button" aria-label="Earlier states" onClick={() => chips.current?.scrollBy({ left: -240, behavior: "smooth" })} className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-full border border-line bg-white text-ink md:flex"><ChevronLeft size={16} /></button>
+          <div ref={chips} className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto [scrollbar-width:none]">
             {["", ...states].map((s) => (
               <button key={s || "all"} onClick={() => setState(s)} className={`shrink-0 rounded-full px-3.5 py-1.5 text-small font-semibold ${state === s ? "bg-ink text-white" : "border border-line bg-white"}`}>{s || "All states"}</button>
             ))}
             <button onClick={() => setShowInactive((x) => !x)} className={`shrink-0 rounded-full px-3.5 py-1.5 text-small font-semibold ${showInactive ? "bg-heart text-white" : "border border-line bg-white text-ink-soft"}`}>Inactive</button>
           </div>
-          {/* The row scrolls sideways; this makes that obvious and works for a mouse too */}
-          <button type="button" aria-label="More states" onClick={() => chips.current?.scrollBy({ left: 240, behavior: "smooth" })}
-            className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-line bg-white text-ink shadow-card">
-            <ChevronRight size={16} />
-          </button>
-          <div className="pointer-events-none absolute right-10 top-0 h-full w-8 bg-gradient-to-r from-transparent to-paper/95" aria-hidden />
+          <button type="button" aria-label="More states" onClick={() => chips.current?.scrollBy({ left: 240, behavior: "smooth" })} className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-full border border-line bg-white text-ink md:flex"><ChevronRight size={16} /></button>
         </div>
       </div>
       <p className="mb-2 text-small text-ink-faint">{showInactive ? `${list.length} inactive trainer${list.length === 1 ? "" : "s"}` : `${active.length} active trainer${active.length === 1 ? "" : "s"}${state && inactive.length ? `, ${inactive.length} inactive in ${state} at the bottom` : ""}`}</p>

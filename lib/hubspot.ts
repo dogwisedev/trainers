@@ -257,7 +257,7 @@ export async function dealsCreatedBetween(from: string, to: string, maxPages = 2
           { propertyName: "createdate", operator: "GTE", value: String(etMidnightMs(from)) },
           { propertyName: "createdate", operator: "LT", value: String(etMidnightMs(addDays(to, 1))) }
         ] }],
-        properties: ["dealname", "amount", "createdate", "closedate", "dealstage", "pipeline", "hs_is_closed_won", "bark_credits_paid", "lead_source", "deal_source", "closed_lost_reason_new", "trainer_in_range", "type_of_program_sold"],
+        properties: ["dealname", "amount", "createdate", "closedate", "dealstage", "pipeline", "hs_is_closed_won", "bark_credits_paid", "lead_source", "deal_source", "closed_lost_reason_new", "trainer_in_range", "type_of_program_sold", "hubspot_owner_id"],
         sorts: [{ propertyName: "createdate", direction: "DESCENDING" }], limit: 100, ...(after ? { after } : {})
       })
     });

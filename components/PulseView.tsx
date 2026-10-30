@@ -47,7 +47,8 @@ function TileCard({ t }: { t: Tile }) {
 }
 function CardView({ c }: { c: Card }) {
   const tone = c.tone === "heart" ? "border-heart/30 bg-heart-wash" : c.tone === "biscuit" ? "border-biscuit/40 bg-biscuit-wash" : "border-mint-deep/30 bg-mint-wash", text = c.tone === "heart" ? "text-heart" : c.tone === "biscuit" ? "text-warn" : "text-fern";
-  const inner = <><p className={`text-body font-bold leading-snug ${text}`}>{c.title}</p><p className="mt-1 text-small text-ink-soft">{c.evidence}</p>{c.action && <p className={`mt-2 inline-flex items-center gap-1 text-small font-semibold ${text}`}>{c.action}<ChevronRight size={14} /></p>}</>;
+  const inner = <><p className={`text-body font-bold leading-snug ${text}`}>{c.title}</p><p className="mt-1 text-small text-ink-soft">{c.evidence}</p>{c.action && <p className={`mt-2 inline-flex items-center gap-1 text-small font-semibold ${text}`}>{c.action}<ChevronRight size={14} /></p>}
+    {c.more && c.more.items.length > 0 && <details className="mt-2"><summary className="cursor-pointer list-none text-small font-semibold text-ink-soft [&::-webkit-details-marker]:hidden">{c.more.label} ▾</summary><ul className="mt-1 text-small text-ink-soft">{c.more.items.map((x) => <li key={x}>{x}</li>)}</ul></details>}</>;
   const cls = `block w-[82vw] shrink-0 snap-start rounded-2xl border p-4 md:w-auto ${tone}`;
   return c.href ? <Link prefetch={false} href={c.href} className={cls}>{inner}</Link> : <div className={cls}>{inner}</div>;
 }
@@ -88,7 +89,7 @@ function Office({ o }: { o: OfficeView }) {
             {o.balances.slice(0, 8).map((x, i) => <li key={i}>{x.href ? <Link prefetch={false} href={x.href} className="block px-4 py-2.5 text-body hover:bg-paper/60">{x.text}</Link> : <span className="block px-4 py-2.5 text-body">{x.text}</span>}</li>)}
             {!o.balances.length && <Empty>Nobody starting soon still owes a balance.</Empty>}
           </ul>
-          <div className="mt-5"><MovesStrip moves={o.moves.slice(0, 40)} title="Pickups and drop-offs in this range" /></div>
+          <div className="mt-5"><MovesStrip moves={o.moves} limit={40} title="Pickups and drop-offs in this range" /></div>
         </section>
         <section>
           <H n={o.slowTrainers.length}>Trainers with repeated comms alerts</H>
@@ -169,27 +170,30 @@ function Trainers({ rows }: { rows: TrainerRow[] }) {
 }
 
 // ── Sales ──
-/** Number at the top = leads from that state. The square fills from the bottom with sales. Red edge = that state's kennels are 80%+ full today. */
+/** Each square: the state in the corner, its leads in the middle, a purple fill from the bottom for sales (height = share of the busiest state), and the sales count in a dark badge. Red edge = that state's kennels are 80%+ full today. */
 function TileMap({ s, q }: { s: SalesView; q: Q }) {
   const by = new Map(s.states.map((x) => [x.st, x])), maxWon = Math.max(1, ...s.states.map((x) => x.won)), sel = q.state;
   return (
     <div className="panel p-3 md:p-4">
-      <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-caption text-ink-soft">
-        <span>Top number = leads. The square fills up with sales. <span className="mx-1 inline-block h-3 w-3 rounded-[3px] ring-2 ring-heart align-[-2px]" /> = kennels 80%+ full there.</span>
-        {sel && <Link prefetch={false} href={href(q, { state: undefined })} className="font-semibold underline">All states</Link>}
+      <div className="mb-3 grid gap-x-4 gap-y-1 text-caption text-ink-soft sm:grid-cols-2">
+        <span><b className="text-ink">Big number</b> = leads from that state</span>
+        <span><span className="mr-1 inline-block h-3 w-3 rounded-[3px] bg-lav/60 align-[-2px]" /><b className="text-ink">Purple fill</b> = sales, as a share of the busiest state</span>
+        <span><span className="mr-1 inline-block rounded bg-ink px-1 text-[9px] font-bold text-white">12</span><b className="text-ink">Badge</b> = number of sales</span>
+        <span><span className="mr-1 inline-block h-3 w-3 rounded-[3px] ring-2 ring-heart align-[-2px]" /><b className="text-ink">Red edge</b> = kennels there 80%+ full today</span>
       </div>
-      <div className="grid gap-[3px]" style={{ gridTemplateColumns: `repeat(${US_COLS}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${US_ROWS}, minmax(0, 1fr))` }}>
+      {sel && <p className="mb-2 text-caption"><Link prefetch={false} href={href(q, { state: undefined })} className="font-semibold underline">Show all states</Link></p>}
+      <div className="grid gap-[3px] md:gap-1" style={{ gridTemplateColumns: `repeat(${US_COLS}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${US_ROWS}, minmax(0, 1fr))` }}>
         {US_TILES.map((t) => {
           const c = by.get(t.st), leads = c?.leads || 0, won = c?.won || 0, any = !!(c && (leads || won)), on = sel === t.st;
-          const fill = won ? Math.max(18, Math.round((won / maxWon) * 100)) : 0;
+          const fill = won ? Math.max(14, Math.round((won / maxWon) * 100)) : 0;
           return (
             <Link key={t.st} prefetch={false} href={href(q, { state: on ? undefined : t.st })} aria-label={`${t.name}: ${leads} leads, ${won} sales${c?.full ? ", kennels 80%+ full" : ""}`}
-              className={`relative isolate flex aspect-square flex-col items-center justify-center overflow-hidden rounded-[6px] text-[10px] leading-none md:text-small ${any ? "bg-paper text-ink" : "bg-paper/50 text-ink-faint"} ${c?.full ? "ring-2 ring-inset ring-heart" : ""} ${on ? "outline outline-2 outline-ink" : ""}`}
+              className={`relative isolate flex aspect-square flex-col items-center justify-center overflow-hidden rounded-[6px] ${any ? "bg-paper text-ink" : "bg-paper/50 text-ink-faint"} ${c?.full ? "ring-2 ring-inset ring-heart" : ""} ${on ? "outline outline-2 outline-ink" : ""}`}
               style={{ gridColumn: t.col + 1, gridRow: t.row + 1 }}>
-              {fill > 0 && <span className="absolute inset-x-0 bottom-0 -z-10 bg-lav" style={{ height: `${fill}%` }} aria-hidden />}
-              <span className="font-bold">{t.st}</span>
-              {leads > 0 && <span className="tabular-nums">{leads}</span>}
-              {won > 0 && <span className="absolute bottom-0.5 right-1 text-[9px] font-bold tabular-nums text-white md:text-caption">{won}</span>}
+              {fill > 0 && <span className="absolute inset-x-0 bottom-0 -z-10 bg-lav/60" style={{ height: `${fill}%` }} aria-hidden />}
+              <span className={`absolute left-1 top-0.5 text-[8px] font-bold leading-none md:text-[10px] ${any ? "text-ink-soft" : "text-ink-faint"}`}>{t.st}</span>
+              {leads > 0 && <span className="text-[11px] font-extrabold leading-none tabular-nums md:text-[15px]">{leads}</span>}
+              {won > 0 && <span className="absolute bottom-0.5 right-0.5 rounded bg-ink px-1 text-[8px] font-bold leading-[1.4] tabular-nums text-white md:text-[10px]">{won}</span>}
             </Link>
           );
         })}
@@ -216,10 +220,10 @@ function SalesChart({ s }: { s: SalesView }) {
 function Sales({ s, q }: { s: SalesView; q: Q }) {
   const sel = q.state, cell = sel ? s.states.find((x) => x.st === sel) : null;
   const tiles: Tile[] = [
-    { key: "leads", label: "Leads", value: s.leads.toLocaleString("en-US"), sub: s.leadsLY ? `${s.leadsLY.toLocaleString("en-US")} on the same dates last year` : "deals created in HubSpot", delta: s.leadsLY ? dlt(s.leads, s.leadsLY, true) : { text: "", up: null }, good: "up", how: "Deals created in HubSpot in the range (every contact becomes a deal, so this is leads), against the same dates one year earlier.", spark: [] },
+    { key: "leads", label: "Leads", value: s.leads.toLocaleString("en-US"), sub: s.leadsLY ? `${s.leadsLY.toLocaleString("en-US")} on the same dates last year` : "deals created in HubSpot", delta: s.leadsLY ? dlt(s.leads, s.leadsLY, true) : { text: "", up: null }, good: "up", how: `Deals created in HubSpot in the range (every contact becomes a deal, so this is leads), against the same dates one year earlier. The map and the salespeople's lead counts use the newest ${s.sample.toLocaleString("en-US")} leads' shares, scaled to this total; sources are counted exactly.`, spark: [] },
     { key: "sold", label: "Sold", value: money(s.wonAmount), sub: `${s.won} closed won · last year ${s.wonLY.n} (${money(s.wonLY.amount)})`, delta: s.wonLY.amount ? dlt(s.wonAmount, s.wonLY.amount, true) : { text: "", up: null }, good: "up", how: "Closed Won by close date, program price, against the same dates last year.", spark: [], to: "/a/sales" },
     { key: "conv", label: "Conversion", value: s.conversion == null ? "–" : `${s.conversion}%`, sub: `${s.conversionLY != null ? `${s.conversionLY}% last year · ` : ""}${s.closeN ? `${s.closeDays} days to close (median)` : ""}`, delta: s.conversionLY ? dlt(s.conversion || 0, s.conversionLY, true) : { text: "", up: null }, good: "up", how: "Won in the range ÷ leads created in the range (same window, not the same cohort), and the same for last year. Days to close: created to closed, median, for deals won in the range.", spark: [] },
-    { key: "cost", label: "Cost per sale", value: s.perSale, sub: `per lead ${s.perLead} · from ${s.perLeadN.toLocaleString("en-US")} leads with credits`, delta: { text: "", up: null }, how: `Only deals that carry Bark credits count. Per lead: their credits ÷ their number. Per sale: the same credits ÷ the ${s.perSaleN} won deals that carry credits. ${s.creditUsd ? `1 credit = $${s.creditUsd}.` : "Set BARK_CREDIT_USD in Vercel to see dollars."}`, spark: [] }
+    { key: "cost", label: "Cost per sale", value: s.perSale, sub: `per lead ${s.perLead} · about ${s.perLeadN.toLocaleString("en-US")} leads with credits`, delta: { text: "", up: null }, how: `Credits per lead are measured on the newest ${s.sample.toLocaleString("en-US")} leads (only ones that carry Bark credits), then applied to the real lead counts. Per sale: that spend ÷ the ${s.perSaleN} won deals that carry credits. ${s.creditUsd ? `1 credit = $${s.creditUsd}.` : "Set BARK_CREDIT_USD in Vercel to see dollars."}`, spark: [] }
   ];
   return (
     <>
@@ -255,18 +259,18 @@ function Sales({ s, q }: { s: SalesView; q: Q }) {
             ))}
             {!s.bySource.length && <Empty>No source on these deals.</Empty>}
           </ul>
-          <p className="mt-1 text-caption text-ink-faint">Bar = conversion (full at 25%). Per sale = Bark credits on that source&apos;s leads ÷ its won deals with credits.</p>
+          <p className="mt-1 text-caption text-ink-faint">Leads per source counted in HubSpot for {s.peopleRange.toLowerCase()}. Bar = conversion (full at 25%). Per sale = credits per lead measured on that source&apos;s sampled leads × its lead count, ÷ its won deals with credits.</p>
           <H>Salespeople</H>
           <ul className="panel divide-y divide-line">
             {s.people.map((p) => (
               <li key={p.name} className="p-3">
                 <div className="flex items-center justify-between gap-2"><b className="min-w-0 truncate">{p.name}</b><span className="shrink-0 text-body font-semibold tabular-nums">{money(p.amount)}</span></div>
-                <p className="mt-0.5 text-small tabular-nums text-ink-soft">{p.leads} leads → {p.won} won · {p.calls.toLocaleString("en-US")} calls{s.emailsLogged ? `, ${p.emails} emails` : ""}{p.won ? ` · ${Math.round(p.calls / p.won)} calls per sale` : ""}</p>
+                <p className="mt-0.5 text-small tabular-nums text-ink-soft">{p.leads} leads → {p.won} won{p.conversion != null ? ` (${p.conversion}%)` : ""} · {p.calls ? `${p.calls.toLocaleString("en-US")} calls${p.won ? `, ${Math.round(p.calls / p.won)} per sale` : ""}` : "no calls logged under their name"}{s.emailsLogged ? ` · ${p.emails} emails` : ""}</p>
               </li>
             ))}
             {!s.people.length && <Empty>No salespeople with activity in this range.</Empty>}
           </ul>
-          <p className="mt-1 text-caption text-ink-faint">Leads and calls counted for {s.peopleRange.toLowerCase()}. Won and dollars from the app&apos;s deal copy.{s.emailsLogged ? "" : " Emails aren't logged in HubSpot, so they're not shown."}</p>
+          <p className="mt-1 text-caption text-ink-faint">Calls counted for {s.peopleRange.toLowerCase()}, as logged in HubSpot. Won and dollars from the app&apos;s deal copy.{s.emailsLogged ? "" : " Emails aren't logged in HubSpot, so they're not shown."}</p>
         </section>
       </div>
     </>
