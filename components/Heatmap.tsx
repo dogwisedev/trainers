@@ -8,7 +8,7 @@ export function Heatmap({ rows, weeks }: { rows: { t: Trainer; use: WeekUse[] }[
   const tone = (w: WeekUse) => {
     if (w.cap === 0 || w.blocked >= w.cap) return "kennel-blocked text-heart";
     if (w.free === 0) return "bg-ink text-white";
-    if (w.free / w.cap <= 0.34) return "bg-mint-deep text-ink";
+    if (w.free / w.cap <= 0.34) return "bg-mint-deep text-white";
     return "bg-mint text-ink";
   };
   return (

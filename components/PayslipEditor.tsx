@@ -158,7 +158,7 @@ export function PayslipEditor(props: {
         )}
       </div>
       {msg && <p role="status" className={`rounded-xl px-3 py-2 text-body ${msg.ok ? "bg-mint-wash text-fern" : "bg-heart-wash text-heart"}`}>{msg.message}</p>}
-      {preview && <div className="overflow-x-auto rounded-[18px] border border-line bg-white p-2"><div className="min-w-[560px]" dangerouslySetInnerHTML={{ __html: html }} /></div>}
+      {preview && <div className="overflow-x-auto rounded-[18px] border border-line bg-[#fff] p-2 text-[#281870]"><div className="min-w-[560px]" dangerouslySetInnerHTML={{ __html: html }} /></div>}
     </div>
   );
 }

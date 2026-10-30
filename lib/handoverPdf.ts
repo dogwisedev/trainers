@@ -74,7 +74,9 @@ export async function handoverPdf(d: HandoverData): Promise<Uint8Array> {
   const lw = 112, lh = (logo.height / logo.width) * lw;
   cover.drawImage(logo, { x: M + 10, y: H - 44 - (44 + lh) / 2 + 0, width: lw, height: lh });
   cover.drawText("Handover Report", { x: M, y: H - 150, size: 46, font: bold, color: C.white });
-  cover.drawText(clean(`${d.dog}'s training journey`), { x: M, y: H - 186, size: 20, font: semi, color: C.lav });
+  const fit = (t: string, f: PDFFont, size: number, max: number, min = 10) => { let z = size; while (z > min && widthOf(t, f, z) > max) z -= 0.5; return z; };
+  const journey = clean(`${d.dog}'s training journey`);
+  cover.drawText(journey, { x: M, y: H - 186, size: fit(journey, semi, 20, W - 2 * M, 12), font: semi, color: C.lav });
   cover.drawText(clean(d.date), { x: M, y: H - 212, size: 12, font: reg, color: rgb(0.85, 0.82, 0.97) });
   // Photo card, overlapping the band
   const cardTop = H - 250;
@@ -85,7 +87,8 @@ export async function handoverPdf(d: HandoverData): Promise<Uint8Array> {
     const px = (W - pw) / 2;
     roundRect(cover, px - 8, cardTop + 8, pw + 16, ph + 16, 18, C.white);
     cover.drawImage(photo, { x: px, y: cardTop - ph, width: pw, height: ph });
-    cover.drawText(clean(`${d.dog} and ${d.trainer}`), { x: px, y: cardTop - ph - 26, size: 11, font: semi, color: C.soft });
+    const cap = clean(`${d.dog} and ${d.trainer}`);
+    cover.drawText(cap, { x: px, y: cardTop - ph - 26, size: fit(cap, semi, 11, Math.max(pw, 200), 8), font: semi, color: C.soft });
   }
   // Facts
   const factsTop = photo ? Math.min(cardTop - 330, 300) : cardTop - 20;
@@ -97,8 +100,10 @@ export async function handoverPdf(d: HandoverData): Promise<Uint8Array> {
   facts.forEach((col, ci) => col.forEach(([k, v], ri) => {
     const x = M + 22 + ci * (CW / 2), y = factsTop - 34 - ri * 40;
     cover.drawText(k.toUpperCase(), { x, y: y + 13, size: 7.5, font: semi, color: C.faint });
-    const val = wrap(v, semi, 11.5, CW / 2 - 40)[0] || "-";
-    cover.drawText(val, { x, y: y - 2, size: 11.5, font: semi, color: C.ink });
+    const one = wrap(v, semi, 11.5, CW / 2 - 40);
+    const lines = one.length <= 1 ? one : wrap(v, semi, 9.5, CW / 2 - 40).slice(0, 2);
+    const sz = one.length <= 1 ? 11.5 : 9.5;
+    (lines.length ? lines : ["-"]).forEach((ln, i) => cover.drawText(ln, { x, y: y - 2 - i * 11.5, size: sz, font: semi, color: C.ink }));
   }));
   cover.drawText("Point of contact", { x: M + 22, y: factsTop - 196 + 8, size: 8.5, font: semi, color: C.faint });
   const poc = "Your Dogwise chat in the app: message us any time";
@@ -144,12 +149,14 @@ export async function handoverPdf(d: HandoverData): Promise<Uint8Array> {
   /** A soft card around a block of text; breaks across pages by drawing the text plainly when it's too tall. */
   const card = (title: string, text: string, tone: RGB = C.wash) => {
     const lines = wrap(text, reg, 10.5, CW - 30 - 32);
-    const hgt = 28 + (title ? 22 : 0) + lines.length * 16.3;
+    const tLines = title ? wrap(title, bold, 12, CW - 30 - 32) : []; // long titles wrap inside the card
+    const hgt = 28 + (tLines.length ? tLines.length * 16 + 6 : 0) + lines.length * 16.3;
     if (hgt < H - 160) {
       room(hgt + 12);
       roundRect(page, M + 30, y, CW - 30, hgt, 14, tone);
       let yy = y - 22;
-      if (title) { page.drawText(clean(title), { x: M + 46, y: yy - 4, size: 12, font: bold, color: C.ink }); yy -= 22; }
+      for (const t of tLines) { page.drawText(t, { x: M + 46, y: yy - 4, size: 12, font: bold, color: C.ink }); yy -= 16; }
+      if (tLines.length) yy -= 6;
       for (const ln of lines) { if (ln) page.drawText(ln, { x: M + 46, y: yy - 6, size: 10.5, font: reg, color: C.soft }); yy -= ln ? 16.3 : 9; }
       y -= hgt + 14;
     } else { if (title) body(title, { font: bold, color: C.ink, size: 12, gap: 2 }); body(text); }

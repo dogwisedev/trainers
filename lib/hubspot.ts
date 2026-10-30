@@ -1,4 +1,5 @@
 import "server-only";
+import { addDays } from "./dates";
 
 // HubSpot, read-only: deal dates and whether the deal is still Closed Won.
 // Vercel variables:
@@ -17,13 +18,22 @@ export const syncMode = (): SyncMode => {
 /** Booking dates come from HubSpot (so they're locked in the app) once the sync is writing. */
 export const datesFromHubspot = () => hubspotConfigured() && syncMode() !== "dry";
 
-async function hs<T>(path: string, init: RequestInit = {}, tries = 3): Promise<T> {
+// HubSpot allows 4 search requests a second. Searches queue here, at most 3 a second, so a burst (Pulse's snapshot) never trips it.
+let searchQueue: Promise<void> = Promise.resolve(), lastSearchAt = 0;
+function searchSlot(): Promise<void> {
+  const mine = searchQueue.then(async () => { const wait = lastSearchAt + 340 - Date.now(); if (wait > 0) await new Promise((ok) => setTimeout(ok, wait)); lastSearchAt = Date.now(); });
+  searchQueue = mine.catch(() => {});
+  return mine;
+}
+
+async function hs<T>(path: string, init: RequestInit = {}, tries = 4): Promise<T> {
+  if (path.includes("/search")) await searchSlot();
   const r = await fetch(BASE + path, {
     ...init, cache: "no-store",
     headers: { Authorization: `Bearer ${process.env.HUBSPOT_TOKEN}`, "Content-Type": "application/json", ...(init.headers || {}) }
   });
-  if (r.status === 429 && tries > 1) { // rate limited: wait and try again
-    await new Promise((ok) => setTimeout(ok, (Number(r.headers.get("retry-after")) || 1) * 1000));
+  if (r.status === 429 && tries > 1) { // rate limited: wait and try again (a secondly limit clears in about a second)
+    await new Promise((ok) => setTimeout(ok, Math.max(1100, (Number(r.headers.get("retry-after")) || 1) * 1000)));
     return hs<T>(path, init, tries - 1);
   }
   if (!r.ok && r.status !== 207) throw new Error(`HubSpot ${r.status} on ${path.split("?")[0]}: ${(await r.text()).slice(0, 300)}`);
@@ -206,4 +216,127 @@ export async function closedWonSince(since: string, properties: string[]): Promi
   // Filtering on "is closed won" keeps the search small; if this portal won't filter on it, filter here instead
   const all = await run(true).catch(() => run(false));
   return all.filter((d) => d.properties.hs_is_closed_won === "true");
+}
+
+/** Deals lost between two dates (Eastern): closed lost, "No Trainers Available" and "Cancelled/Refunded", with why. For Pulse. */
+export async function lostDealsBetween(from: string, to: string): Promise<{ id: string; properties: DealProps }[]> {
+  const LOST_STAGES = ["173324394", "173376666", "1166729018", "93900622", "142034212", "107667607"];
+  const out: { id: string; properties: DealProps }[] = [];
+  let after: string | undefined;
+  for (let page = 0; page < 10; page++) {
+    const res = await hs<SearchPage>("/crm/v3/objects/deals/search", {
+      method: "POST", body: JSON.stringify({
+        filterGroups: [{ filters: [
+          { propertyName: "closedate", operator: "GTE", value: String(etMidnightMs(from)) },
+          { propertyName: "closedate", operator: "LT", value: String(etMidnightMs(addDays(to, 1))) },
+          { propertyName: "dealstage", operator: "IN", values: LOST_STAGES }
+        ] }],
+        properties: ["dealname", "amount", "closedate", "dealstage", "closed_lost_reason_new", "trainer_in_range", "type_of_program_sold", "lead_source"],
+        sorts: [{ propertyName: "closedate", direction: "DESCENDING" }], limit: 100, ...(after ? { after } : {})
+      })
+    });
+    out.push(...(res.results || []).map((r) => ({ id: String(r.id), properties: r.properties || {} })));
+    after = res.paging?.next?.after;
+    if (!after) break;
+  }
+  return out;
+}
+
+/**
+ * Deals created between two dates (Eastern), newest first, with what Pulse needs: where they're from (deal name carries
+ * city, state, ZIP), their stage, amount, Bark credits and source. Capped at `maxPages` × 100 so the page stays quick;
+ * `total` is HubSpot's full count for the range so the cap is visible.
+ */
+export async function dealsCreatedBetween(from: string, to: string, maxPages = 20): Promise<{ rows: { id: string; properties: DealProps }[]; total: number; capped: boolean }> {
+  const rows: { id: string; properties: DealProps }[] = [];
+  let after: string | undefined, total = 0, page = 0;
+  for (; page < maxPages; page++) {
+    const res = await hs<SearchPage & { total?: number }>("/crm/v3/objects/deals/search", {
+      method: "POST", body: JSON.stringify({
+        filterGroups: [{ filters: [
+          { propertyName: "createdate", operator: "GTE", value: String(etMidnightMs(from)) },
+          { propertyName: "createdate", operator: "LT", value: String(etMidnightMs(addDays(to, 1))) }
+        ] }],
+        properties: ["dealname", "amount", "createdate", "closedate", "dealstage", "pipeline", "hs_is_closed_won", "bark_credits_paid", "lead_source", "deal_source", "closed_lost_reason_new", "trainer_in_range", "type_of_program_sold", "hubspot_owner_id"],
+        sorts: [{ propertyName: "createdate", direction: "DESCENDING" }], limit: 100, ...(after ? { after } : {})
+      })
+    });
+    total = res.total ?? total;
+    rows.push(...(res.results || []).map((r) => ({ id: String(r.id), properties: r.properties || {} })));
+    after = res.paging?.next?.after;
+    if (!after) break;
+  }
+  return { rows, total: Math.max(total, rows.length), capped: !!after };
+}
+
+/** How many records match, without fetching them (HubSpot's `total`): deals created by an owner, calls made, emails sent… */
+export async function countObjects(object: "deals" | "calls" | "emails" | "meetings", filters: { propertyName: string; operator: string; value?: string; values?: string[] }[]): Promise<number> {
+  const res = await hs<{ total?: number }>(`/crm/v3/objects/${object}/search`, { method: "POST", body: JSON.stringify({ filterGroups: [{ filters }], properties: ["hs_object_id"], limit: 1 }) });
+  return res.total || 0;
+}
+/** Closed Won deals with a close date inside [from, to] (Eastern), up to `maxPages` × 100. For "same range last year" and "next month, last year". */
+export async function closedWonBetween(from: string, to: string, maxPages = 5): Promise<{ rows: { id: string; properties: DealProps }[]; total: number }> {
+  const rows: { id: string; properties: DealProps }[] = [];
+  let after: string | undefined, total = 0;
+  for (let page = 0; page < maxPages; page++) {
+    const res = await hs<SearchPage & { total?: number }>("/crm/v3/objects/deals/search", {
+      method: "POST", body: JSON.stringify({
+        filterGroups: [{ filters: [
+          { propertyName: "closedate", operator: "GTE", value: String(etMidnightMs(from)) }, { propertyName: "closedate", operator: "LT", value: String(etMidnightMs(addDays(to, 1))) },
+          { propertyName: "hs_is_closed_won", operator: "EQ", value: "true" }
+        ] }], properties: ["dealname", "amount", "closedate", "createdate", "hubspot_owner_id", "lead_source", "deal_source", "bark_credits_paid", "type_of_program_sold", "price_before_discount", "refunded_amount"], limit: 100, ...(after ? { after } : {})
+      })
+    });
+    total = res.total ?? total;
+    rows.push(...(res.results || []).map((r) => ({ id: String(r.id), properties: r.properties || {} })));
+    after = res.paging?.next?.after;
+    if (!after) break;
+  }
+  return { rows, total: Math.max(total, rows.length) };
+}
+/** Epoch ms for a date's Eastern midnight, for callers outside this file. */
+export const etMidnight = (date: string) => etMidnightMs(date);
+
+// ── Client form links ──
+/** A contact's deals, newest first (by close date, else created). */
+export async function contactDeals(contactId: string, properties: string[]): Promise<{ id: string; properties: DealProps }[]> {
+  const res = await hs<{ results?: { toObjectId: number | string }[] }>(`/crm/v4/objects/contacts/${encodeURIComponent(contactId)}/associations/deals?limit=100`);
+  const ids = (res.results || []).map((r) => String(r.toObjectId));
+  if (!ids.length) return [];
+  const deals = await readDeals(ids, [...new Set([...properties, "createdate", "closedate", "hs_is_closed_won", "hs_is_closed"])]);
+  return [...deals.entries()].map(([id, properties]) => ({ id, properties }))
+    .sort((a, b) => String(b.properties.createdate || "").localeCompare(String(a.properties.createdate || "")));
+}
+
+/** Contacts created on or after `sinceMs` that don't have `prop` set yet (up to `max`). */
+export async function contactsMissing(prop: string, sinceMs: number, max = 500): Promise<string[]> {
+  const out: string[] = [];
+  let after: string | undefined;
+  while (out.length < max) {
+    const res = await hs<{ results?: { id: string }[]; paging?: { next?: { after: string } } }>("/crm/v3/objects/contacts/search", {
+      method: "POST", body: JSON.stringify({
+        filterGroups: [{ filters: [{ propertyName: prop, operator: "NOT_HAS_PROPERTY" }, { propertyName: "createdate", operator: "GTE", value: String(sinceMs) }] }],
+        properties: ["email"], sorts: [{ propertyName: "createdate", direction: "DESCENDING" }], limit: 100, ...(after ? { after } : {})
+      })
+    });
+    out.push(...(res.results || []).map((r) => String(r.id)));
+    after = res.paging?.next?.after;
+    if (!after) break;
+  }
+  return out.slice(0, max);
+}
+
+/** Sets properties on many contacts at once (100 per call). */
+export async function updateContacts(rows: { id: string; properties: Record<string, string> }[]) {
+  for (let i = 0; i < rows.length; i += 100)
+    await hs("/crm/v3/objects/contacts/batch/update", { method: "POST", body: JSON.stringify({ inputs: rows.slice(i, i + 100) }) });
+}
+
+/** The contact with exactly this email, if there is one. */
+export async function contactByEmail(email: string): Promise<{ id: string; email: string } | null> {
+  const res = await hs<{ results?: { id: string; properties: { email?: string } }[] }>("/crm/v3/objects/contacts/search", {
+    method: "POST", body: JSON.stringify({ filterGroups: [{ filters: [{ propertyName: "email", operator: "EQ", value: email.trim().toLowerCase() }] }], properties: ["email"], limit: 2 })
+  });
+  const r = (res.results || [])[0];
+  return r ? { id: String(r.id), email: String(r.properties.email || email) } : null;
 }

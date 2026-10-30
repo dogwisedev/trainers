@@ -109,6 +109,10 @@ export async function ensureBookingFolder(b: { id: string; client_name: string; 
 export async function ensureChatFolder(c: { id: string; title: string | null; client_name: string | null }) {
   return ensureSharedFolder(`Chat - ${clean(c.title || "Dog")} - ${clean(c.client_name || "Client")} (${c.id.slice(0, 6)})`);
 }
+/** The before-training folder for a client (vaccine records sent from their link before the dog is booked). */
+export async function ensureClientFolder(contactId: string, name: string) {
+  return ensureSharedFolder(`Before training - ${clean(name || "Client")} (${contactId})`);
+}
 async function ensureSharedFolder(name: string): Promise<{ id: string; url: string; shared: boolean; warning?: string }> {
   const id = await ensureFolder(name, rootFolderId());
   let shared = true, warning: string | undefined;

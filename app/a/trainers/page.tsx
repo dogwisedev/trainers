@@ -6,6 +6,7 @@ import { short, todayIso, weekStart, weeksFrom } from "@/lib/dates";
 import { Row, TrainerList } from "./TrainerList";
 import { PayslipBoard } from "@/components/PayslipBoard";
 import { buildDrafts, currentRunDate, getRun } from "@/lib/payrollData";
+import { mileageFlags } from "@/lib/tripRoutes";
 import { serverClient } from "@/lib/supabase";
 import { isPayMonday, periodLabel, runDates, usDate } from "@/lib/payroll";
 import { isDemo } from "@/lib/supabase";
@@ -25,11 +26,12 @@ export default async function Trainers({ searchParams }: { searchParams: { view?
   const submit = asked && (saved || isPayMonday(asked)) ? asked : current;
   // The current run refreshes itself whenever the Payslips view opens: every booked day in its two weeks,
   // trained yet or not. Approved payslips and hand edits are left alone; archived runs are never touched.
+  let refreshError: string | null = null;
   if (payView && !isDemo() && submit === current) {
     try {
       const b = await buildDrafts(serverClient(), submit);
       if (b.changedNames.length) await auditCall("payslipDraftsRefreshed", { period: periodLabel(b.run.period_start, b.run.period_end), updated: b.changedNames }, undefined, { ok: true });
-    } catch { /* shows what's there; Refresh drafts can retry */ }
+    } catch (e) { refreshError = (e as Error).message; } // shown above the payslips; Refresh drafts can retry
   }
   const pay = await getRun(submit);
   const pendingCount = pay.slips.filter((s) => s.status === "draft").length;
@@ -51,11 +53,13 @@ export default async function Trainers({ searchParams }: { searchParams: { view?
   );
   if (payView) {
     const d = pay.run || runDates(submit); // a saved run keeps its own dates
+    const miles = isDemo() ? new Map<string, number>() : await mileageFlags(pay.slips.map((x) => x.trainer_id), d.period_start, d.period_end);
     return (
       <>
         {header}
+        {refreshError && <p role="alert" className="mb-3 rounded-xl bg-heart-wash px-3 py-2 text-body text-heart">Couldn&apos;t update the payslips from bookings and trips: {refreshError}. What&apos;s below may be out of date; press Refresh drafts to try again.</p>}
         <PayslipBoard key={submit} submit={submit} demo={isDemo()} label={periodLabel(d.period_start, d.period_end)} paid={usDate(d.paid_date)}
-          slips={pay.slips.map((x) => ({ id: x.id, name: x.name, status: x.status, total: Number(x.total), notes: x.notes, sent_at: x.sent_at, send_error: x.send_error, missing: x.missing, lines: x.lines }))} />
+          slips={pay.slips.map((x) => ({ id: x.id, name: x.name, status: x.status, total: Number(x.total), notes: x.notes, sent_at: x.sent_at, send_error: x.send_error, missing: x.missing, miles: miles.get(x.trainer_id) || 0, lines: x.lines }))} />
       </>
     );
   }

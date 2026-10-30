@@ -8,7 +8,7 @@ import type { ChatRow } from "@/lib/chatTypes";
 import type { Booking } from "@/lib/types";
 import { etParts, INCIDENT_LABEL, IncidentKind } from "@/lib/chatRules";
 import { daysBetween, short } from "@/lib/dates";
-import { expectedReports, kindName, Kind, Status } from "@/lib/reports";
+import { beforeApp, expectedReports, kindName, Kind, Status } from "@/lib/reports";
 import { datesFromHubspot } from "@/lib/hubspot";
 import { loadProfile, readinessFor } from "@/lib/pretraining";
 import { dogPage, hubspotDeal } from "@/lib/todo";
@@ -20,12 +20,11 @@ import { ChangeTrainer } from "@/components/ChangeTrainer";
 import { DogTraining } from "@/components/DogTraining";
 import { dealTraining } from "@/lib/training";
 import { PROGRAMS, programFor } from "@/lib/programs";
-import { emailTrainerAboutBooking, setBookingStatus } from "@/app/actions";
+import { emailTrainerAboutBooking } from "@/app/actions";
+import { CancelTraining } from "@/components/CancelTraining";
 import { ActionButton, ExtraDays } from "@/components/forms";
 import { ReportsToggle } from "@/components/ReportsToggle";
 import { StartChat } from "@/components/StartChat";
-import { CloseChat } from "@/components/ChatActions";
-import { trainingOver } from "@/lib/chatOps";
 import { AdminChatPanel } from "@/components/AdminChatPanel";
 import { DogProfile } from "@/components/DogProfile";
 import { TodoDone } from "@/components/TodoDone";
@@ -51,8 +50,6 @@ export default async function DogPageView({ params, searchParams }: { params: { 
   const key = dealKey(b), deal = hubspotDeal(b.hubspot_deal_id), today = etParts(new Date()).date;
   const { data: chatRows } = await sb.from("chats").select("*").eq("deal_key", key).order("created_at", { ascending: false });
   const chat = (((chatRows || []) as ChatRow[]).find((c) => c.status === "open") || (chatRows || [])[0] || null) as ChatRow | null;
-  const over = chat ? await trainingOver(chat.id) : null;
-  const closeAfter = over && !over.over ? (over.lastDropOff ? short(over.lastDropOff) : "the last drop-off") : null;
   const { data: activeTrainers } = await sb.from("trainers").select("id, name").eq("active", true).order("name");
   const [{ data: siblings }, { data: reps }, { data: incs }, ready, { data: ireports }, { data: trips }, { data: money }, { data: rate }] = await Promise.all([
     b.hubspot_deal_id ? sb.from("bookings").select("id, dog_name, status").eq("hubspot_deal_id", b.hubspot_deal_id).neq("id", b.id) : Promise.resolve({ data: [] }),
@@ -82,6 +79,10 @@ export default async function DogPageView({ params, searchParams }: { params: { 
           <h1 className="flex flex-wrap items-center gap-2 text-h1 font-extrabold leading-tight">{b.dog_name || "Dog"} <Pill tone={status.tone}>{status.label}</Pill>
             {b.status !== "cancelled" && b.end_date >= today && missing !== null && <Link prefetch={false} href={dogPage(b.id, "before")}><Pill tone={missing ? "heart" : "mint"}>{missing ? `${missing} missing before training` : r?.dog.cleared ? "OK to start" : "Ready"}</Pill></Link>}
           </h1>
+          {b.status === "cancelled" && (b as { cancel_reason?: string | null }).cancel_reason && (() => {
+            const c = b as { cancel_reason?: string | null; cancel_note?: string | null; cancelled_by?: string | null; cancelled_at?: string | null };
+            return <p className="mt-1 text-body text-heart">Cancelled{c.cancelled_by ? ` by ${c.cancelled_by}` : ""}{c.cancelled_at ? ` on ${short(c.cancelled_at.slice(0, 10))}` : ""}: {c.cancel_reason}{c.cancel_note ? `. ${c.cancel_note}` : ""}</p>;
+          })()}
           <p className="mt-1 text-body text-ink-soft">{b.client_name}, with {b.trainers ? <Link prefetch={false} href={`/a/trainers/${b.trainers.id}`} className="underline">{b.trainers.name}</Link> : "no trainer"}<span className="block text-body">{short(b.start_date)} to {short(b.end_date)}</span></p>
           </div>
         </div>
@@ -118,7 +119,7 @@ export default async function DogPageView({ params, searchParams }: { params: { 
               <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
                 <Fact k="Pickup" v={long(b.start_date)} />
                 <Fact k="Drop-off" v={long(b.end_date)} />
-                <Fact k="Program" v={`${b.program || `${b.weeks}-week`}${b.extra_days ? ` + ${b.extra_days} day${b.extra_days > 1 ? "s" : ""}` : ""}${b.rehab ? " (rehab)" : ""}`} />
+                <Fact k="Program" v={`${b.program || `${b.weeks}-week`}${b.program && !/^\d+-week$/.test(b.program) ? `, ${b.weeks} weeks` : ""}${b.extra_days ? ` + ${b.extra_days} day${b.extra_days > 1 ? "s" : ""}` : ""}${b.rehab ? " (rehab)" : ""}`} />
                 <Fact k="Trainer" v={b.trainers?.name || "None"} />
                 <Fact k="Client" v={b.client_name} />
                 <Fact k="Client email" v={b.client_email || "Not given"} />
@@ -156,7 +157,7 @@ export default async function DogPageView({ params, searchParams }: { params: { 
                 <ActionButton className="btn-ghost" action={emailTrainerAboutBooking.bind(null, b.id)}>{b.notified_at ? "Email the trainer again" : "Email the trainer"}</ActionButton>
                 {!chat && <StartChat bookingId={b.id} />}
                 {b.status !== "cancelled" && b.end_date > today && <ChangeTrainer bookingId={b.id} dog={b.dog_name || "the dog"} current={b.trainers?.name || "the trainer"} start={b.start_date} end={b.end_date} today={today} trainers={((activeTrainers || []) as { id: string; name: string }[]).filter((t) => t.id !== b.trainer_id)} />}
-                {b.status !== "cancelled" && <ActionButton className="btn-danger" confirm={`Cancel ${b.dog_name || "this booking"}? The kennel frees up straight away, and the office is asked about a refund or partial pay.`} action={setBookingStatus.bind(null, b.id, "cancelled")}>Cancel training</ActionButton>}
+                {b.status !== "cancelled" && <CancelTraining bookingId={b.id} dog={b.dog_name || "the dog"} trainer={b.trainers?.name || "The trainer"} />}
               </div>
               <p className="text-small text-ink-soft">{b.notified_at ? `Trainer emailed ${new Date(b.notified_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}.` : "The trainer hasn't been emailed about this booking yet."}</p>
               <div className="flex flex-wrap items-center gap-4 border-t border-line pt-3 text-body">
@@ -205,7 +206,6 @@ export default async function DogPageView({ params, searchParams }: { params: { 
 
         {tab === "chat" && (chat ? (
           <>
-            {chat.status === "open" && <div className="mb-3 flex justify-end"><CloseChat chatId={chat.id} title={chat.title || "this dog"} after={closeAfter} /></div>}
             <AdminChatPanel chat={chat} me={{ userId: v.userId, name: v.name }} />
           </>
         ) : <div className="panel p-5"><p className="mb-3 text-ink-soft">No chat for this dog yet.</p><StartChat bookingId={b.id} /></div>)}
@@ -245,6 +245,7 @@ function FormsTab({ b, reps, today }: { b: Booking; reps: { id: string; kind: Ki
           const late = today > w.deadline ? daysBetween(w.deadline, today) : 0;
           const st = r?.status === "approved" ? { t: "Done", tone: "mint" as const } : r?.status === "submitted" ? { t: "To review", tone: "biscuit" as const }
             : r?.status === "changes_requested" ? { t: "Sent back", tone: "biscuit" as const } : r?.status === "waived" ? { t: "Not needed", tone: "line" as const }
+            : beforeApp(w) ? (w.kind === "handover" ? { t: "Needed for the certificate", tone: "biscuit" as const } : { t: "Before the app", tone: "line" as const })
             : today < w.opens ? { t: `Opens ${short(w.opens)}`, tone: "line" as const } : late ? { t: `${late} day${late > 1 ? "s" : ""} late`, tone: "heart" as const } : { t: `Due ${short(w.deadline)}`, tone: "mint" as const };
           const href = r ? `/a/reports/${r.id}` : `/a/reports/new?booking=${b.id}&kind=${w.kind}&week=${w.week}`;
           const verb = r?.status === "submitted" ? "Review" : r ? "Open" : "Fill in";

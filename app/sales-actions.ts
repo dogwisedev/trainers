@@ -1,6 +1,6 @@
 "use server";
 import { audited } from "@/lib/audit";
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { getViewer } from "@/lib/data";
 import { serviceClient, isDemo } from "@/lib/supabase";
 import { salesTeam } from "@/lib/hubspot";
@@ -42,7 +42,7 @@ export async function refreshSalesAction(): Promise<R> {
     const v = await admin();
     if (!v) return { ok: false, message: "Admins only." };
     const s = await runSalesSync(v.name);
-    revalidatePath("/a/sales"); revalidatePath("/s");
+    revalidateTag("sales-insights"); revalidatePath("/a/sales"); revalidatePath("/s");
     return s.errors.length
       ? { ok: false, message: `Saved ${s.deals} deals, with problems: ${s.errors.join("; ")}` }
       : { ok: true, message: `Updated: ${s.deals} deals read from HubSpot, ${s.won} of them Closed Won.` };

@@ -6,6 +6,9 @@ import { etParts } from "@/lib/chatRules";
 import { SalesView } from "@/components/SalesView";
 import { SalesRefresh, SalesTeam } from "@/components/SalesAdminBits";
 import { lastSalesSync } from "@/lib/salesSync";
+import { salesInsightsCached } from "@/lib/salesInsights";
+import { SalesInsightsView } from "@/components/SalesInsightsView";
+import { SalesExtensions } from "@/components/SalesExtensions";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60; // "Refresh from HubSpot" runs here and can take up to a minute
@@ -15,10 +18,11 @@ export default async function Sales({ searchParams }: { searchParams: { m?: stri
   await requireRole("admin");
   const today = etParts(new Date()).date, months = recentMonths(today.slice(0, 7));
   const month = searchParams.m && /^\d{4}-\d{2}$/.test(searchParams.m) ? searchParams.m : months[0];
-  const [data, team, { data: profs }, last] = await Promise.all([
+  const [data, team, { data: profs }, last, insights] = await Promise.all([
     salesMonth(month), salesTeam().catch(() => []),
     isDemo() ? Promise.resolve({ data: [] }) : serviceClient().from("profiles").select("display_name, hubspot_owner_id").eq("role", "sales"),
-    lastSalesSync()
+    lastSalesSync(),
+    isDemo() ? Promise.resolve(null) : salesInsightsCached(month, today).catch(() => null)
   ]);
   const logins = (profs || []) as { display_name: string | null; hubspot_owner_id: string | null }[];
   const withLogin = new Set(logins.map((p) => p.hubspot_owner_id));
@@ -30,6 +34,9 @@ export default async function Sales({ searchParams }: { searchParams: { m?: stri
       <h1 className="text-h1 font-extrabold leading-tight">Sales</h1>
       <p className="mt-1 text-ink-soft">From HubSpot: every Closed Won deal, by the month it was won (Eastern time), under the deal owner. Still owed = amount minus amount paid, unless the deal is marked Paid, Refund or Program Cancelled.</p>
       <SalesRefresh last={last} />
+      <div className="mt-4"><SalesExtensions admin /></div>
+      {insights && <SalesInsightsView s={insights} admin />}
+      <h2 className="mt-8 text-lead font-extrabold">Sales by person</h2>
       <SalesView month={month} months={months} base="/a/sales" {...data} admin onlyOwed={searchParams.owed === "1"} />
       <div className="mt-8 space-y-3">
         {unlinked.length > 0 && (

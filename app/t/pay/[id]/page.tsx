@@ -54,7 +54,7 @@ export default async function MyPayslip({ params }: { params: { id: string } }) 
           {d.notes && <p className="pt-2 text-small text-ink-soft">{d.notes}</p>}
         </section>
       </div>
-      <div className="hidden overflow-x-auto rounded-[18px] border border-line bg-white p-2 md:block"><div className="min-w-[560px]" dangerouslySetInnerHTML={{ __html: html }} /></div>
+      <div className="hidden overflow-x-auto rounded-[18px] border border-line bg-[#fff] p-2 text-[#281870] md:block"><div className="min-w-[560px]" dangerouslySetInnerHTML={{ __html: html }} /></div>
     </>
   );
 }

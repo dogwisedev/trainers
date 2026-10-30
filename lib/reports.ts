@@ -53,6 +53,14 @@ export function weeklyWindows(start: string, end: string): Window[] {
 }
 export const handoverWindow = (end: string): Window => ({ kind: "handover", week: 0, opens: end, deadline: addDays(end, 2) });
 
+/**
+ * The day the app took over the trainer forms. Intake forms and weekly checks due before it were done the old way, so the
+ * app doesn't ask for them (nothing late, no penalty). Handover reports due before it are still needed: they make the
+ * client's certificate and report, so they stay on the lists as "Needed for the certificate" (never late).
+ */
+export const FORMS_CUTOVER = "2026-10-23";
+export const beforeApp = (w: Window) => w.deadline < FORMS_CUTOVER;
+
 export type BookingForReports = { id: string; trainer_id: string; client_name: string; dog_name: string | null; start_date: string; end_date: string; weeks: number | null; status: string; reports_enabled?: boolean | null };
 /** Every form a booking should produce, with its window. */
 export function expectedReports(b: BookingForReports): Window[] {
@@ -60,7 +68,7 @@ export function expectedReports(b: BookingForReports): Window[] {
 }
 
 export type RowLike = { booking_id: string; kind: Kind; week_number: number; status: Status; submitted_at?: string | null; due_by?: string | null; id?: string };
-export type Todo = { booking: BookingForReports; window: Window; state: "open" | "overdue" | "draft" | "changes" | "waiting" | "approved"; report?: RowLike; daysLate: number };
+export type Todo = { booking: BookingForReports; window: Window; state: "open" | "overdue" | "draft" | "changes" | "waiting" | "approved"; report?: RowLike; daysLate: number; beforeApp?: boolean };
 
 /** What a trainer (or admin) still owes, from bookings + the reports that exist. `now` is injectable for tests. */
 export function todos(bookings: BookingForReports[], reports: RowLike[], now = new Date(), horizonDays = 60): Todo[] {
@@ -77,6 +85,11 @@ export function todos(bookings: BookingForReports[], reports: RowLike[], now = n
       if (r?.status === "approved" || r?.status === "waived") { continue; }
       if (r?.status === "submitted") { out.push({ booking: b, window: w, state: "waiting", report: r, daysLate: 0 }); continue; }
       if (late && daysLate > horizonDays) continue;                  // ancient: ignore
+      if (beforeApp(w)) {
+        if (w.kind !== "handover") continue;                          // done the old way, before the app
+        out.push({ booking: b, window: w, report: r, daysLate: 0, beforeApp: true, state: r?.status === "changes_requested" ? "changes" : r ? "draft" : "open" });
+        continue;
+      }
       out.push({ booking: b, window: w, report: r, daysLate,
         state: r?.status === "changes_requested" ? "changes" : r ? (late ? "overdue" : "draft") : late ? "overdue" : "open" });
     }
@@ -221,10 +234,11 @@ export function validate(kind: Kind, a: Answers, media: MediaItem[], opts: { ski
 /** Has the handover got its photo of the dog with the trainer? */
 export const hasTrainerPhoto = (media: MediaItem[]) => media.some((m) => m.slot === "health" && m.kind === "photo");
 /** The reminder shown on the form instead of blocking it. */
+/** What each form asks for in photos and videos. They're added on the form and posted in the dog's chat too (components/FormUpload.tsx). */
 export const MEDIA_ADVICE: Record<Kind, string> = {
-  intake: "Please update video on chat: post the pickup photos and a video in the dog's chat (show any injuries, cuts, scars or missing parts clearly).",
-  weekly: "Please update video on chat: send photos and videos in the dog's chat, not on this form.",
-  handover: "Please update video on chat: post a photo of you with the dog in the chat, then pick it below."
+  intake: "Add the pickup photos and a video (show any injuries, cuts, scars or missing parts clearly).",
+  weekly: "Add this week's photos and videos.",
+  handover: "Add a photo of you with the dog, or pick one that's already in the chat."
 };
 
 export const kindName = (kind: Kind) => (kind === "weekly" ? "Weekly health check" : kind === "intake" ? "Intake form" : "Handover report");

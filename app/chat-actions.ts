@@ -11,6 +11,7 @@ import { mailConfigured, sendMail } from "@/lib/mail";
 import { notifyMessage } from "@/lib/chatNotify";
 import { BRAND_LOGO_PNG_BASE64 } from "@/lib/brandLogo";
 import type { Booking } from "@/lib/types";
+import { QUIET_KINDS, QUIET_LABEL, canQuiet } from "@/lib/quietChats";
 
 export type ChatResult = { ok: boolean; message: string; chatId?: string };
 const DEMO: ChatResult = { ok: false, message: "Demo mode: connect Supabase to use chats." };
@@ -184,5 +185,24 @@ export async function resendInvitesAction(chatIds: string[]): Promise<ChatResult
   }
   revalidatePath("/a/chats");
   return { ok: sent > 0 || !bad.length, message: `Sent ${sent} invite${sent === 1 ? "" : "s"}.${bad.length ? ` Not sent: ${bad.join("; ")}` : ""}` };
+});
+}
+
+/** Quiet chat (finishing on Signal): no "hasn't posted", "client waiting" or "unanswered" alerts, no client update emails,
+ *  no automatic invite. Only QUIET_CHAT_EMAILS (default alma@dogwiseacademy.com) may change it; checked here, not just hidden. */
+export async function quietChatAction(chatId: string, on: boolean): Promise<ChatResult> {
+  return audited("quietChatAction", { chatId, on }, async () => {
+  if (isDemo()) return DEMO;
+  try {
+    const v = await adminOnly();
+    if (!canQuiet(v.email)) return { ok: false, message: "Only Alma can quiet chats." };
+    const sb = serviceClient(), now = new Date().toISOString();
+    const { error } = await sb.from("chats").update({ quiet_at: on ? now : null, quiet_by: on ? v.name : null }).eq("id", chatId);
+    if (error) return { ok: false, message: /quiet_at|column|schema cache/i.test(error.message) ? "Run migration 039 (quiet chats) in Supabase first." : error.message };
+    if (on) await sb.from("chat_incidents").update({ status: "resolved", resolved_at: now, resolved_by: v.name, resolved_note: QUIET_LABEL })
+      .eq("chat_id", chatId).in("kind", QUIET_KINDS).neq("status", "resolved");
+    revalidatePath("/a"); revalidatePath(`/a/chats/${chatId}`);
+    return { ok: true, message: on ? "Quiet. No more alerts for this chat." : "Alerts are back on for this chat.", chatId };
+  } catch (e) { return { ok: false, message: (e as Error).message }; }
 });
 }

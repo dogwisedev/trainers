@@ -199,7 +199,8 @@ export function BookingForm({ trainers, defaultTrainer, defaultStart, defaultDea
         {deal && (
           <div className="mt-3 rounded-xl bg-white p-3 text-body">
             <p className="font-bold">{deal.name}</p>
-            <p className="text-small text-ink-soft">{deal.stage || "Stage unknown"}{deal.start ? ` · ${deal.start}${deal.end ? ` to ${deal.end}` : ""}` : ""}</p>
+            <p className="text-small text-ink-soft">{deal.stage || "Stage unknown"}{deal.program ? ` · ${deal.program}` : ""}{deal.start ? ` · ${deal.start}${deal.end ? ` to ${deal.end}` : ""}` : ""}</p>
+            {deal.program && <input type="hidden" name="program" value={deal.program} />}
             {notWon && <p className="mt-2 rounded-lg bg-heart-wash px-2.5 py-1.5 text-small text-heart">This deal isn&apos;t Closed Won in HubSpot. Mark it Closed Won first, then book it.</p>}
             {deal.booked.length > 0 && <p className="mt-2 rounded-lg bg-biscuit-wash px-2.5 py-1.5 text-small text-warn">Already booked on this deal: {deal.booked.map((b) => `${b.dog} with ${b.trainer} (${b.dates})`).join("; ")}.</p>}
           </div>

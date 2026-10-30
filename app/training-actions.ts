@@ -132,3 +132,12 @@ export async function setTrainingPausedAction(bookingId: string, paused: boolean
     return error ? { ok: false, message: error.message } : { ok: true, message: paused ? "Paused: nothing more goes out for this dog until you resume." : "Resumed." };
   });
 }
+
+/** The switch on the Training materials page: stop or restart all sending (nothing already sent changes). */
+export async function setSendingPausedAction(paused: boolean): Promise<R> {
+  return audited("setSendingPausedAction", { paused: paused ? "yes" : "no" }, async () => {
+    if (isDemo() || !(await admin())) return { ok: false, message: "Admins only." };
+    const { error } = await serviceClient().from("app_state").upsert({ key: "training_paused", value: paused ? "yes" : "no", updated_at: new Date().toISOString() });
+    return error ? { ok: false, message: error.message } : done(paused ? "Paused: nothing more is sent until you restart it." : "Sending again from the next check (12 to 6 PM Eastern).");
+  });
+}

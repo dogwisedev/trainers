@@ -11,9 +11,13 @@ export const metadata: Metadata = {
 };
 export const viewport: Viewport = { width: "device-width", initialScale: 1, viewportFit: "cover", themeColor: "#9878F8" };
 
+// Dark mode is saved on this device (Your account → Appearance). Set before the page paints, so it never flashes light first.
+const THEME = `try{if(localStorage.getItem("dw-theme")==="dark")document.documentElement.setAttribute("data-theme","dark")}catch(e){}`;
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
+      <head><script dangerouslySetInnerHTML={{ __html: THEME }} /></head>
       <body className="min-h-dvh font-sans antialiased">{children}</body>
     </html>
   );

@@ -6,7 +6,10 @@ import { etParts } from "./chatRules";
 import { raiseIncident, resolveIncidents } from "./incidents";
 import { alertAdmins } from "./adminAlert";
 import { auditSystem } from "./audit";
+import { PROGRAM_SOLD } from "./programs";
+import { formAnswersFor, formVaccinesFor, formsLink } from "./clientForms";
 import { uniqueDogs } from "./chatOps";
+import { dogNameProblem, dogNameRef } from "./dogNames";
 import { DealProps, PropDef, dealContacts, hubspotConfigured, optionValue, propDefs, readContacts, readDeals, updateContact, updateDeal } from "./hubspot";
 import {
   Answers, CLIENT_KEYS, CONTACT_PROPS, DEAL_PROPS, DOG_KEYS, DOG_NAME_PROPS, QUESTIONS, Ready, VACCINE_FILE_PROP, VACCINES, VaccineFile, VaccineState,
@@ -23,7 +26,7 @@ import type { Item } from "./pretrainingFields";
 const READY_DAYS = 7;
 const site = () => (process.env.NEXT_PUBLIC_SITE_URL || "").replace(/\/$/, "");
 
-type BookingRow = { id: string; dog_name: string | null; client_name: string; client_email?: string | null; start_date: string; end_date: string; status: string; trainer_id: string; created_at: string; hubspot_deal_id: string | null; trainers?: { name: string } | null };
+type BookingRow = { id: string; dog_name: string | null; client_name: string; client_email?: string | null; program?: string | null; start_date: string; end_date: string; status: string; trainer_id: string; created_at: string; hubspot_deal_id: string | null; trainers?: { name: string } | null };
 type DealRow = { deal_id: string; contact_id: string | null; deal: DealProps; contact: DealProps; pending: Record<string, string>; synced_at: string | null; sync_error: string | null };
 type DogRow = { booking_id: string; deal_id: string; slot: number; slot_set_by: string | null; cleared_by?: string | null; cleared_at?: string | null; answers: Answers; vaccines: VaccineState; changes: Record<string, { by: string; role: string; at: string }> };
 
@@ -51,7 +54,7 @@ function hubspotFiles(contact: DealProps): VaccineFile[] {
 
 async function bookingsFor(sb: SupabaseClient, dealIds: string[]) {
   if (!dealIds.length) return [] as BookingRow[];
-  const { data } = await sb.from("bookings").select("id, dog_name, client_name, client_email, start_date, end_date, status, trainer_id, created_at, hubspot_deal_id, trainers(name)").in("hubspot_deal_id", dealIds).neq("status", "cancelled");
+  const { data } = await sb.from("bookings").select("id, dog_name, client_name, client_email, program, start_date, end_date, status, trainer_id, created_at, hubspot_deal_id, trainers(name)").in("hubspot_deal_id", dealIds).neq("status", "cancelled");
   return (data || []) as unknown as BookingRow[];
 }
 
@@ -89,7 +92,7 @@ function buildProfile(dealId: string, row: DealRow | null, dogRows: DogRow[], bo
   };
 }
 
-async function fieldDefs(): Promise<Profile["defs"]> {
+export async function fieldDefs(): Promise<Profile["defs"]> {
   try {
     const defs = await propDefs("contacts");
     return Object.fromEntries(QUESTIONS.map((q) => [q.key, defs.get(q.key)]).filter(([, d]) => d).map(([k, d]) => {
@@ -140,7 +143,7 @@ export async function readinessFor(bookingIds: string[]): Promise<Map<string, { 
  * Sends answers to the HubSpot contact. If HubSpot refuses some values (an option it doesn't allow), those are named and
  * left out so the rest still go through. Anything not sent (no permission, HubSpot down) stays waiting for the next try.
  */
-async function pushContact(contactId: string, props: Record<string, string>): Promise<{ pending: Record<string, string>; error: string | null; sent: number }> {
+export async function pushContact(contactId: string, props: Record<string, string>): Promise<{ pending: Record<string, string>; error: string | null; sent: number }> {
   const left = { ...props }, refused: string[] = [];
   const named = () => refused.map((k) => QUESTIONS.find((q) => q.key === k)?.label || k).join("; ");
   for (let i = 0; i < 4 && Object.keys(left).length; i++) {
@@ -211,19 +214,33 @@ export async function syncPretraining(opts: { dealIds?: string[]; sb?: SupabaseC
         contact = { ...contact, ...pending }; out.pushed += r.sent; pending = r.pending; syncError = r.error;
       }
       await sb.from("pretraining_deals").upsert({ deal_id: dealId, contact_id: contactId, deal, contact, pending, synced_at: now, sync_error: syncError, updated_at: now });
+      // The client's personal before-training link, on their HubSpot contact for templates
+      if (contactId && !str(contact.dogwise_forms_link)) await updateContact(contactId, { dogwise_forms_link: formsLink(contactId) }).catch(() => {});
       // 2. One row per dog, with its slot on the deal (dog 1 = k9___dog_name, dog 2 = dog_2_name…)
       const bks = bookings.filter((b) => b.hubspot_deal_id === dealId);
       const mine = ((dogRows || []) as DogRow[]).filter((d) => d.deal_id === dealId);
       const slots = matchSlots(bks.map((b) => { const d = mine.find((x) => x.booking_id === b.id); return { ...b, slot: d?.slot, slot_set_by: d?.slot_set_by }; }), DOG_NAME_PROPS.map((p) => str(deal[p])));
       for (const b of bks) {
         const d = mine.find((x) => x.booking_id === b.id);
-        if (!d) await sb.from("pretraining_dogs").insert({ booking_id: b.id, deal_id: dealId, slot: slots.get(b.id) || 1 });
+        if (!d) {
+          // A dog 2–4 answered on the client's form before it was booked: its booking starts with those answers
+          const slot = slots.get(b.id) || 1;
+          const pre = slot > 1 && contactId ? await formAnswersFor(sb, contactId, [b.dog_name, str(deal[DOG_NAME_PROPS[slot - 1]])]).catch(() => null) : null;
+          const sent = contactId ? await formVaccinesFor(sb, contactId, [b.dog_name, str(deal[DOG_NAME_PROPS[slot - 1]])]).catch(() => []) : [];
+          await sb.from("pretraining_dogs").insert({ booking_id: b.id, deal_id: dealId, slot, ...(pre ? { answers: pre } : {}),
+            ...(sent.length ? { vaccines: { files: sent.map((f) => ({ ...f, source: "app" })), status: "review" } } : {}) });
+        }
         else if (!d.slot_set_by && d.slot !== slots.get(b.id)) await sb.from("pretraining_dogs").update({ slot: slots.get(b.id), updated_at: now }).eq("booking_id", b.id);
         out.dogs++;
       }
       // 2b. HubSpot is the source of truth for names: each dog's name (by its slot) and the client's name go onto the
       //     booking, the chat and unsent forms. The email is only filled in when the booking has none (it's the client's login).
       try { await namesFromHubspot(sb, dealId, deal, contact, bks, mine, slots); } catch (e) { out.errors.push(`names ${dealId}: ${(e as Error).message}`); }
+      // 2c. Dog names that look like two dogs in one box, or like a person: a To do item each
+      try {
+        const chat = ((chats || []) as { id: string; deal_key: string }[]).find((c) => c.deal_key === dealId)?.id || null;
+        for (const n of await flagDogNames(sb, dealId, deal, contact, bks, chat, !!opts.quietIncidents)) out.incidents.push(`Dog name: ${n}`);
+      } catch (e) { out.errors.push(`dog names ${dealId}: ${(e as Error).message}`); }
       // 3. Readiness: tick "forms" in HubSpot, list what's missing, incidents a week out
       const { data: fresh } = await sb.from("pretraining_dogs").select("*").eq("deal_id", dealId);
       const p = buildProfile(dealId, { deal_id: dealId, contact_id: contactId, deal, contact, pending, synced_at: now, sync_error: syncError }, (fresh || []) as DogRow[], bks, {});
@@ -263,6 +280,40 @@ export async function syncPretraining(opts: { dealIds?: string[]; sb?: SupabaseC
   return out;
 }
 
+/**
+ * Dog names on the HubSpot deal that look like two dogs in one box ("Francesca & Jack") or like a person ("William Smith").
+ * One To do item each ("Fix in HubSpot" / "Keep dog name"). It closes itself once the name is fixed in HubSpot; a name an
+ * admin chose to keep is never flagged again. Returns the names newly flagged.
+ */
+async function flagDogNames(sb: SupabaseClient, dealId: string, deal: DealProps, contact: DealProps, bks: BookingRow[], chatId: string | null, quiet: boolean): Promise<string[]> {
+  const t = today(), live = bks.filter((b) => b.status !== "cancelled" && b.end_date >= t);
+  const client = { first: str(contact.firstname), last: str(contact.lastname) };
+  const flagged = new Map<string, { name: string; why: "two" | "person" }>();
+  if (live.length) for (const p of DOG_NAME_PROPS) {
+    const name = str(deal[p]).replace(/\s+/g, " ").trim(), why = dogNameProblem(name, client);
+    if (why) flagged.set(dogNameRef(dealId, name), { name, why });
+  }
+  // Fixed in HubSpot (or the training is over): close what's no longer flagged
+  const { data: open } = await sb.from("chat_incidents").select("ref").eq("kind", "hubspot_problem").like("ref", `dogname:${dealId}:%`).neq("status", "resolved");
+  for (const i of (open || []) as { ref: string }[]) if (!flagged.has(i.ref)) await resolveIncidents({ kinds: ["hubspot_problem"], ref: i.ref }, "automatic", "Dog name fixed in HubSpot", sb);
+  if (quiet || !flagged.size) return [];
+  const raised: string[] = [];
+  for (const [ref, f] of flagged) {
+    // An admin pressed "Keep dog name" for this name before: leave it alone
+    const { data: kept } = await sb.from("chat_incidents").select("id").eq("kind", "hubspot_problem").eq("ref", ref).eq("status", "resolved").eq("auto_resolved", false).limit(1);
+    if (kept?.length) continue;
+    const who = [client.first, client.last].filter(Boolean).join(" ");
+    const detail = f.why === "two"
+      ? `"${f.name}" looks like two dogs in one name box on the HubSpot deal. Put each dog in its own box (Dog 1, Dog 2…) and the app follows within 30 minutes.`
+      : `"${f.name}" looks like a person's name, not a dog's${who ? ` (the client is ${who})` : ""}. Fix it on the HubSpot deal and the app follows within 30 minutes.`;
+    if (await raiseIncident({
+      kind: "hubspot_problem", title: `${f.name} (${live[0].client_name})`, ref, bookingId: live[0].id, chatId, urgent: false,
+      detail: `${detail} If it really is the dog's name, press Keep dog name.`, link: `https://app.hubspot.com/contacts/21869370/record/0-3/${dealId}`
+    }, sb)) raised.push(f.name);
+  }
+  return raised;
+}
+
 /** "Check vaccines" incident: records are in (uploaded in the app or on the HubSpot form) and nobody has checked them. */
 async function raiseVaccineCheck(dog: { booking: BookingRow; name: string }, chatId: string | null, sb: SupabaseClient) {
   const b = dog.booking;
@@ -279,7 +330,7 @@ async function raiseVaccineCheck(dog: { booking: BookingRow; name: string }, cha
  * Client manager answers are in (an option with a number, e.g. "Client manager 2", is that dog; without one, every dog).
  * A single Yes / tick: set once both forms are complete for every dog. Also fills pre_training_missing if that property exists.
  */
-async function writeDealChecklist(dealId: string, deal: DealProps, defs: Map<string, PropDef>, p: Profile) {
+export async function writeDealChecklist(dealId: string, deal: DealProps, defs: Map<string, PropDef>, p: Pick<Profile, "dogs">) {
   const props: Record<string, string> = {};
   const formsDef = defs.get("forms");
   if (formsDef && p.dogs.length) {
@@ -404,8 +455,8 @@ export function missingSummary(items: Item[]): string {
   const q = (k: number) => (k ? ` (${k} question${k > 1 ? "s" : ""})` : "");
   const sum = new Map<string, number>();
   for (const i of items) sum.set(i.key, (sum.get(i.key) || 0) + (i.count || 0));
-  const NAME: Record<string, string> = { home: "your details", dog: "about your dog", goals: "training goals", food: "food", meds: "medication", vaccines: "vaccine records", balance: "the balance" };
-  const parts = [...sum.entries()].filter(([k]) => NAME[k]).map(([k, c]) => `${NAME[k]}${["home", "dog", "goals"].includes(k) ? q(c) : ""}`);
+  const NAME: Record<string, string> = { home: "your details", dog: "health questions", goals: "training goals", food: "food", meds: "medication", vaccines: "vaccine records", balance: "the balance" };
+  const parts = [...sum.entries()].filter(([k]) => NAME[k]).map(([k, c]) => `${NAME[k]}${["home", "goals"].includes(k) ? q(c) : ""}`);
   return parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}` : parts[0] || "";
 }
 
@@ -445,6 +496,9 @@ async function namesFromHubspot(sb: SupabaseClient, dealId: string, deal: DealPr
     if (dog && dog !== clean(b.dog_name)) patch.dog_name = dog.slice(0, 80);
     if (client && client.toLowerCase() !== clean(b.client_name).toLowerCase()) patch.client_name = client.slice(0, 120);
     if (email && /^\S+@\S+\.\S+$/.test(email) && !clean(b.client_email)) patch.client_email = email;
+    // The program sold (HubSpot's type_of_program_sold), as its HubSpot label: "Strong Companion", "Puppy Foundations"…
+    const sold = PROGRAM_SOLD[clean(deal.type_of_program_sold)];
+    if (sold && sold !== clean((b as { program?: string | null }).program)) patch.program = sold;
     if (!Object.keys(patch).length) continue;
     const { error } = await sb.from("bookings").update(patch).eq("id", b.id);
     if (error) throw new Error(error.message);
@@ -458,7 +512,7 @@ async function namesFromHubspot(sb: SupabaseClient, dealId: string, deal: DealPr
       if (patch.client_email && !clean(a.clientEmail)) { a.clientEmail = patch.client_email; touched = true; }
       if (touched) await sb.from("reports").update({ answers: a }).eq("id", r.id);
     }
-    changes.push([patch.dog_name && `dog "${b.dog_name || ""}" → "${patch.dog_name}"`, patch.client_name && `client "${b.client_name}" → "${patch.client_name}"`, patch.client_email && "client email added"].filter(Boolean).join(", "));
+    changes.push([patch.dog_name && `dog "${b.dog_name || ""}" → "${patch.dog_name}"`, patch.client_name && `client "${b.client_name}" → "${patch.client_name}"`, patch.client_email && "client email added", patch.program && `program "${(b as { program?: string | null }).program || ""}" → "${patch.program}"`].filter(Boolean).join(", "));
     Object.assign(b, patch);
   }
   // The chat's title is every dog on the deal, and its client is the deal's contact: checked on every sync,

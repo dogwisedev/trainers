@@ -51,8 +51,8 @@ export async function autoInviteClients(sb: SupabaseClient = serviceClient()) {
         await auditSystem("Made chats for dogs that had none", `${dogs.join(", ")}: in care or starting within ${INVITE_DAYS_BEFORE} days, with a HubSpot deal but no chat.`, { ok: made.length > 0 });
       }
     }
-    const { data: chats } = await sb.from("chats").select("id, deal_key, client_email, client_name, title").eq("status", "open").is("invited_at", null).limit(200);
-    const list = (chats || []) as { id: string; deal_key: string; client_email: string | null; client_name: string | null; title: string | null }[];
+    const { data: chats } = await sb.from("chats").select("*").eq("status", "open").is("invited_at", null).limit(200);
+    const list = ((chats || []) as { id: string; deal_key: string; client_email: string | null; client_name: string | null; title: string | null; quiet_at?: string | null }[]).filter((c) => !c.quiet_at);
     if (!list.length) return out;
     const keys = list.map((c) => c.deal_key);
     const [a, b] = await Promise.all([

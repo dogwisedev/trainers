@@ -57,7 +57,8 @@ export async function getRates(trainerId: string): Promise<Rates> {
 
 // ── Building drafts ─────────────────────────────────────────────────────
 /** Creates the run if needed and (re)builds every draft from bookings. Approved payslips are never touched; manual lines are kept. */
-export async function buildDrafts(sb: SupabaseClient, submitDate: string) {
+/** Rebuilds the run's draft payslips from bookings, trips and follow-ups (hand edits kept, approved ones left alone). `onlyTrainer`: just that trainer's payslip. */
+export async function buildDrafts(sb: SupabaseClient, submitDate: string, onlyTrainer?: string) {
   // A run that already exists keeps the dates it was made with (the pay calendar changed on Oct 26, 2026); new runs use today's rule
   const { data: saved } = await sb.from("pay_runs").select("*").eq("submit_date", submitDate).maybeSingle();
   const fresh = runDates(submitDate);
@@ -66,15 +67,19 @@ export async function buildDrafts(sb: SupabaseClient, submitDate: string) {
   if (runErr || !run) throw new Error(runErr?.message || "Couldn't create the pay run.");
 
   const lastDay = addDays(r.weeks[1], 6);
+  // trips and deal_money are server-only tables (no read rule for signed-in users), so they're always read with the server
+  // key, whoever asked for the rebuild. Read as the signed-in admin (the Payslips list, Refresh drafts, opening a payslip)
+  // they came back empty, and every refresh dropped the mileage and follow-up session lines the Monday job had added.
+  const svc = isDemo() ? sb : serviceClient();
   const [{ data: trainers }, { data: bookings }, { data: rateRows }, { data: existing }, { data: tripRows }, { data: fupRows }] = await Promise.all([
     sb.from("trainers").select("id, name, address, probation, probation_release_run, probation_release_amount"),
     sb.from("bookings").select("id, trainer_id, client_name, dog_name, start_date, end_date, weeks, extra_days, rehab, status").neq("status", "cancelled").lte("start_date", lastDay).gte("end_date", r.weeks[0]),
     sb.from("trainer_rates").select("*"),
     sb.from("payslips").select("id, trainer_id, status, adjustments, total, hand_edited, skip_keys, payslip_lines(id, booking_id, kind, auto, days, weeks_completed, amount, program, client, dog)").eq("pay_run_id", run.id),
     // Trips in these two weeks (pickups, drop-offs, follow-up sessions), for mileage pay. No table yet = no mileage lines.
-    sb.from("trips").select("id, trainer_id, booking_id, kind, trip_date, miles, bookings(client_name, dog_name)").gte("trip_date", r.weeks[0]).lte("trip_date", lastDay),
+    svc.from("trips").select("id, trainer_id, booking_id, kind, trip_date, miles, bookings(client_name, dog_name)").gte("trip_date", r.weeks[0]).lte("trip_date", lastDay),
     // Follow-up sessions booked on the deal (follow_up_session__1..3) in these two weeks. No table yet = none.
-    sb.from("deal_money").select("deal_id, followups").overlaps("followups", Array.from({ length: 14 }, (_, i) => addDays(r.weeks[0], i)))
+    svc.from("deal_money").select("deal_id, followups").overlaps("followups", Array.from({ length: 14 }, (_, i) => addDays(r.weeks[0], i)))
   ]);
   const fupDeals = (fupRows || []) as { deal_id: string; followups: string[] }[];
   const { data: fupBookings } = fupDeals.length ? await sb.from("bookings").select("id, trainer_id, client_name, dog_name, hubspot_deal_id, start_date").in("hubspot_deal_id", fupDeals.map((d) => d.deal_id)).neq("status", "cancelled").order("start_date") : { data: [] };
@@ -85,7 +90,7 @@ export async function buildDrafts(sb: SupabaseClient, submitDate: string) {
   type L = { booking_id: string | null; kind: string; auto: boolean; days?: number | null; amount: number | string; program?: string | null; client?: string | null; dog?: string | null };
   const sig = (l: L) => [l.kind, l.booking_id, l.days ?? "", Number(l.amount ?? 0).toFixed(2), l.program ?? "", l.client ?? "", l.dog ?? ""].join("|");
 
-  for (const t of trainers || []) {
+  for (const t of (trainers || []).filter((x) => !onlyTrainer || x.id === onlyTrainer)) {
     const prev = (existing || []).find((p) => p.trainer_id === t.id) as { id: string; status: string; payslip_lines?: L[] } | undefined;
     // A booking line edited by hand stays as it is: don't add an automatic one next to it.
     const handEdited = new Set((prev?.payslip_lines || []).filter((l) => l.kind === "training" && !l.auto && l.booking_id).map((l) => l.booking_id));

@@ -56,6 +56,42 @@ The client's answers to the two HubSpot forms, per dog, plus the checklist: form
 - The app ticks `forms` on the deal once every answer is in, and fills `pre_training_missing` if you create that deal property (single-line text).
 - HubSpot token scopes: `crm.objects.deals.read/write`, `crm.objects.contacts.read/write`, `crm.schemas.deals.read`, `crm.schemas.contacts.read`.
 
+### Must haves
+Only the **must haves** hold up a dog's start: To do, "Not ready", the client's reminders and `pre_training_missing`. The list is `MUST_KEYS` in `lib/pretrainingFields.ts`: the client's details, address and household, vet and emergency contact, CPR consent, Terms & Conditions, medical conditions, illness in the last 7 days, food, medication, training goals, bite history and aggression towards other dogs. The other questions are still asked on the client's form and show as "optional"; they don't hold anything up.
+
+### Dog names
+A dog name on the deal that looks like two dogs ("Francesca & Jack") or like a person ("William Smith" for a Smith) shows on To do with **Fix in HubSpot** and **Keep dog name**. Fixing it in HubSpot clears it within 30 minutes; a kept name is never flagged again.
+
+## Forms before the app (Oct 23, 2026)
+`FORMS_CUTOVER` in `lib/reports.ts`. Intake forms and weekly checks due before it were done the old way: the app doesn't ask for them (not late, no penalty). Handover reports due before it are still needed for the client's certificate: they show as "Needed for the certificate" (never late), grouped on To do. Press "Not needed" on any that already went out the old way.
+
+## Sales screen (admin, and sales managers)
+`/a/sales`, and `/s` for a sales login on `SALES_MANAGER_EMAILS` (who then sees the whole team as admin does, and nothing else in admin). Above the month's sales by person: the two Chrome extensions (Bark Buster for admin and managers, Sales Assistant for every sales login) with a "How to load unpacked" fold-out; then the comparisons (`lib/salesInsights.ts`, one 25-month pull of Closed Won deals from HubSpot plus a few counts, cached per month for an hour, dropped by Refresh from HubSpot): this month against the same month last year to the same day and in full, against last month to the same day, what last year says about next month, a 13-month strip with last year's months behind, each salesperson (month, last month, same month last year, average deal, days to close, discount, calls and calls per sale), leads and conversion vs last year, days to close, discounting, what sells by program vs last year, lost reasons, payment plans not approved, failed last card attempts (Stripe) and refunds. Both pages show a loading card while the month loads.
+
+## Pulse (dashboard preview)
+`/a/pulse`, for admins on `PULSE_EMAILS` (default alma@dogwiseacademy.com); others get a 404. One **snapshot** is built (`buildSnapshot`): the last 90 days plus the 90 before, from the app's tables (every read paged past Supabase's 1,000-row cap), HubSpot (deals created, won, lost, same dates last year, this and next month last year, per-salesperson counts of leads, calls and emails per preset) and Stripe (charges, so "whose last card attempt failed"), squeezed into a compact shape and cached for an hour (`snapshotCached`, tag `pulse`; Refresh rebuilds it). Every range (presets or custom, within 90 days) and view is then worked out from it instantly. Views, switched like the Chats page: **Office** (clients and the link to trainers: Pedro's weekly list, pickups and drop-offs in the range, To do counts), **Trainers** (every active trainer; a score out of 100 = daily updates 40, replies 25, forms 20, alerts 15, parts without data dropped, small samples pulled toward the group; "Low data" and "Unusual for this trainer" flags against the 90-day baseline; a plain-English summary; kennels used, days off) and **Sales** (leads and sold against the same dates last year, conversion vs last year, cost per lead and per sale counted only on deals with Bark credits, "what to beat" this month vs last year, next month last year, a US tile map where the top number is leads, the square fills with sales and a red edge means that state's kennels are 80%+ full, a sales-per-day/week chart against last year filtered by the tapped state, sources with conversion and cost per sale, salespeople with calls and emails). Today's pickups and drop-offs also sit at the top of To do (`lib/moves.ts`).
+
+## Cancel training (dog page)
+Asks why (`lib/cancelReasons.ts`, saved on the booking: migration 040) and says plainly who's told: the trainer gets a cancellation with a calendar removal, the office gets a "Training cancelled" alert with the reason, and the kennel frees up. Only for trainings that were really cancelled. The reason isn't in the trainer's email.
+
+## Chat list order
+Groups stay as they are; inside each group the newest message is first. "By dates" (`?o=dates`) puts the soonest drop-off / start first instead. The trainer's list is still by dates.
+
+## Quiet chats (finishing on Signal)
+Migration 039. On a chat page (or a To do row for "hasn't posted" / "client waiting"), **Quiet chat** stops that chat's "hasn't posted today", "client waiting" and "unanswered messages" alerts (and clears open ones), its client "new updates" emails and its automatic invite. Messages still notify as normal if anyone posts. Only the emails in `QUIET_CHAT_EMAILS` (default alma@dogwiseacademy.com) see the button, and the server checks it; everyone else sees "Quiet: finishing on Signal". **Alerts back on** undoes it.
+
+## Dark mode
+**Your account → Appearance** (admin and sales), or the trainer's Profile page: Light (default) or Dark. Saved on that device (localStorage `dw-theme`) and set before the page paints, so it doesn't flash light first.
+- Every colour is a CSS variable in `app/globals.css` (light under `:root`, dark under `[data-theme="dark"]`); `tailwind.config.ts` explains the rules. Every text/background pair in the app passes 4.5:1 in both themes.
+- Must stay white in both themes (white documents with their own dark text): use `bg-[#fff] text-[#281870]`, as the payslip and report previews do.
+- The logo has a light version for dark mode (`public/brand-logo-dark.png`, via `components/BrandLogo.tsx`). Free kennels show as outlined boxes in dark mode, booked ones filled.
+
+## Mileage check (payslips)
+Each payslip has a **Mileage check**: every pickup, drop-off and follow-up trip in the period, the miles the trainer declared, the driving route from the trainer to the client (doubled for the round trip), and a **Check on Google Maps** link for the same trip.
+- Flags: more than 5% **or** 15 miles over the route, or any trip that earns mileage pay (over the trainer's free miles). Pay is still worked out from the declared miles; fix the line by hand if it's wrong. The payslip cards show how many trips to check.
+- Routes come from FreeRoute (`FREEROUTE_API_KEY` in Vercel; free tier 1,000 requests a day, we use a few). Its address search can pick a same-name town in another state, so an address only counts when the result is in the same ZIP (or state); otherwise the ZIP's centre is used. If FreeRoute errors or doesn't answer, it's a straight-line estimate + 25% for roads, marked "estimate", tried again 6 hours later. No key = estimates only. FreeRoute doesn't report tolls; Google does, on the link.
+- One check per booking and trainer, kept in `trip_routes` (migration 038), redone only when an address changes. The 20-minute forms job checks a few at a time; **Check now** on the payslip does that trainer's trips straight away.
+
 ## October 2026 update (run once)
 1. Supabase → SQL editor: run `supabase/migrations/032_audit_outcomes_and_integrity.sql`, then `033_server_notifications_and_direct_edit_log.sql` (in that order; don't re-run 032 after 033).
 2. Vercel variables (optional, defaults shown):

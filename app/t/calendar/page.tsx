@@ -26,7 +26,7 @@ export default async function TrainerCalendar() {
               <p className="font-bold">{weekLabel(w.week)}</p>
               <div className="flex gap-1" aria-hidden>
                 {Array.from({ length: w.cap }, (_, i) => (
-                  <span key={i} className={`h-3.5 w-3.5 rounded-[5px] ${i < w.dogs.length ? "bg-ink" : i < w.dogs.length + w.blocked ? "kennel-blocked" : "bg-mint"}`} />
+                  <span key={i} className={`h-3.5 w-3.5 rounded-[5px] ${i < w.dogs.length ? "bg-ink" : i < w.dogs.length + w.blocked ? "kennel-blocked" : "bg-mint dark:bg-transparent dark:ring-1 dark:ring-inset dark:ring-lav"}`} />
                 ))}
               </div>
             </div>

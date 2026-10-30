@@ -23,11 +23,16 @@ export function placeChat(chat: ChatRow, spans: Span[], today: string): Placed {
   return { chat, group: "done", start: min(live.map((b) => b.start_date)), end: max(live.map((b) => b.end_date)) };
 }
 
-export function orderChats(chats: ChatRow[], spansByKey: Map<string, Span[]>, today: string): Placed[] {
+/**
+ * Groups stay as they are (In care now, Starting soon, …). Inside each group:
+ *  "latest": newest message first (the admin list's default)  ·  "dates": soonest drop-off / start first (the trainer list, or "By dates")
+ */
+export function orderChats(chats: ChatRow[], spansByKey: Map<string, Span[]>, today: string, by: "latest" | "dates" = "dates"): Placed[] {
   const placed = chats.map((c) => placeChat(c, spansByKey.get(c.deal_key) || [], today));
   const last = (p: Placed) => p.chat.last_message_at || p.chat.created_at || "";
   return placed.sort((a, b) => {
     if (a.group !== b.group) return ORDER.indexOf(a.group) - ORDER.indexOf(b.group);
+    if (by === "latest") return last(b).localeCompare(last(a));
     const byDate = a.group === "now" ? cmp(a.end, b.end) : a.group === "soon" ? cmp(a.start, b.start) : a.group === "done" ? cmp(b.end, a.end) : 0;
     return byDate || last(b).localeCompare(last(a));
   });

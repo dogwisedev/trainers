@@ -1,5 +1,7 @@
 import Link from "next/link";
-import { Avatar } from "@/components/ui";
+import { Avatar, Pill } from "@/components/ui";
+import { QuietChatButton } from "@/components/QuietChatButton";
+import { QUIET_LABEL, canQuiet } from "@/lib/quietChats";
 import { notFound } from "next/navigation";
 import { ChevronLeft, ExternalLink } from "lucide-react";
 import { requireRole } from "@/lib/data";
@@ -36,6 +38,8 @@ export default async function AdminChat({ params }: { params: { id: string } }) 
             <Link key={d.id} prefetch={false} href={dogPage(d.id)} className="btn-ghost h-9 min-h-0 px-3 text-small">{all.length > 1 ? d.dog_name || "Dog" : "Dog page"}</Link>
           ))}
           {deal && <a href={deal} target="_blank" rel="noopener" className="btn-ghost h-9 min-h-0 px-3 text-small">HubSpot<ExternalLink size={13} /></a>}
+          {chat.quiet_at && <Pill tone="line">{QUIET_LABEL}</Pill>}
+          {chat.status === "open" && canQuiet(v.email) && <QuietChatButton chatId={chat.id} quiet={!!chat.quiet_at} />}
           {chat.status === "open" && <CloseChat chatId={chat.id} title={chat.title || "this dog"} after={closeAfter} />}
         </div>
       </div>

@@ -5,6 +5,7 @@ import { isDemo } from "@/lib/supabase";
 import { listTrainers } from "@/lib/data";
 import { LoginForm } from "./LoginForm";
 import { HashSignIn } from "./HashSignIn";
+import { BrandLogo } from "@/components/BrandLogo";
 
 // Sign in, for everyone: dog owners, trainers, the Dogwise team and sales.
 export default async function Login({ searchParams }: { searchParams: { error?: string; detail?: string } }) {
@@ -19,7 +20,7 @@ export default async function Login({ searchParams }: { searchParams: { error?: 
     <main className="relative min-h-dvh overflow-hidden bg-[radial-gradient(900px_700px_at_90%_-10%,#ece3ff_0%,#F8F6FD_60%)] px-5 pb-10 pt-[max(24px,env(safe-area-inset-top))]">
       <div className="relative mx-auto grid max-w-5xl gap-8 md:grid-cols-[1.1fr_1fr] md:items-center md:gap-14 md:pt-10">
         <div>
-          <Image src="/brand-logo.png" alt="Dogwise Academy" width={150} height={48} priority />
+          <BrandLogo width={150} height={48} />
           <h1 className="mt-10 text-hero font-extrabold leading-[1.02] md:text-hero-lg">Welcome to<br />Dogwise.</h1>
           <p className="mt-4 max-w-md text-lead leading-relaxed text-ink-soft">Dogs, owners, trainers and the team, all in one place.</p>
           <ul className="mt-7 hidden space-y-3 md:block">
