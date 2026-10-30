@@ -73,7 +73,9 @@ async function all<T>(q: (from: number, to: number) => PromiseLike<{ data: T[] |
 const clean = (s: unknown) => String(s ?? "").replace(/\s+/g, " ").trim();
 const day = (iso: string | null | undefined) => (iso ? dayET(iso) : "");
 
-export async function buildSnapshot(sb: SupabaseClient = serviceClient()): Promise<Snapshot> {
+type AppPart = Omit<Snapshot, "hs" | "failed">;
+/** The app's own tables for the window (every read paged). */
+export async function buildAppPart(sb: SupabaseClient = serviceClient()): Promise<AppPart> {
   const t0 = Date.now(), today = todayIso(), from90 = addDays(today, -(SPAN - 1)), from = addDays(from90, -SPAN), notes: string[] = [];
   const [bks, trs, chats, msgs, incs, reps, offs, dm] = await Promise.all([
     all<{ id: string; trainer_id: string; hubspot_deal_id: string | null; dog_name: string | null; client_name: string; start_date: string; end_date: string; status: string; created_at: string; cancelled_at: string | null; cancel_reason: string | null; cancel_note: string | null }>((a, b) =>
@@ -100,9 +102,23 @@ export async function buildSnapshot(sb: SupabaseClient = serviceClient()): Promi
   }
   const runs: Record<string, SRun[]> = {};
   for (const [id, list] of byChat) runs[id] = replyRuns(list).map((r) => ({ d: dayET(r.askedAt), m: r.minutes, by: r.by === "trainer" ? "t" : "a" }));
+  return {
+    builtAt: new Date().toISOString(), today, from, points, ms: Date.now() - t0, notes,
+    bookings: bks.map((b) => ({ id: b.id, t: b.trainer_id, deal: b.hubspot_deal_id, dog: b.dog_name || "Dog", client: b.client_name, start: b.start_date, end: b.end_date, status: b.status, created: day(b.created_at), cancelledOn: b.cancelled_at ? day(b.cancelled_at) : null, reason: b.cancel_reason, note: b.cancel_note })),
+    trainers: trs.map((t) => ({ id: t.id, name: t.name, cap: Number(t.capacity || 0), active: !!t.active, state: clean(t.state).toUpperCase() })),
+    chats: chats.map((c) => ({ id: c.id, deal: c.deal_key, t: c.trainer_id, quiet: !!c.quiet_at, joined: joined.has(c.id), client: c.client_name || "", title: c.title || "" })),
+    postDays, runs, lastStaff,
+    incidents: incs.map((i) => ({ c: i.chat_id, b: i.booking_id, k: i.kind, d: dayET(i.opened_at), open: i.status !== "resolved", title: clean(i.title).slice(0, 80), detail: clean(i.detail).slice(0, 120) })),
+    reports: reps.filter((r) => r.submitted_at && r.due_by && dayET(r.due_by) >= FORMS_CUTOVER).map((r) => ({ t: r.trainer_id, d: dayET(r.submitted_at!), ok: r.submitted_at! <= r.due_by! })),
+    timeOff: offs.map((o) => ({ t: o.trainer_id, start: o.start_date, end: o.end_date })),
+    dealMoney: dm.map((d) => ({ amount: Number(d.amount || 0), day: d.closed_on, owner: d.owner_id || "" }))
+  };
+}
 
-  // HubSpot
-  let hs: Snapshot["hs"] = null;
+/** HubSpot for the window: a few dozen requests, run in parallel. */
+export async function buildHsPart(): Promise<{ hs: Snapshot["hs"]; points: number; notes: string[] }> {
+  const today = todayIso(), from90 = addDays(today, -(SPAN - 1)), notes: string[] = [];
+  let hs: Snapshot["hs"] = null, points = 0;
   if (hubspotConfigured()) {
     try {
       const lyFrom = addDays(from90, -365), lyTo = addDays(today, -365);
@@ -113,7 +129,7 @@ export async function buildSnapshot(sb: SupabaseClient = serviceClient()): Promi
       const monthName = (iso: string) => new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-US", { month: "long", timeZone: "UTC" });
       const rng = (f: string, t: string) => [{ propertyName: "createdate", operator: "GTE", value: String(etMidnight(f)) }, { propertyName: "createdate", operator: "LT", value: String(etMidnight(addDays(t, 1))) }];
       const [created, won, wonLY, lost, monthLY, nextLY, people, ...totals] = await Promise.all([
-        dealsCreatedBetween(from90, today, 30), closedWonBetween(from90, today, 10), closedWonBetween(lyFrom, lyTo, 10), lostDealsBetween(from90, today),
+        dealsCreatedBetween(from90, today, 20), closedWonBetween(from90, today, 6), closedWonBetween(lyFrom, lyTo, 6), lostDealsBetween(from90, today),
         closedWonBetween(addDays(monthStart, -365), addDays(monthEnd, -365), 5), closedWonBetween(nmFrom, nmTo, 5), salesPeople().catch(() => []),
         ...PRESETS.flatMap((p) => { const f = addDays(today, -(p.days - 1)); return [countObjects("deals", rng(f, today)).catch(() => 0), countObjects("deals", rng(addDays(f, -365), lyTo)).catch(() => 0)]; })
       ]);
@@ -125,22 +141,21 @@ export async function buildSnapshot(sb: SupabaseClient = serviceClient()): Promi
       const createdTotals: Record<string, { now: number; ly: number }> = {};
       PRESETS.forEach((p, i) => { createdTotals[p.key] = { now: totals[i * 2] as number, ly: totals[i * 2 + 1] as number }; });
       const toDate = addDays(today, -365);
-      // Salespeople: leads owned, calls and emails logged, per preset range (counts only, so it stays quick)
+      // Salespeople: leads owned (from the created deals already pulled), calls per preset (counts), emails for 90 days only
       const ownerCounts: OwnerCounts = {};
-      let emailsLogged = false;
+      const createdRows = created.rows.map((d) => ({ owner: clean(d.properties.hubspot_owner_id), day: day(d.properties.createdate) }));
+      const jobs: Promise<void>[] = [];
       for (const p of PRESETS) {
         const f = addDays(today, -(p.days - 1)), ms = { from: String(etMidnight(f)), to: String(etMidnight(addDays(today, 1))) };
         ownerCounts[p.key] = {};
-        await Promise.all(people.map(async (o) => {
-          const [leads, calls, emails] = await Promise.all([
-            countObjects("deals", [...rng(f, today), { propertyName: "hubspot_owner_id", operator: "EQ", value: o.id }]).catch(() => 0),
-            countObjects("calls", [{ propertyName: "hs_timestamp", operator: "GTE", value: ms.from }, { propertyName: "hs_timestamp", operator: "LT", value: ms.to }, { propertyName: "hubspot_owner_id", operator: "EQ", value: o.id }]).catch(() => 0),
-            countObjects("emails", [{ propertyName: "hs_timestamp", operator: "GTE", value: ms.from }, { propertyName: "hs_timestamp", operator: "LT", value: ms.to }, { propertyName: "hubspot_owner_id", operator: "EQ", value: o.id }]).catch(() => 0)
-          ]);
-          if (emails) emailsLogged = true;
-          ownerCounts[p.key][o.id] = { leads, calls, emails };
-        }));
+        for (const o of people) {
+          ownerCounts[p.key][o.id] = { leads: createdRows.filter((r) => r.owner === o.id && r.day >= f).length, calls: 0, emails: 0 };
+          jobs.push(countObjects("calls", [{ propertyName: "hs_timestamp", operator: "GTE", value: ms.from }, { propertyName: "hs_timestamp", operator: "LT", value: ms.to }, { propertyName: "hubspot_owner_id", operator: "EQ", value: o.id }]).then((n) => { ownerCounts[p.key][o.id].calls = n; }).catch(() => {}));
+          if (p.key === "90d") jobs.push(countObjects("emails", [{ propertyName: "hs_timestamp", operator: "GTE", value: ms.from }, { propertyName: "hs_timestamp", operator: "LT", value: ms.to }, { propertyName: "hubspot_owner_id", operator: "EQ", value: o.id }]).then((n) => { ownerCounts[p.key][o.id].emails = n; }).catch(() => {}));
+        }
       }
+      for (let i = 0; i < jobs.length; i += 12) await Promise.all(jobs.slice(i, i + 12)); // a dozen at a time: inside HubSpot's rate limit
+      const emailsLogged = Object.values(ownerCounts["90d"] || {}).some((c) => c.emails > 0);
       hs = { created: created.rows.map((d) => compact(d, d.properties.hs_is_closed_won === "true")), createdTotals, won: won.rows.map((d) => compact(d, true)), wonLY: wonLY.rows.map((d) => compact(d, true)), lost: lost.map((d) => compact(d, false)),
         monthLY: { label: monthName(monthStart), n: monthLY.total, amount: monthLY.rows.reduce((n, d) => n + Number(d.properties.amount || 0), 0), toDate: monthLY.rows.filter((d) => day(d.properties.closedate) <= toDate).length, toDateAmount: monthLY.rows.filter((d) => day(d.properties.closedate) <= toDate).reduce((n, d) => n + Number(d.properties.amount || 0), 0) },
         nextMonthLY: { label: monthName(nmFrom), n: nextLY.total, amount: nextLY.rows.reduce((n, d) => n + Number(d.properties.amount || 0), 0) },
@@ -148,34 +163,41 @@ export async function buildSnapshot(sb: SupabaseClient = serviceClient()): Promi
       points += created.rows.length + won.rows.length + wonLY.rows.length + lost.length + monthLY.rows.length + nextLY.rows.length;
     } catch (e) { notes.push(`HubSpot: ${(e as Error).message}`); }
   } else notes.push("HubSpot isn't set up here, so Sales is empty.");
+  return { hs, points, notes };
+}
 
-  // Stripe: who's last card attempt in the window failed
-  let failed: Snapshot["failed"] = null;
+/** Stripe for the window: whose last card attempt failed. */
+export async function buildStripePart(): Promise<{ failed: Snapshot["failed"]; points: number; notes: string[] }> {
+  const today = todayIso(), from90 = addDays(today, -(SPAN - 1)), notes: string[] = [];
+  let failed: Snapshot["failed"] = null, points = 0;
   if (stripeConfigured()) {
     try {
-      const charges = await chargeOutcomes(Math.floor(etMidnight(from90) / 1000), Math.floor(etMidnight(addDays(today, 1)) / 1000));
+      const charges = await chargeOutcomes(Math.floor(etMidnight(from90) / 1000), Math.floor(etMidnight(addDays(today, 1)) / 1000), 15);
       points += charges.length;
       const latest = new Map<string, { status: string; amount: number; created: number }>();
       for (const c of charges) { const cur = latest.get(c.customer); if (!cur || c.created > cur.created) latest.set(c.customer, c); }
       failed = [...latest.entries()].filter(([, c]) => c.status === "failed").map(([customer, c]) => ({ customer, amount: c.amount, day: dayET(c.created * 1000) }));
     } catch (e) { notes.push(`Stripe: ${(e as Error).message}`); }
   }
-
-  return {
-    builtAt: new Date().toISOString(), today, from, points, ms: Date.now() - t0, notes,
-    bookings: bks.map((b) => ({ id: b.id, t: b.trainer_id, deal: b.hubspot_deal_id, dog: b.dog_name || "Dog", client: b.client_name, start: b.start_date, end: b.end_date, status: b.status, created: day(b.created_at), cancelledOn: b.cancelled_at ? day(b.cancelled_at) : null, reason: b.cancel_reason, note: b.cancel_note })),
-    trainers: trs.map((t) => ({ id: t.id, name: t.name, cap: Number(t.capacity || 0), active: !!t.active, state: clean(t.state).toUpperCase() })),
-    chats: chats.map((c) => ({ id: c.id, deal: c.deal_key, t: c.trainer_id, quiet: !!c.quiet_at, joined: joined.has(c.id), client: c.client_name || "", title: c.title || "" })),
-    postDays, runs, lastStaff,
-    incidents: incs.map((i) => ({ c: i.chat_id, b: i.booking_id, k: i.kind, d: dayET(i.opened_at), open: i.status !== "resolved", title: clean(i.title).slice(0, 80), detail: clean(i.detail).slice(0, 160) })),
-    reports: reps.filter((r) => r.submitted_at && r.due_by && dayET(r.due_by) >= FORMS_CUTOVER).map((r) => ({ t: r.trainer_id, d: dayET(r.submitted_at!), ok: r.submitted_at! <= r.due_by! })),
-    timeOff: offs.map((o) => ({ t: o.trainer_id, start: o.start_date, end: o.end_date })),
-    dealMoney: dm.map((d) => ({ amount: Number(d.amount || 0), day: d.closed_on, owner: d.owner_id || "" })),
-    hs, failed
-  };
+  return { failed, points, notes };
 }
 
-export const snapshotCached = unstable_cache(async () => buildSnapshot(), ["pulse-snapshot-v4"], { revalidate: 3600, tags: ["pulse"] });
+/** The whole snapshot: the three parts built in parallel. */
+export async function buildSnapshot(sb: SupabaseClient = serviceClient()): Promise<Snapshot> {
+  const t0 = Date.now();
+  const [app, h, st] = await Promise.all([buildAppPart(sb), buildHsPart(), buildStripePart()]);
+  return { ...app, hs: h.hs, failed: st.failed, points: app.points + h.points + st.points, ms: Date.now() - t0, notes: [...app.notes, ...h.notes, ...st.notes] };
+}
+
+// Each part is cached on its own (an hour; Refresh drops all three), and they're built in parallel, so the first load is as slow as the slowest part, not the sum.
+const appCached = unstable_cache(async () => buildAppPart(), ["pulse-app-v4"], { revalidate: 3600, tags: ["pulse"] });
+const hsCached = unstable_cache(async () => buildHsPart(), ["pulse-hs-v4"], { revalidate: 3600, tags: ["pulse"] });
+const stripeCached = unstable_cache(async () => buildStripePart(), ["pulse-stripe-v4"], { revalidate: 3600, tags: ["pulse"] });
+export async function snapshotCached(): Promise<Snapshot> {
+  const t0 = Date.now();
+  const [app, h, st] = await Promise.all([appCached(), hsCached(), stripeCached()]);
+  return { ...app, hs: h.hs, failed: st.failed, points: app.points + h.points + st.points, ms: app.ms + (Date.now() - t0), notes: [...app.notes, ...h.notes, ...st.notes] };
+}
 
 // ── Views, derived from the snapshot ─────────────────────────────────────────
 export type Tile = { key: string; label: string; value: string; sub: string; delta: { text: string; up: boolean | null }; good?: "up" | "down"; n?: string; how: string; spark: number[]; to?: string };
