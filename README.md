@@ -119,3 +119,11 @@ Everyone signs in once more on the new address (password or "Email me a code") a
 
 ## Quiet chats close by themselves
 After 53 days with no messages from anyone (and no dog in care now or coming up), a notice goes in the chat: "This chat will close on <date> unless someone writes here." Seven days later, if still quiet, the chat closes: the transcript is saved to Drive and emailed to the client, as when an admin closes it. Each step is in the activity log. Anyone writing in the chat restarts the clock. `CHAT_AUTO_CLOSE=off` in Vercel goes back to closing by hand ("Ready to close" on To do).
+
+## Claude connector
+The app is a custom connector in Claude, so whoever adds it can ask Claude about bookings, chats and forms.
+- Address: `https://<app address>/api/mcp`. In the connector's settings choose "No sign-in" and add the request header `Authorization` with the value `Bearer <CLAUDE_MCP_KEY>`. (Request headers are still a beta in Claude: if the dialog has no "Request headers" section, the account doesn't have it yet.)
+- Tools (read only): `todo` (the admin To do list), `dogs_in_care`, `forms`, `before_training`, `find_dog`, `chat_messages`, `availability`, and for communication: `chats` (every open chat and team thread, with who is waiting on whom and for how long), `recent_messages` (what was said since a given time, across all chats and team threads) and `trainer_comms` (each trainer's daily updates and reply times over the last days). They live in `lib/claudeConnector.ts` and `lib/claudeComms.ts`; the MCP part is `app/api/mcp/route.ts`.
+- They read with the service key, like the To do list and the daily email, so the key gives admin-level read access. Keep it in Vercel (Production) and in Claude only.
+- They write nothing except one activity log line per call: "Looked up app data through Claude", by "Claude connector", with what was asked (a chat read by id names the dog and client). (`todo` shares the To do page's code, whose only write is its one-time "watching background jobs since" date, already set in production.)
+- Off until `CLAUDE_MCP_KEY` is set (32 characters or more). Make one with `openssl rand -hex 32`. To change it: set the new key in Vercel and redeploy, then remove the connector in Claude and add it again with the new header (Claude can't edit a saved header).
