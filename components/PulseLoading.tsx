@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 
 // The loading card for Pulse: says what's being pulled, keeps a little company while it happens, and counts the seconds.
-const STEPS = ["Bookings and dogs in care", "Chats and replies", "Forms and alerts", "Pay", "HubSpot", "Working it out"];
+const STEPS = ["Bookings and dogs in care", "Every chat message, 90 days", "Forms, alerts, time off", "HubSpot: leads, sales, last year", "Stripe", "Working it out"];
 const LINES = ["Patience, Papi.", "Counting every dog twice, to be sure.", "Asking HubSpot nicely.", "Working out who replied, and how fast.", "Nearly. Nearly.", "Still faster than 18 spreadsheets."];
 
 export function PulseLoading() {
@@ -23,7 +23,7 @@ export function PulseLoading() {
           </li>
         ))}
       </ul>
-      <p className="mt-4 text-caption text-ink-faint">Once a range and view has loaded it&apos;s kept for 5 minutes, so the next look is instant.</p>
+      <p className="mt-4 text-caption text-ink-faint">Taking a 90-day snapshot. Once it&apos;s taken, every range and view is instant for an hour; Refresh takes a new one.</p>
     </div>
   );
 }

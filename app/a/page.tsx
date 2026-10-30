@@ -9,6 +9,8 @@ import { isDemo, serviceClient } from "@/lib/supabase";
 import { TodoList } from "@/components/TodoList";
 import { canQuiet } from "@/lib/quietChats";
 import { Empty } from "@/components/ui";
+import { movesBetween } from "@/lib/moves";
+import { MovesStrip } from "@/components/MovesStrip";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -16,7 +18,8 @@ export const maxDuration = 60;
 // Admin home: one list of everything that needs a person, most urgent first. Each line has one obvious button.
 export default async function ToDo() {
   const v = await requireRole("admin");
-  const todo = await buildTodo();
+  const today = todayIso();
+  const [todo, moves] = await Promise.all([buildTodo(), movesBetween(today, today).catch(() => [])]);
   const total = todoTotal(todo);
   return (
     <>
@@ -30,6 +33,7 @@ export default async function ToDo() {
           <Link prefetch={false} href="/a/bookings/new" className="btn-ink h-10 min-h-0 shrink-0 px-3.5 text-body"><Plus size={17} />Book a dog</Link>
         </div>
       </div>
+      <div className="mt-4"><MovesStrip moves={moves} title="Today" today /></div>
       {!total && <div className="mt-6"><Empty title="All done.">New things show up here as they happen: clients waiting, forms to check, vaccines, payslips.</Empty></div>}
       <TodoList items={todo.items} late={todo.late} beforeApp={todo.beforeApp} canQuiet={canQuiet(v.email)} />
     </>

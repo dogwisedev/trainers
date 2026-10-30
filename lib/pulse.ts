@@ -1,337 +1,416 @@
 import "server-only";
 import { unstable_cache } from "next/cache";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { serviceClient, isDemo } from "./supabase";
 import { addDays, daysBetween, todayIso } from "./dates";
 import { FORMS_CUTOVER } from "./reports";
 import { closedWonBetween, countObjects, dealsCreatedBetween, etMidnight, hubspotConfigured, lostDealsBetween } from "./hubspot";
 import { salesPeople } from "./sales";
-import { failedCharges, stripeConfigured } from "./stripe";
-import { stateOf } from "./usTiles";
+import { chargeOutcomes, stripeConfigured } from "./stripe";
+import { stateOf, US_TILES } from "./usTiles";
 import { buildTodo } from "./todo";
-import { dayET, delta, median, percentile, replyRuns, wilsonLower } from "./pulseMath";
+import { dayET, delta, median, percentile, replyRuns, shrink, wilsonLower } from "./pulseMath";
 
-// Pulse: the dashboard's numbers for a date range, compared with the period before. Three views:
-//  Office: the link between clients and trainers, and whether it's going smoothly (Pedro's weekly list lives here).
-//  Trainers: how each trainer is doing, and earning: updates, replies, forms, alerts, utilisation, days off, pay.
-//  Sales: where leads come from and close, what they cost, how this range compares with last year, and each salesperson.
-// Rules: quiet (Signal) chats and days before the Oct 23 cutover don't count against anyone. Times are waking hours, Eastern.
-// Costs use only deals that carry Bark credits: nothing is guessed.
+// Pulse (the dashboard). One SNAPSHOT is pulled: the last 90 days plus the 90 before them (for comparisons), from the app's
+// tables, HubSpot and Stripe, squeezed into a compact shape and kept for an hour. Every range and view is then worked out
+// from the snapshot, so switching is instant. Refresh rebuilds the snapshot.
+// Rules: quiet (Signal) chats and days before the Oct 23 cutover don't count against anyone. Times are waking hours,
+// Eastern, medians not averages. Costs use only deals that carry Bark credits. Supabase returns at most 1,000 rows per
+// request, so every read is paged (see `all`).
 
 export type View = "office" | "trainers" | "sales";
-export type Range = { from: string; to: string; prevFrom: string; prevTo: string; days: number; label: string };
+/** key: the preset, or the nearest one for a custom range (some HubSpot figures are only counted per preset); exact: a preset was used as is. */
+export type Range = { from: string; to: string; prevFrom: string; prevTo: string; days: number; label: string; key: string; exact: boolean };
 export const PRESETS: { key: string; label: string; days: number }[] = [
   { key: "7d", label: "Last 7 days", days: 7 }, { key: "14d", label: "Last 14 days", days: 14 }, { key: "30d", label: "Last 30 days", days: 30 }, { key: "90d", label: "Last 90 days", days: 90 }
 ];
-export function pulseRange(q: { r?: string; from?: string; to?: string }): Range {
-  const today = todayIso();
+const SPAN = 90;
+
+export function pulseRange(q: { r?: string; from?: string; to?: string }, today = todayIso()): Range {
   const iso = (s?: string) => (s && /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null);
-  let from = iso(q.from), to = iso(q.to) || today, label = "";
-  if (!from || from > to) { const p = PRESETS.find((x) => x.key === q.r) || PRESETS[1]; from = addDays(to, -(p.days - 1)); label = p.label; }
+  const floor = addDays(today, -(SPAN - 1));
+  let from = iso(q.from), to = iso(q.to) || today, label = "", key = "custom", exact = false;
+  if (to > today) to = today;
+  if (!from || from > to) { const p = PRESETS.find((x) => x.key === q.r) || PRESETS[1]; from = addDays(to, -(p.days - 1)); label = p.label; key = p.key; exact = to === today; }
   else label = `${from} to ${to}`;
+  if (from < floor) { from = floor; label = `${from} to ${to} (the snapshot holds 90 days)`; }
   const days = daysBetween(from, to) + 1;
-  return { from, to, prevFrom: addDays(from, -days), prevTo: addDays(from, -1), days, label };
+  if (key === "custom") key = PRESETS.reduce((best, p) => (Math.abs(p.days - days) < Math.abs(best.days - days) ? p : best), PRESETS[0]).key; // nearest preset, for figures only counted per preset
+  return { from, to, prevFrom: addDays(from, -days), prevTo: addDays(from, -1), days, label, key, exact };
 }
 
-type BookingRow = { id: string; trainer_id: string; hubspot_deal_id: string | null; dog_name: string | null; client_name: string; start_date: string; end_date: string; status: string; created_at: string; cancelled_at?: string | null; cancel_reason?: string | null; cancel_note?: string | null; program: string | null; trainers: { name: string } | null };
-type ChatRow = { id: string; deal_key: string; trainer_id: string | null; quiet_at?: string | null; client_user_id: string | null; client_name: string | null; title: string | null; status: string };
-type MsgRow = { chat_id: string; sender_role: string; kind: string; created_at: string };
-type IncRow = { chat_id: string | null; booking_id: string | null; kind: string; opened_at: string; status: string; detail: string | null; title?: string | null };
+// ── The snapshot ─────────────────────────────────────────────────────────────
+type SBooking = { id: string; t: string; deal: string | null; dog: string; client: string; start: string; end: string; status: string; created: string; cancelledOn: string | null; reason: string | null; note: string | null };
+type SChat = { id: string; deal: string; t: string | null; quiet: boolean; joined: boolean; client: string; title: string };
+type SRun = { d: string; m: number; by: "t" | "a" };
+type SInc = { c: string | null; b: string | null; k: string; d: string; open: boolean; title: string; detail: string };
+type SDeal = { st: string | null; day: string; closed: string | null; won: boolean; amount: number; credits: number; source: string; owner: string; reason: string; noTrainer: boolean };
+type OwnerCounts = Record<string, Record<string, { leads: number; calls: number; emails: number }>>; // preset → owner id → counts
+export type Snapshot = {
+  builtAt: string; today: string; from: string; points: number; ms: number; notes: string[];
+  bookings: SBooking[]; trainers: { id: string; name: string; cap: number; active: boolean; state: string }[]; chats: SChat[];
+  postDays: Record<string, string[]>; runs: Record<string, SRun[]>; lastStaff: Record<string, string>;
+  incidents: SInc[]; reports: { t: string; d: string; ok: boolean }[]; timeOff: { t: string; start: string; end: string }[];
+  dealMoney: { amount: number; day: string; owner: string }[]; hs: null | {
+    created: SDeal[]; createdTotals: Record<string, { now: number; ly: number }>; won: SDeal[]; wonLY: SDeal[]; lost: SDeal[];
+    monthLY: { label: string; n: number; amount: number; toDate: number; toDateAmount: number }; nextMonthLY: { label: string; n: number; amount: number };
+    owners: { id: string; name: string }[]; ownerCounts: OwnerCounts; emailsLogged: boolean;
+  };
+  failed: { customer: string; amount: number; day: string }[] | null; // customers whose LAST card attempt in the window failed
+};
 
+/** Every row, 1,000 at a time (Supabase's cap per request). */
+async function all<T>(q: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>): Promise<T[]> {
+  const out: T[] = [];
+  for (let i = 0; i < 200; i++) {
+    const { data, error } = await q(i * 1000, i * 1000 + 999);
+    if (error) throw new Error(error.message);
+    const rows = data || []; out.push(...rows);
+    if (rows.length < 1000) break;
+  }
+  return out;
+}
+const clean = (s: unknown) => String(s ?? "").replace(/\s+/g, " ").trim();
+const day = (iso: string | null | undefined) => (iso ? dayET(iso) : "");
+
+export async function buildSnapshot(sb: SupabaseClient = serviceClient()): Promise<Snapshot> {
+  const t0 = Date.now(), today = todayIso(), from90 = addDays(today, -(SPAN - 1)), from = addDays(from90, -SPAN), notes: string[] = [];
+  const [bks, trs, chats, msgs, incs, reps, offs, dm] = await Promise.all([
+    all<{ id: string; trainer_id: string; hubspot_deal_id: string | null; dog_name: string | null; client_name: string; start_date: string; end_date: string; status: string; created_at: string; cancelled_at: string | null; cancel_reason: string | null; cancel_note: string | null }>((a, b) =>
+      sb.from("bookings").select("id, trainer_id, hubspot_deal_id, dog_name, client_name, start_date, end_date, status, created_at, cancelled_at, cancel_reason, cancel_note").lte("start_date", today).gte("end_date", from).order("start_date").range(a, b)),
+    all<{ id: string; name: string; capacity: number | null; active: boolean; state: string | null }>((a, b) => sb.from("trainers").select("id, name, capacity, active, state").order("name").range(a, b)),
+    all<{ id: string; deal_key: string; trainer_id: string | null; quiet_at: string | null; client_user_id: string | null; client_name: string | null; title: string | null }>((a, b) => sb.from("chats").select("id, deal_key, trainer_id, quiet_at, client_user_id, client_name, title").order("created_at").range(a, b)),
+    all<{ chat_id: string; sender_role: string; created_at: string }>((a, b) => sb.from("chat_messages").select("chat_id, sender_role, created_at").gte("created_at", `${from}T00:00:00Z`).in("kind", ["text", "media"]).order("created_at").range(a, b)),
+    all<{ chat_id: string | null; booking_id: string | null; kind: string; opened_at: string; status: string; title: string | null; detail: string | null }>((a, b) => sb.from("chat_incidents").select("chat_id, booking_id, kind, opened_at, status, title, detail").gte("opened_at", `${from}T00:00:00Z`).order("opened_at").range(a, b)),
+    all<{ trainer_id: string; due_by: string | null; submitted_at: string | null }>((a, b) => sb.from("reports").select("trainer_id, due_by, submitted_at").gte("submitted_at", `${from}T00:00:00Z`).order("submitted_at").range(a, b)),
+    all<{ trainer_id: string; start_date: string; end_date: string }>((a, b) => sb.from("time_off").select("trainer_id, start_date, end_date").lte("start_date", today).gte("end_date", from).order("start_date").range(a, b)),
+    all<{ amount: number; closed_on: string; owner_id: string | null }>((a, b) => sb.from("deal_money").select("amount, closed_on, owner_id").gte("closed_on", from).order("closed_on").range(a, b))
+  ]);
+  const reads = await all<{ chat_id: string; user_id: string }>((a, b) => sb.from("chat_reads").select("chat_id, user_id").order("chat_id").range(a, b));
+  let points = bks.length + trs.length + chats.length + msgs.length + incs.length + reps.length + offs.length + dm.length + reads.length;
+
+  // Chats, and what each one's messages add up to
+  const joined = new Set(reads.filter((r) => chats.some((c) => c.id === r.chat_id && c.client_user_id === r.user_id)).map((r) => r.chat_id));
+  const byChat = new Map<string, { role: string; at: string }[]>(), postDays: Record<string, string[]> = {}, lastStaff: Record<string, string> = {};
+  for (const m of msgs) {
+    if (!byChat.has(m.chat_id)) byChat.set(m.chat_id, []);
+    byChat.get(m.chat_id)!.push({ role: m.sender_role, at: m.created_at });
+    if (m.sender_role === "trainer") { const d = dayET(m.created_at); (postDays[m.chat_id] ||= []).includes(d) || postDays[m.chat_id].push(d); }
+    if (m.sender_role === "trainer" || m.sender_role === "admin") lastStaff[m.chat_id] = m.created_at;
+  }
+  const runs: Record<string, SRun[]> = {};
+  for (const [id, list] of byChat) runs[id] = replyRuns(list).map((r) => ({ d: dayET(r.askedAt), m: r.minutes, by: r.by === "trainer" ? "t" : "a" }));
+
+  // HubSpot
+  let hs: Snapshot["hs"] = null;
+  if (hubspotConfigured()) {
+    try {
+      const lyFrom = addDays(from90, -365), lyTo = addDays(today, -365);
+      const [ty, tm] = today.split("-").map(Number);
+      const monthStart = `${ty}-${String(tm).padStart(2, "0")}-01`, monthEnd = addDays(tm === 12 ? `${ty + 1}-01-01` : `${ty}-${String(tm + 1).padStart(2, "0")}-01`, -1);
+      const nmY = (tm === 12 ? ty + 1 : ty) - 1, nmM = tm === 12 ? 1 : tm + 1;
+      const nmFrom = `${nmY}-${String(nmM).padStart(2, "0")}-01`, nmTo = addDays(nmM === 12 ? `${nmY + 1}-01-01` : `${nmY}-${String(nmM + 1).padStart(2, "0")}-01`, -1);
+      const monthName = (iso: string) => new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-US", { month: "long", timeZone: "UTC" });
+      const rng = (f: string, t: string) => [{ propertyName: "createdate", operator: "GTE", value: String(etMidnight(f)) }, { propertyName: "createdate", operator: "LT", value: String(etMidnight(addDays(t, 1))) }];
+      const [created, won, wonLY, lost, monthLY, nextLY, people, ...totals] = await Promise.all([
+        dealsCreatedBetween(from90, today, 30), closedWonBetween(from90, today, 10), closedWonBetween(lyFrom, lyTo, 10), lostDealsBetween(from90, today),
+        closedWonBetween(addDays(monthStart, -365), addDays(monthEnd, -365), 5), closedWonBetween(nmFrom, nmTo, 5), salesPeople().catch(() => []),
+        ...PRESETS.flatMap((p) => { const f = addDays(today, -(p.days - 1)); return [countObjects("deals", rng(f, today)).catch(() => 0), countObjects("deals", rng(addDays(f, -365), lyTo)).catch(() => 0)]; })
+      ]);
+      const compact = (d: { properties: Record<string, string | null> }, won: boolean): SDeal => {
+        const p = d.properties, reason = clean(p.closed_lost_reason_new);
+        return { st: stateOf(p.dealname), day: day(p.createdate) || day(p.closedate), closed: p.closedate ? day(p.closedate) : null, won, amount: Number(p.amount || 0), credits: Number(p.bark_credits_paid || 0),
+          source: clean(p.lead_source || p.deal_source) || "Unknown", owner: clean(p.hubspot_owner_id), reason, noTrainer: /local/i.test(reason) || p.dealstage === "173376666" || p.trainer_in_range === "false" };
+      };
+      const createdTotals: Record<string, { now: number; ly: number }> = {};
+      PRESETS.forEach((p, i) => { createdTotals[p.key] = { now: totals[i * 2] as number, ly: totals[i * 2 + 1] as number }; });
+      const toDate = addDays(today, -365);
+      // Salespeople: leads owned, calls and emails logged, per preset range (counts only, so it stays quick)
+      const ownerCounts: OwnerCounts = {};
+      let emailsLogged = false;
+      for (const p of PRESETS) {
+        const f = addDays(today, -(p.days - 1)), ms = { from: String(etMidnight(f)), to: String(etMidnight(addDays(today, 1))) };
+        ownerCounts[p.key] = {};
+        await Promise.all(people.map(async (o) => {
+          const [leads, calls, emails] = await Promise.all([
+            countObjects("deals", [...rng(f, today), { propertyName: "hubspot_owner_id", operator: "EQ", value: o.id }]).catch(() => 0),
+            countObjects("calls", [{ propertyName: "hs_timestamp", operator: "GTE", value: ms.from }, { propertyName: "hs_timestamp", operator: "LT", value: ms.to }, { propertyName: "hubspot_owner_id", operator: "EQ", value: o.id }]).catch(() => 0),
+            countObjects("emails", [{ propertyName: "hs_timestamp", operator: "GTE", value: ms.from }, { propertyName: "hs_timestamp", operator: "LT", value: ms.to }, { propertyName: "hubspot_owner_id", operator: "EQ", value: o.id }]).catch(() => 0)
+          ]);
+          if (emails) emailsLogged = true;
+          ownerCounts[p.key][o.id] = { leads, calls, emails };
+        }));
+      }
+      hs = { created: created.rows.map((d) => compact(d, d.properties.hs_is_closed_won === "true")), createdTotals, won: won.rows.map((d) => compact(d, true)), wonLY: wonLY.rows.map((d) => compact(d, true)), lost: lost.map((d) => compact(d, false)),
+        monthLY: { label: monthName(monthStart), n: monthLY.total, amount: monthLY.rows.reduce((n, d) => n + Number(d.properties.amount || 0), 0), toDate: monthLY.rows.filter((d) => day(d.properties.closedate) <= toDate).length, toDateAmount: monthLY.rows.filter((d) => day(d.properties.closedate) <= toDate).reduce((n, d) => n + Number(d.properties.amount || 0), 0) },
+        nextMonthLY: { label: monthName(nmFrom), n: nextLY.total, amount: nextLY.rows.reduce((n, d) => n + Number(d.properties.amount || 0), 0) },
+        owners: people.map((o) => ({ id: o.id, name: o.name })), ownerCounts, emailsLogged };
+      points += created.rows.length + won.rows.length + wonLY.rows.length + lost.length + monthLY.rows.length + nextLY.rows.length;
+    } catch (e) { notes.push(`HubSpot: ${(e as Error).message}`); }
+  } else notes.push("HubSpot isn't set up here, so Sales is empty.");
+
+  // Stripe: who's last card attempt in the window failed
+  let failed: Snapshot["failed"] = null;
+  if (stripeConfigured()) {
+    try {
+      const charges = await chargeOutcomes(Math.floor(etMidnight(from90) / 1000), Math.floor(etMidnight(addDays(today, 1)) / 1000));
+      points += charges.length;
+      const latest = new Map<string, { status: string; amount: number; created: number }>();
+      for (const c of charges) { const cur = latest.get(c.customer); if (!cur || c.created > cur.created) latest.set(c.customer, c); }
+      failed = [...latest.entries()].filter(([, c]) => c.status === "failed").map(([customer, c]) => ({ customer, amount: c.amount, day: dayET(c.created * 1000) }));
+    } catch (e) { notes.push(`Stripe: ${(e as Error).message}`); }
+  }
+
+  return {
+    builtAt: new Date().toISOString(), today, from, points, ms: Date.now() - t0, notes,
+    bookings: bks.map((b) => ({ id: b.id, t: b.trainer_id, deal: b.hubspot_deal_id, dog: b.dog_name || "Dog", client: b.client_name, start: b.start_date, end: b.end_date, status: b.status, created: day(b.created_at), cancelledOn: b.cancelled_at ? day(b.cancelled_at) : null, reason: b.cancel_reason, note: b.cancel_note })),
+    trainers: trs.map((t) => ({ id: t.id, name: t.name, cap: Number(t.capacity || 0), active: !!t.active, state: clean(t.state).toUpperCase() })),
+    chats: chats.map((c) => ({ id: c.id, deal: c.deal_key, t: c.trainer_id, quiet: !!c.quiet_at, joined: joined.has(c.id), client: c.client_name || "", title: c.title || "" })),
+    postDays, runs, lastStaff,
+    incidents: incs.map((i) => ({ c: i.chat_id, b: i.booking_id, k: i.kind, d: dayET(i.opened_at), open: i.status !== "resolved", title: clean(i.title).slice(0, 80), detail: clean(i.detail).slice(0, 160) })),
+    reports: reps.filter((r) => r.submitted_at && r.due_by && dayET(r.due_by) >= FORMS_CUTOVER).map((r) => ({ t: r.trainer_id, d: dayET(r.submitted_at!), ok: r.submitted_at! <= r.due_by! })),
+    timeOff: offs.map((o) => ({ t: o.trainer_id, start: o.start_date, end: o.end_date })),
+    dealMoney: dm.map((d) => ({ amount: Number(d.amount || 0), day: d.closed_on, owner: d.owner_id || "" })),
+    hs, failed
+  };
+}
+
+export const snapshotCached = unstable_cache(async () => buildSnapshot(), ["pulse-snapshot-v4"], { revalidate: 3600, tags: ["pulse"] });
+
+// ── Views, derived from the snapshot ─────────────────────────────────────────
 export type Tile = { key: string; label: string; value: string; sub: string; delta: { text: string; up: boolean | null }; good?: "up" | "down"; n?: string; how: string; spark: number[]; to?: string };
 export type Card = { tone: "heart" | "biscuit" | "mint"; title: string; evidence: string; href?: string; action?: string };
 export type TrainerRow = {
-  id: string; name: string; dogs: number; careDays: number; postDays: number; updateRate: number | null; updateLow: number; replyMedian: number | null; replyN: number;
-  formsOnTime: number | null; formsN: number; alerts: number; pay: number; weeks: number; rank: number | null; utilisation: number | null; daysOff: number; capacity: number;
+  id: string; name: string; dogs: number; careDays: number; postDays: number; updateRate: number | null; replyMedian: number | null; replyN: number;
+  formsOnTime: number | null; formsN: number; alerts: number; utilisation: number | null; daysOff: number; cap: number; rank: number | null;
+  score: number | null; baseline: number | null; confidence: "ok" | "low" | "none"; unusual: boolean; summary: string;
 };
+export type Move = { id: string; kind: "pickup" | "dropoff"; date: string; dog: string; client: string; trainer: string };
 export type OfficeView = {
-  joined: number; chats: number;
-  silent24: { dog: string; client: string; trainer: string; hours: number; href: string }[];
-  waitingClients: { client: string; dog: string; n: number; href?: string }[];        // clients below the promised frequency (2+ waiting alerts)
-  slowTrainers: { name: string; alerts: number; href: string }[];                     // trainers with repeated comms alerts (3+)
-  newBookings: { name: string; n: number }[]; dateChanges: number; overbooked: number;
+  joined: number; chats: number; silent24: { dog: string; client: string; trainer: string; hours: number; href: string }[];
+  waitingClients: { client: string; dog: string; n: number; href: string }[]; slowTrainers: { name: string; alerts: number; href: string }[];
+  newBookings: { name: string; n: number }[]; dateChanges: number; overbooked: number; moves: Move[];
   cancellations: { dog: string; client: string; trainer: string; reason: string; when: string }[];
-  lateForms: { name: string; n: number }[];
-  balances: { text: string; href?: string }[];
-  incidents: { title: string; when: string; detail: string }[];
+  lateForms: { name: string; n: number }[]; balances: { text: string; href?: string }[]; incidents: { title: string; when: string; detail: string }[];
   counts: { todo: number; now: number; toReview: number; late: number; notBooked: number; notSignedIn: number };
 };
-export type StateCell = { st: string; created: number; won: number; wonAmount: number; credits: number; coverageLost: number };
+export type StateCell = { st: string; leads: number; won: number; wonAmount: number; full: boolean };
 export type SalesPerson = { name: string; leads: number; won: number; amount: number; calls: number; emails: number };
 export type SalesView = {
-  leads: number; leadsLastYear: number | null; won: number; wonAmount: number; wonLastYear: { n: number; amount: number } | null;
-  conversion: number | null; perLead: string; perLeadN: number; perSale: string; perSaleN: number; creditUsd: number | null;
-  closeDays: number | null; closeN: number; nextMonth: { label: string; n: number; amount: number } | null;
-  bySource: { source: string; created: number; won: number; credits: number }[];
-  states: StateCell[]; people: SalesPerson[];
-  planLost: { n: number; amount: number }; failed: { n: number; amount: number } | null; mapCapped: boolean;
+  leads: number; leadsLY: number; won: number; wonAmount: number; wonLY: { n: number; amount: number }; conversion: number | null; conversionLY: number | null;
+  perLead: string; perLeadN: number; perSale: string; perSaleN: number; creditUsd: number | null; closeDays: number | null; closeN: number;
+  month: { label: string; n: number; amount: number; lyToDate: number; lyToDateAmount: number; lyFull: number; lyFullAmount: number }; nextMonth: { label: string; n: number; amount: number };
+  bySource: { source: string; leads: number; won: number; conversion: number; perSale: string | null }[];
+  states: StateCell[]; people: SalesPerson[]; peopleRange: string; emailsLogged: boolean;
+  chart: { label: string; now: number; ly: number }[]; chartUnit: "day" | "week"; chartState: string | null;
+  planLost: { n: number; amount: number }; failed: { n: number; amount: number } | null; coverage: { n: number; where: string[] };
 };
-export type Pulse = {
-  range: Range; view: View; tiles: Tile[]; cards: Card[]; trainers: TrainerRow[];
-  office: OfficeView | null; sales: SalesView | null; notes: string[];
-  stats: { points: number; ms: number; at: string };
-};
+export type Pulse = { range: Range; view: View; tiles: Tile[]; cards: Card[]; trainers: TrainerRow[]; office: OfficeView | null; sales: SalesView | null; notes: string[]; stats: { points: number; ms: number; at: string } };
 
 const money = (n: number) => `$${Math.round(n).toLocaleString("en-US")}`;
 const pct = (k: number, n: number) => (n ? Math.round((k / n) * 100) : null);
 const label = (m: number) => (m < 60 ? `${m}m` : m < 720 ? `${Math.floor(m / 60)}h ${m % 60 ? `${m % 60}m` : ""}`.trim() : `${Math.floor(m / 720)}d ${Math.floor((m % 720) / 60) ? `${Math.floor((m % 720) / 60)}h` : ""}`.trim());
-/** Days of a booking inside [from, to], up to today, and not before the cutover (the "daily update" promise starts there). */
-function careDaysIn(b: { start_date: string; end_date: string }, from: string, to: string): string[] {
-  const lo = [b.start_date, from, FORMS_CUTOVER].sort().pop()!, hi = [addDays(b.end_date, -1), to, todayIso()].sort()[0];
-  const out: string[] = [];
-  for (let d = lo; d <= hi; d = addDays(d, 1)) out.push(d);
-  return out;
-}
 const overlapDays = (aFrom: string, aTo: string, bFrom: string, bTo: string) => { const lo = aFrom > bFrom ? aFrom : bFrom, hi = aTo < bTo ? aTo : bTo; return hi >= lo ? daysBetween(lo, hi) + 1 : 0; };
+function careDaysIn(b: { start: string; end: string }, from: string, to: string, today: string): string[] {
+  const lo = [b.start, from, FORMS_CUTOVER].sort().pop()!, hi = [addDays(b.end, -1), to, today].sort()[0];
+  const out: string[] = []; for (let d = lo; d <= hi; d = addDays(d, 1)) out.push(d); return out;
+}
 
-export async function pulse(q: { r?: string; from?: string; to?: string; v?: string }): Promise<Pulse> {
-  const range = pulseRange(q), notes: string[] = [];
-  const view: View = (["office", "trainers", "sales"] as View[]).find((x) => x === q.v) || "office";
-  const t0 = Date.now(); let points = 0;
-  const empty: Pulse = { range, view, tiles: [], cards: [], trainers: [], office: null, sales: null, notes: ["Demo mode: no data."], stats: { points: 0, ms: 0, at: new Date().toISOString() } };
-  if (isDemo()) return empty;
-  const sb = serviceClient();
-  const sparkFrom = addDays(range.to, -89);
-  const loadFrom = [range.prevFrom, sparkFrom].sort()[0];
-
-  const [{ data: bks }, { data: chats }, { data: msgs }, { data: incs }, { data: reps }, { data: slips }, { data: deals }, { data: offs }, { data: trs }] = await Promise.all([
-    sb.from("bookings").select("id, trainer_id, hubspot_deal_id, dog_name, client_name, start_date, end_date, status, created_at, cancelled_at, cancel_reason, cancel_note, program, trainers(name)").lte("start_date", range.to).gte("end_date", loadFrom),
-    sb.from("chats").select("id, deal_key, trainer_id, quiet_at, client_user_id, client_name, title, status"),
-    sb.from("chat_messages").select("chat_id, sender_role, kind, created_at").gte("created_at", `${loadFrom}T00:00:00Z`).lte("created_at", `${addDays(range.to, 1)}T12:00:00Z`).in("kind", ["text", "media"]).limit(20000),
-    sb.from("chat_incidents").select("chat_id, booking_id, kind, opened_at, status, detail, title").gte("opened_at", `${loadFrom}T00:00:00Z`),
-    sb.from("reports").select("trainer_id, kind, due_by, submitted_at, status").gte("submitted_at", `${range.prevFrom}T00:00:00Z`).lte("submitted_at", `${addDays(range.to, 1)}T12:00:00Z`),
-    sb.from("payslips").select("trainer_id, total, status, pay_runs(period_start, period_end)"),
-    sb.from("deal_money").select("deal_id, amount, closed_on, owner_id").gte("closed_on", range.prevFrom).lte("closed_on", range.to),
-    sb.from("time_off").select("trainer_id, start_date, end_date").lte("start_date", range.to).gte("end_date", range.from),
-    sb.from("trainers").select("id, name, capacity, active")
-  ]);
-  points += [bks, chats, msgs, incs, reps, slips, deals, offs, trs].reduce((n, x) => n + (x?.length || 0), 0);
-  const bookings = ((bks || []) as unknown as BookingRow[]);
-  const live = bookings.filter((b) => b.status !== "cancelled");
-  const chatList = (chats || []) as ChatRow[];
-  const chatByDeal = new Map(chatList.map((c) => [c.deal_key, c]));
-  const chatOf = (b: BookingRow) => chatByDeal.get(b.hubspot_deal_id || "") || chatByDeal.get(b.id) || null;
-  const messages = (msgs || []) as MsgRow[];
-  const incidents = (incs || []) as IncRow[];
-  const quiet = new Set(chatList.filter((c) => c.quiet_at).map((c) => c.id));
-  const trainerRows = (trs || []) as { id: string; name: string; capacity: number | null; active: boolean }[];
-  const trainerName = (id: string) => trainerRows.find((t) => t.id === id)?.name || bookings.find((b) => b.trainer_id === id)?.trainers?.name || "Trainer";
-
-  // ── Posts per chat per Eastern day (trainer updates), and messages per chat ──
-  const postDays = new Map<string, Set<string>>(), byChat = new Map<string, { role: string; at: string }[]>();
-  for (const m of messages) {
-    if (m.sender_role === "trainer") { if (!postDays.has(m.chat_id)) postDays.set(m.chat_id, new Set()); postDays.get(m.chat_id)!.add(dayET(m.created_at)); }
-    if (!byChat.has(m.chat_id)) byChat.set(m.chat_id, []);
-    byChat.get(m.chat_id)!.push({ role: m.sender_role, at: m.created_at });
+/** What a period of the snapshot adds up to. */
+function period(s: Snapshot, from: string, to: string) {
+  const live = s.bookings.filter((b) => b.status !== "cancelled");
+  const chatByDeal = new Map(s.chats.map((c) => [c.deal, c])), chatById = new Map(s.chats.map((c) => [c.id, c]));
+  const chatOf = (b: SBooking) => chatByDeal.get(b.deal || "") || chatByDeal.get(b.id) || null;
+  const inCare = live.filter((b) => b.start <= to && b.end > from);
+  let careDays = 0, postCount = 0;
+  type PT = { dogs: Set<string>; care: number; post: number; replies: number[]; formsOk: number; formsN: number; alerts: number };
+  const perTrainer = new Map<string, PT>();
+  const t = (id: string): PT => { if (!perTrainer.has(id)) perTrainer.set(id, { dogs: new Set(), care: 0, post: 0, replies: [], formsOk: 0, formsN: 0, alerts: 0 }); return perTrainer.get(id)!; };
+  for (const b of inCare) {
+    const c = chatOf(b); if (!c || c.quiet) continue;
+    const days = careDaysIn(b, from, to, s.today), posted = new Set(s.postDays[c.id] || []);
+    const hit = days.filter((d) => posted.has(d)).length;
+    careDays += days.length; postCount += hit;
+    const x = t(b.t); x.dogs.add(b.id); x.care += days.length; x.post += hit;
   }
+  const replies: number[] = [], team: number[] = [];
+  for (const c of s.chats) {
+    if (c.quiet) continue;
+    for (const r of s.runs[c.id] || []) { if (r.d < from || r.d > to) continue; team.push(r.m); if (r.by === "t" && c.t) { replies.push(r.m); t(c.t).replies.push(r.m); } }
+  }
+  let formsOk = 0, formsN = 0;
+  for (const r of s.reports) { if (r.d < from || r.d > to) continue; formsN++; if (r.ok) formsOk++; const x = t(r.t); x.formsN++; if (r.ok) x.formsOk++; }
+  const inc = s.incidents.filter((i) => i.d >= from && i.d <= to && !(i.c && chatById.get(i.c)?.quiet));
+  const waiting = inc.filter((i) => i.k === "client_waiting" || i.k === "client_pileup").length, silent = inc.filter((i) => i.k === "trainer_silent").length;
+  for (const i of inc) { const c = i.c ? chatById.get(i.c) : null; if (c?.t && ["client_waiting", "client_pileup", "trainer_silent"].includes(i.k)) t(c.t).alerts++; }
+  const started = live.filter((b) => b.start >= from && b.start <= to).length;
+  const cancelled = s.bookings.filter((b) => b.cancelledOn && b.cancelledOn >= from && b.cancelledOn <= to).length;
+  const sold = s.dealMoney.filter((d) => d.day >= from && d.day <= to);
+  return { inCare: inCare.length, careDays, postCount, replyMedian: median(replies), replyP90: percentile(replies, 90), replyN: replies.length, teamMedian: median(team), teamN: team.length,
+    formsOk, formsN, waiting, silent, started, cancelled, sales: sold.length, revenue: sold.reduce((n, d) => n + d.amount, 0), perTrainer, inc, chatOf, chatById, live };
+}
 
-  // ── Per period ──
-  const period = (from: string, to: string) => {
-    const inCare = live.filter((b) => b.start_date <= to && b.end_date > from);
-    let careDays = 0, postCount = 0;
-    const perTrainer = new Map<string, { dogs: Set<string>; care: number; post: number; replies: number[]; formsOk: number; formsN: number; alerts: number }>();
-    const t = (id: string) => { if (!perTrainer.has(id)) perTrainer.set(id, { dogs: new Set(), care: 0, post: 0, replies: [], formsOk: 0, formsN: 0, alerts: 0 }); return perTrainer.get(id)!; };
-    for (const b of inCare) {
-      const c = chatOf(b);
-      if (!c || quiet.has(c.id)) continue;
-      const days = careDaysIn(b, from, to), posted = postDays.get(c.id) || new Set<string>();
-      const hit = days.filter((d) => posted.has(d)).length;
-      careDays += days.length; postCount += hit;
-      const x = t(b.trainer_id); x.dogs.add(b.id); x.care += days.length; x.post += hit;
-    }
-    const replies: number[] = [], team: number[] = [];
-    for (const c of chatList) {
-      if (quiet.has(c.id)) continue;
-      for (const r of replyRuns(byChat.get(c.id) || [])) {
-        const d = dayET(r.askedAt); if (d < from || d > to) continue;
-        team.push(r.minutes);
-        if (r.by === "trainer" && c.trainer_id) { replies.push(r.minutes); t(c.trainer_id).replies.push(r.minutes); }
-      }
-    }
-    let formsOk = 0, formsN = 0;
-    for (const r of (reps || []) as { trainer_id: string; due_by: string | null; submitted_at: string | null; status: string }[]) {
-      if (!r.submitted_at || !r.due_by) continue;
-      const d = dayET(r.submitted_at); if (d < from || d > to || dayET(r.due_by) < FORMS_CUTOVER) continue;
-      formsN++; const ok = r.submitted_at <= r.due_by; if (ok) formsOk++;
-      const x = t(r.trainer_id); x.formsN++; if (ok) x.formsOk++;
-    }
-    const inc = incidents.filter((i) => { const d = dayET(i.opened_at); return d >= from && d <= to && !(i.chat_id && quiet.has(i.chat_id)); });
-    const waiting = inc.filter((i) => i.kind === "client_waiting" || i.kind === "client_pileup").length, silent = inc.filter((i) => i.kind === "trainer_silent").length;
-    for (const i of inc) { const c = chatList.find((x) => x.id === i.chat_id); if (c?.trainer_id && ["client_waiting", "client_pileup", "trainer_silent"].includes(i.kind)) t(c.trainer_id).alerts++; }
-    const started = live.filter((b) => b.start_date >= from && b.start_date <= to).length;
-    const cancelled = bookings.filter((b) => b.status === "cancelled" && b.cancelled_at && dayET(b.cancelled_at) >= from && dayET(b.cancelled_at) <= to).length;
-    const sold = ((deals || []) as { amount: number; closed_on: string }[]).filter((d) => d.closed_on >= from && d.closed_on <= to);
-    return { inCare: inCare.length, careDays, postCount, replyMedian: median(replies), replyP90: percentile(replies, 90), replyN: replies.length, teamMedian: median(team), teamN: team.length,
-      formsOk, formsN, waiting, silent, started, cancelled, sales: sold.length, revenue: sold.reduce((n, d) => n + Number(d.amount || 0), 0), perTrainer, inc };
-  };
-  const now = period(range.from, range.to), prev = period(range.prevFrom, range.prevTo);
+/** A trainer's score for a period: updates 40, replies 25, forms 20, alerts 15; parts with no data drop out. */
+function scoreOf(x: { care: number; post: number; replies: number[]; formsOk: number; formsN: number; alerts: number }, groupRate: number): number | null {
+  const parts: [number, number][] = [];
+  if (x.care) parts.push([shrink((x.post / x.care) * 100, x.care, groupRate * 100, 7), 40]);
+  const m = median(x.replies); if (m != null) parts.push([Math.max(0, Math.min(100, 100 - ((m - 15) / 345) * 100)), 25]);
+  if (x.formsN) parts.push([shrink((x.formsOk / x.formsN) * 100, x.formsN, 80, 3), 20]);
+  if (x.care) parts.push([Math.max(0, 100 - x.alerts * 15), 15]);
+  if (!parts.length) return null;
+  const w = parts.reduce((n, [, k]) => n + k, 0);
+  return Math.round(parts.reduce((n, [v, k]) => n + v * k, 0) / w);
+}
+function summaryOf(t: { updateRate: number | null; replyMedian: number | null; replyN: number; formsOnTime: number | null; formsN: number; alerts: number; careDays: number; dogs: number; daysOff: number; utilisation: number | null }): string {
+  if (!t.careDays && !t.formsN && !t.replyN) return t.dogs ? "Dogs in care, but their chats are on Signal or not open yet." : "No dogs in this range.";
+  const bits: string[] = [];
+  if (t.updateRate != null) bits.push(t.updateRate >= 80 ? "posts almost every day" : t.updateRate >= 50 ? "posts most days" : t.updateRate >= 20 ? "posts some days" : "rarely posts in the app");
+  if (t.replyMedian != null) bits.push(t.replyMedian <= 30 ? "replies within half an hour" : t.replyMedian <= 120 ? "replies within a couple of hours" : t.replyMedian <= 360 ? "replies within the day" : "slow to reply");
+  else if (t.careDays) bits.push("no client questions to answer");
+  if (t.formsN) bits.push(t.formsOnTime === 100 ? "forms on time" : (t.formsOnTime ?? 0) >= 70 ? "most forms on time" : "forms often late");
+  if (t.alerts) bits.push(`${t.alerts} alert${t.alerts > 1 ? "s" : ""}`);
+  if (t.utilisation != null && t.utilisation >= 90) bits.push("kennels full");
+  if (t.daysOff >= 7) bits.push(`${t.daysOff} days off`);
+  const s = bits.join(", "); return s.charAt(0).toUpperCase() + s.slice(1) + ".";
+}
 
-  // ── Sparklines ──
-  const days90 = Array.from({ length: 90 }, (_, i) => addDays(sparkFrom, i));
-  const careSpark = days90.map((d) => live.filter((b) => b.start_date <= d && b.end_date > d).length);
-  const postSpark = days90.map((d) => { let n = 0; for (const [, set] of postDays) if (set.has(d)) n++; return n; });
-  const waitSpark = days90.map((d) => incidents.filter((i) => i.kind === "client_waiting" && dayET(i.opened_at) === d).length);
+export async function pulse(q: { r?: string; from?: string; to?: string; v?: string; state?: string }, s?: Snapshot): Promise<Pulse> {
+  const snap = s || await snapshotCached();
+  const t0 = Date.now(), range = pulseRange(q, snap.today), notes = [...snap.notes];
+  const view: View = (["office", "trainers", "sales"] as View[]).find((x) => x === q.v) || "office";
+  if (isDemo()) return { range, view, tiles: [], cards: [], trainers: [], office: null, sales: null, notes: ["Demo mode: no data."], stats: { points: 0, ms: 0, at: snap.builtAt } };
+  const now = period(snap, range.from, range.to), prev = period(snap, range.prevFrom, range.prevTo), base = period(snap, addDays(snap.today, -(SPAN - 1)), snap.today);
+  const { live, chatOf, chatById } = now;
+  const tName = (id: string) => snap.trainers.find((t) => t.id === id)?.name || "Trainer";
 
-  const inCareNow = live.filter((b) => b.start_date <= range.to && b.end_date > range.to).length;
+  // Sparklines
+  const sparkFrom = addDays(range.to, -89), days90 = Array.from({ length: 90 }, (_, i) => addDays(sparkFrom, i));
+  const careSpark = days90.map((d) => live.filter((b) => b.start <= d && b.end > d).length);
+  const postSpark = days90.map((d) => Object.values(snap.postDays).filter((ds) => ds.includes(d)).length);
+  const waitSpark = days90.map((d) => snap.incidents.filter((i) => i.k === "client_waiting" && i.d === d).length);
+  const waitingNow = snap.incidents.filter((i) => i.open && (i.k === "client_waiting" || i.k === "client_pileup") && !(i.c && chatById.get(i.c)?.quiet)).length;
+  const inCareNow = live.filter((b) => b.start <= range.to && b.end > range.to).length;
   const tiles: Tile[] = [
     { key: "care", label: "Dogs in care", value: String(inCareNow), sub: `${now.started} started, ${now.cancelled} cancelled`, delta: delta(now.started, prev.started), good: "up", how: "Dogs in care on the last day of the range. Started and cancelled are counted inside the range.", spark: careSpark, to: "/a/dogs" },
     { key: "update", label: "Daily updates", value: now.careDays ? `${pct(now.postCount, now.careDays)}%` : "–", sub: `${now.postCount} of ${now.careDays} dog-days had a post`, delta: delta(pct(now.postCount, now.careDays), pct(prev.postCount, prev.careDays)), good: "up", n: `${now.careDays} dog-days`, how: "Days a dog was in care (since the Oct 23 cutover) on which its trainer posted in the chat, over all such days. Quiet (Signal) chats left out.", spark: postSpark, to: "/a/chats" },
-    { key: "reply", label: "Trainer reply time", value: now.replyMedian == null ? "–" : label(now.replyMedian), sub: now.replyN ? `median of ${now.replyN}; 90% within ${label(now.replyP90!)}` : "no client messages answered by trainers", delta: delta(now.replyMedian, prev.replyMedian, true), good: "down", n: `${now.replyN} replies`, how: "From a client's first unanswered message to the trainer's reply, 8 AM–8 PM Eastern only. Median, not average. Replies by the office are in the team figure instead.", spark: [], to: "/a/chats" },
-    { key: "team", label: "Team reply time", value: now.teamMedian == null ? "–" : label(now.teamMedian), sub: now.teamN ? `median of ${now.teamN} replies by anyone at Dogwise` : "no replies", delta: delta(now.teamMedian, prev.teamMedian, true), good: "down", n: `${now.teamN} replies`, how: "Same as trainer reply time, but whoever at Dogwise replied first (trainer or office).", spark: [], to: "/a/chats" },
-    { key: "forms", label: "Forms on time", value: now.formsN ? `${pct(now.formsOk, now.formsN)}%` : "–", sub: `${now.formsOk} of ${now.formsN} sent by the deadline`, delta: delta(pct(now.formsOk, now.formsN), pct(prev.formsOk, prev.formsN)), good: "up", n: `${now.formsN} forms`, how: "Intake forms, weekly checks and handover reports sent in during the range, on or before their deadline. Forms due before the cutover left out.", spark: [], to: "/a#todo-week" },
-    { key: "waiting", label: "Clients left waiting", value: String(now.waiting), sub: `${now.silent} days with no update flagged`, delta: delta(now.waiting, prev.waiting), good: "down", how: "\"Client waiting\" and \"several messages\" alerts raised in the range (unanswered for 3 waking hours, or 3+ messages). Quiet chats left out.", spark: waitSpark, to: "/a#todo-now" }
+    { key: "reply", label: "Trainer reply time", value: now.replyMedian == null ? "–" : label(now.replyMedian), sub: now.replyN ? `median of ${now.replyN}; 90% within ${label(now.replyP90!)}` : "no client messages answered by trainers", delta: delta(now.replyMedian, prev.replyMedian, true), good: "down", n: `${now.replyN} replies`, how: "From a client's first unanswered message to the trainer's reply, 8 AM–8 PM Eastern only. Median, not average. Office replies are in the team figure.", spark: [], to: "/a/chats" },
+    { key: "team", label: "Team reply time", value: now.teamMedian == null ? "–" : label(now.teamMedian), sub: now.teamN ? `median of ${now.teamN} replies by anyone at Dogwise` : "no replies", delta: delta(now.teamMedian, prev.teamMedian, true), good: "down", n: `${now.teamN} replies`, how: "Same as trainer reply time, but whoever at Dogwise replied first.", spark: [], to: "/a/chats" },
+    { key: "forms", label: "Forms on time", value: now.formsN ? `${pct(now.formsOk, now.formsN)}%` : "–", sub: `${now.formsOk} of ${now.formsN} sent by the deadline`, delta: delta(pct(now.formsOk, now.formsN), pct(prev.formsOk, prev.formsN)), good: "up", n: `${now.formsN} forms`, how: "Intake forms, weekly checks and handover reports sent in during the range, on or before their deadline.", spark: [], to: "/a#todo-week" },
+    { key: "waiting", label: "Clients waiting now", value: String(waitingNow), sub: `${now.waiting} left waiting in the range, ${now.silent} days with no update`, delta: delta(now.waiting, prev.waiting), good: "down", how: "Clients with an open \"waiting for a reply\" alert right now. The range figure counts every such alert raised in it (unanswered 3+ waking hours, or 3+ messages).", spark: waitSpark, to: "/a#todo-now" }
   ];
 
-  // ── Trainers ──
-  const slipRows = ((slips || []) as unknown as { trainer_id: string; total: number; status: string; pay_runs: { period_start: string; period_end: string } | null }[])
-    .filter((s) => s.pay_runs && s.pay_runs.period_end >= range.from && s.pay_runs.period_end <= range.to);
-  const offRows = (offs || []) as { trainer_id: string; start_date: string; end_date: string }[];
-  const trainers: TrainerRow[] = [...now.perTrainer.entries()].map(([id, x]) => {
-    const tr = trainerRows.find((t) => t.id === id), cap = Number(tr?.capacity || 0);
-    const daysOff = offRows.filter((o) => o.trainer_id === id).reduce((n, o) => n + overlapDays(o.start_date, o.end_date, range.from, range.to), 0);
-    const allCare = live.filter((b) => b.trainer_id === id).reduce((n, b) => n + overlapDays(b.start_date, addDays(b.end_date, -1), range.from, range.to), 0); // every dog, quiet or not: kennels are kennels
-    return { id, name: trainerName(id), dogs: x.dogs.size, careDays: x.care, postDays: x.post, updateRate: x.care ? Math.round((x.post / x.care) * 100) : null, updateLow: wilsonLower(x.post, x.care),
+  // Trainers: everyone active, plus anyone else with dogs in the range
+  const groupRate = now.careDays ? now.postCount / now.careDays : 0, baseRate = base.careDays ? base.postCount / base.careDays : 0;
+  const ids = new Set([...snap.trainers.filter((t) => t.active).map((t) => t.id), ...now.perTrainer.keys()]);
+  const trainers: TrainerRow[] = [...ids].map((id) => {
+    const x = now.perTrainer.get(id) || { dogs: new Set<string>(), care: 0, post: 0, replies: [] as number[], formsOk: 0, formsN: 0, alerts: 0 }, b = base.perTrainer.get(id);
+    const tr = snap.trainers.find((t) => t.id === id), cap = tr?.cap || 0;
+    const dogsAll = new Set(live.filter((bk) => bk.t === id && bk.start <= range.to && bk.end > range.from).map((bk) => bk.id));
+    const daysOff = snap.timeOff.filter((o) => o.t === id).reduce((n, o) => n + overlapDays(o.start, o.end, range.from, range.to), 0);
+    const allCare = live.filter((bk) => bk.t === id).reduce((n, bk) => n + overlapDays(bk.start, addDays(bk.end, -1), range.from, range.to), 0);
+    const score = scoreOf(x, groupRate), baseline = b ? scoreOf(b, baseRate) : null;
+    const row: TrainerRow = { id, name: tr?.name || tName(id), dogs: dogsAll.size, careDays: x.care, postDays: x.post, updateRate: x.care ? Math.round((x.post / x.care) * 100) : null,
       replyMedian: median(x.replies), replyN: x.replies.length, formsOnTime: x.formsN ? Math.round((x.formsOk / x.formsN) * 100) : null, formsN: x.formsN, alerts: x.alerts,
-      pay: slipRows.filter((s) => s.trainer_id === id).reduce((n, s) => n + Number(s.total || 0), 0), weeks: Math.max(1, Math.round(x.care / 7)), rank: null,
-      utilisation: cap ? Math.min(100, Math.round((allCare / (cap * range.days)) * 100)) : null, daysOff, capacity: cap };
-  }).sort((a, b) => b.updateLow - a.updateLow || (a.replyMedian ?? 1e9) - (b.replyMedian ?? 1e9));
-  let r = 0; for (const t of trainers) t.rank = t.careDays >= 7 ? ++r : null;
+      utilisation: cap ? Math.min(100, Math.round((allCare / (cap * range.days)) * 100)) : null, daysOff, cap, rank: null,
+      score, baseline, confidence: score == null ? "none" : x.care < 14 || (x.replies.length < 5 && x.care < 21) ? "low" : "ok", unusual: score != null && baseline != null && b!.care >= 21 && Math.abs(score - baseline) >= 20, summary: "" };
+    row.summary = summaryOf(row);
+    return row;
+  }).sort((a, b) => (b.score ?? -1) - (a.score ?? -1) || wilsonLower(b.postDays, b.careDays) - wilsonLower(a.postDays, a.careDays) || a.name.localeCompare(b.name));
+  let rk = 0; for (const t of trainers) t.rank = t.score != null && t.confidence !== "none" ? ++rk : null;
 
-  // ── Office view: clients and the link to trainers ──
+  // Office
   let office: OfficeView | null = null;
   if (view === "office") {
-    const careNow = live.filter((b) => b.start_date <= range.to && b.end_date > range.to);
-    const chatsNow = careNow.map(chatOf).filter((c): c is ChatRow => !!c && !quiet.has(c.id));
-    const { data: reads } = chatsNow.length ? await sb.from("chat_reads").select("chat_id, user_id").in("chat_id", chatsNow.map((c) => c.id)) : { data: [] };
-    const seen = new Set(((reads || []) as { chat_id: string; user_id: string }[]).filter((r) => chatsNow.some((c) => c.id === r.chat_id && c.client_user_id === r.user_id)).map((r) => r.chat_id));
-    const nowMs = Date.now(), silent24: OfficeView["silent24"] = [];
-    for (const b of careNow) {
-      const c = chatOf(b); if (!c || quiet.has(c.id)) continue;
-      const staff = (byChat.get(c.id) || []).filter((m) => m.role === "trainer" || m.role === "admin").map((m) => Date.parse(m.at));
-      const last = staff.length ? Math.max(...staff) : Date.parse(`${b.start_date}T12:00:00Z`);
-      const hours = Math.round((nowMs - last) / 3600000);
-      if (hours >= 24) silent24.push({ dog: b.dog_name || "Dog", client: b.client_name, trainer: b.trainers?.name || "", hours, href: `/a/chats/${c.id}` });
-    }
-    silent24.sort((a, b) => b.hours - a.hours);
-    const waitByChat = new Map<string, number>();
-    for (const i of now.inc) if ((i.kind === "client_waiting" || i.kind === "client_pileup") && i.chat_id) waitByChat.set(i.chat_id, (waitByChat.get(i.chat_id) || 0) + 1);
-    const waitingClients = [...waitByChat.entries()].filter(([, n]) => n >= 2).map(([id, n]) => { const c = chatList.find((x) => x.id === id); return { client: c?.client_name || "Client", dog: c?.title || "", n, href: `/a/chats/${id}` }; }).sort((a, b) => b.n - a.n);
+    const careNow = live.filter((b) => b.start <= range.to && b.end > range.to), chatsNow = careNow.map(chatOf).filter((c): c is SChat => !!c && !c.quiet);
+    const joined = chatsNow.filter((c) => c.joined).length, nowMs = Date.now();
+    const silent24 = careNow.flatMap((b) => { const c = chatOf(b); if (!c || c.quiet) return []; const last = snap.lastStaff[c.id] ? Date.parse(snap.lastStaff[c.id]) : Date.parse(`${b.start}T12:00:00Z`); const hours = Math.round((nowMs - last) / 3600000); return hours >= 24 ? [{ dog: b.dog, client: b.client, trainer: tName(b.t), hours, href: `/a/chats/${c.id}` }] : []; }).sort((a, b) => b.hours - a.hours);
+    const wait = new Map<string, number>(); for (const i of now.inc) if ((i.k === "client_waiting" || i.k === "client_pileup") && i.c) wait.set(i.c, (wait.get(i.c) || 0) + 1);
+    const waitingClients = [...wait.entries()].filter(([, n]) => n >= 2).map(([id, n]) => { const c = chatById.get(id); return { client: c?.client || "Client", dog: c?.title || "", n, href: `/a/chats/${id}` }; }).sort((a, b) => b.n - a.n);
     const slowTrainers = trainers.filter((t) => t.alerts >= 3).map((t) => ({ name: t.name, alerts: t.alerts, href: `/a/trainers/${t.id}` })).sort((a, b) => b.alerts - a.alerts);
-    const nb = new Map<string, number>();
-    for (const b of bookings.filter((b) => dayET(b.created_at) >= range.from && dayET(b.created_at) <= range.to)) nb.set(b.trainer_id, (nb.get(b.trainer_id) || 0) + 1);
-    const newBookings = [...nb.entries()].map(([id, n]) => ({ name: trainerName(id), n })).sort((a, b) => b.n - a.n);
-    const cancellations = bookings.filter((b) => b.status === "cancelled" && b.cancelled_at && dayET(b.cancelled_at) >= range.from && dayET(b.cancelled_at) <= range.to)
-      .map((b) => ({ dog: b.dog_name || "Dog", client: b.client_name, trainer: b.trainers?.name || "", reason: `${b.cancel_reason || "No reason recorded"}${b.cancel_note ? `: ${b.cancel_note}` : ""}`, when: dayET(b.cancelled_at!) })).sort((a, b) => b.when.localeCompare(a.when));
-    const trainerReports = now.inc.filter((i) => i.kind === "trainer_report").map((i) => ({ title: i.title || "Incident", when: dayET(i.opened_at), detail: (i.detail || "").slice(0, 160) })).sort((a, b) => b.when.localeCompare(a.when));
+    const nb = new Map<string, number>(); for (const b of snap.bookings.filter((b) => b.created >= range.from && b.created <= range.to)) nb.set(b.t, (nb.get(b.t) || 0) + 1);
+    const moves: Move[] = [...live.filter((b) => b.start >= range.from && b.start <= range.to).map((b) => ({ id: b.id, kind: "pickup" as const, date: b.start, dog: b.dog, client: b.client, trainer: tName(b.t) })),
+      ...live.filter((b) => b.end >= range.from && b.end <= range.to).map((b) => ({ id: b.id, kind: "dropoff" as const, date: b.end, dog: b.dog, client: b.client, trainer: tName(b.t) }))].sort((a, b) => a.date.localeCompare(b.date) || a.kind.localeCompare(b.kind));
     let counts = { todo: 0, now: 0, toReview: 0, late: 0, notBooked: 0, notSignedIn: 0 }, lateForms: OfficeView["lateForms"] = [], balances: OfficeView["balances"] = [];
     try {
-      const t = await buildTodo();
-      const signin = t.items.find((i) => i.key === "signin");
-      counts = { todo: t.items.length + (t.late.length ? 1 : 0) + (t.beforeApp.length ? 1 : 0), now: t.items.filter((i) => i.group === "now").length, toReview: t.items.filter((i) => i.key.startsWith("rep:")).length,
-        late: t.late.length, notBooked: t.items.filter((i) => /closed won/i.test(i.text)).length, notSignedIn: signin ? Number((signin.text.match(/^(\d+)/) || [])[1] || 0) : 0 };
-      const lf = new Map<string, number>();
-      for (const x of t.late) lf.set(x.trainerName || "Trainer", (lf.get(x.trainerName || "Trainer") || 0) + 1);
+      const t = await buildTodo(); const signin = t.items.find((i) => i.key === "signin");
+      counts = { todo: t.items.length + (t.late.length ? 1 : 0) + (t.beforeApp.length ? 1 : 0), now: t.items.filter((i) => i.group === "now").length, toReview: t.items.filter((i) => i.key.startsWith("rep:")).length, late: t.late.length, notBooked: t.items.filter((i) => /closed won/i.test(i.text)).length, notSignedIn: signin ? Number((signin.text.match(/^(\d+)/) || [])[1] || 0) : 0 };
+      const lf = new Map<string, number>(); for (const x of t.late) lf.set(x.trainerName || "Trainer", (lf.get(x.trainerName || "Trainer") || 0) + 1);
       lateForms = [...lf.entries()].map(([name, n]) => ({ name, n })).sort((a, b) => b.n - a.n);
       balances = t.items.filter((i) => /balance/i.test(i.detail || "") && /ready|start/i.test(i.text)).map((i) => ({ text: i.text, href: i.dogHref || i.primary?.href }));
     } catch (e) { notes.push(`To do: ${(e as Error).message}`); }
-    office = { joined: seen.size, chats: chatsNow.length, silent24, waitingClients, slowTrainers, newBookings,
-      dateChanges: now.inc.filter((i) => i.kind === "length_changed").length, overbooked: now.inc.filter((i) => i.kind === "overbooked").length,
-      cancellations, lateForms, balances, incidents: trainerReports, counts };
+    office = { joined, chats: chatsNow.length, silent24, waitingClients, slowTrainers, newBookings: [...nb.entries()].map(([id, n]) => ({ name: tName(id), n })).sort((a, b) => b.n - a.n),
+      dateChanges: now.inc.filter((i) => i.k === "length_changed").length, overbooked: now.inc.filter((i) => i.k === "overbooked").length, moves,
+      cancellations: snap.bookings.filter((b) => b.cancelledOn && b.cancelledOn >= range.from && b.cancelledOn <= range.to).map((b) => ({ dog: b.dog, client: b.client, trainer: tName(b.t), reason: `${b.reason || "No reason recorded"}${b.note ? `: ${b.note}` : ""}`, when: b.cancelledOn! })).sort((a, b) => b.when.localeCompare(a.when)),
+      lateForms, balances, incidents: now.inc.filter((i) => i.k === "trainer_report").map((i) => ({ title: i.title || "Incident", when: i.d, detail: i.detail })).sort((a, b) => b.when.localeCompare(a.when)), counts };
   }
 
-  // ── Sales view (RevOps) ──
+  // Sales
   let sales: SalesView | null = null;
-  if (view === "sales" && hubspotConfigured()) {
-    try {
-      const lyFrom = addDays(range.from, -365), lyTo = addDays(range.to, -365);
-      // Next calendar month after the range, one year ago: what last year says to expect
-      const [ty, tm] = range.to.split("-").map(Number), nmY = (tm === 12 ? ty + 1 : ty) - 1, nmM = tm === 12 ? 1 : tm + 1;
-      const nmFrom = `${nmY}-${String(nmM).padStart(2, "0")}-01`, nmTo = addDays(nmM === 12 ? `${nmY + 1}-01-01` : `${nmY}-${String(nmM + 1).padStart(2, "0")}-01`, -1);
-      const nmLabel = new Date(`${nmFrom}T12:00:00Z`).toLocaleDateString("en-US", { month: "long", timeZone: "UTC" });
-      const [created, wonNow, lostRows, leadsLY, wonLY, wonNM, people] = await Promise.all([
-        dealsCreatedBetween(range.from, range.to, 20), closedWonBetween(range.from, range.to, 5), lostDealsBetween(range.from, range.to),
-        countObjects("deals", [{ propertyName: "createdate", operator: "GTE", value: String(etMidnight(lyFrom)) }, { propertyName: "createdate", operator: "LT", value: String(etMidnight(addDays(lyTo, 1))) }]).catch(() => null),
-        closedWonBetween(lyFrom, lyTo, 5).catch(() => null), closedWonBetween(nmFrom, nmTo, 5).catch(() => null), salesPeople().catch(() => [])
-      ]);
-      points += created.rows.length + wonNow.rows.length + lostRows.length + (wonLY?.rows.length || 0) + (wonNM?.rows.length || 0);
-      const won = wonNow.rows, cells = new Map<string, StateCell>();
-      const cell = (st: string) => { if (!cells.has(st)) cells.set(st, { st, created: 0, won: 0, wonAmount: 0, credits: 0, coverageLost: 0 }); return cells.get(st)!; };
-      const bySource = new Map<string, { created: number; won: number; credits: number }>();
-      const src = (p: Record<string, string | null>) => (p.lead_source || p.deal_source || "Unknown").trim() || "Unknown";
-      // Costs: only deals that carry Bark credits count. No guessing.
-      let creditSum = 0, creditLeads = 0;
-      for (const d of created.rows) {
-        const p = d.properties, st = stateOf(p.dealname), cr = Number(p.bark_credits_paid || 0);
-        if (cr > 0) { creditSum += cr; creditLeads++; }
-        if (st) { const x = cell(st); x.created++; x.credits += cr; }
-        const k = src(p), b = bySource.get(k) || { created: 0, won: 0, credits: 0 }; b.created++; b.credits += cr; bySource.set(k, b);
-      }
-      let wonWithCredits = 0; const closeDaysArr: number[] = [];
-      for (const d of won) {
-        const p = d.properties, st = stateOf(p.dealname), amt = Number(p.amount || 0);
-        if (Number(p.bark_credits_paid || 0) > 0) wonWithCredits++;
-        if (st) { const x = cell(st); x.won++; x.wonAmount += amt; }
-        const k = src(p), b = bySource.get(k) || { created: 0, won: 0, credits: 0 }; b.won++; bySource.set(k, b);
-        if (p.createdate && p.closedate) closeDaysArr.push(Math.max(0, Math.round((Date.parse(p.closedate) - Date.parse(p.createdate)) / 86400000)));
-      }
-      let planLost = { n: 0, amount: 0 };
-      for (const d of lostRows) {
-        const p = d.properties, st = stateOf(p.dealname), why = p.closed_lost_reason_new || "";
-        if (/payment plan/i.test(why)) { planLost.n++; planLost.amount += Number(p.amount || 0); }
-        if (st && (/local/i.test(why) || p.dealstage === "173376666" || p.trainer_in_range === "false")) cell(st).coverageLost++;
-      }
-      const creditUsd = Number(process.env.BARK_CREDIT_USD || 0) || null;
-      const fmt = (n: number) => (creditUsd ? money(n * creditUsd) : `${Math.round(n * 10) / 10} cr`);
-      // Salespeople: leads assigned, won (from the app's deal copy), and work done (calls and emails logged in HubSpot)
-      const wonByOwner = new Map<string, { n: number; amount: number }>();
-      for (const d of ((deals || []) as { amount: number; closed_on: string; owner_id: string | null }[]).filter((d) => d.closed_on >= range.from && d.closed_on <= range.to)) {
-        const k = d.owner_id || "none", x = wonByOwner.get(k) || { n: 0, amount: 0 }; x.n++; x.amount += Number(d.amount || 0); wonByOwner.set(k, x);
-      }
-      const ms = { from: String(etMidnight(range.from)), to: String(etMidnight(addDays(range.to, 1))) };
-      const peopleRows: SalesPerson[] = await Promise.all(people.map(async (o) => {
-        const [leads, calls, emails] = await Promise.all([
-          countObjects("deals", [{ propertyName: "createdate", operator: "GTE", value: String(etMidnight(range.from)) }, { propertyName: "createdate", operator: "LT", value: ms.to }, { propertyName: "hubspot_owner_id", operator: "EQ", value: o.id }]).catch(() => 0),
-          countObjects("calls", [{ propertyName: "hs_timestamp", operator: "GTE", value: ms.from }, { propertyName: "hs_timestamp", operator: "LT", value: ms.to }, { propertyName: "hubspot_owner_id", operator: "EQ", value: o.id }]).catch(() => 0),
-          countObjects("emails", [{ propertyName: "hs_timestamp", operator: "GTE", value: ms.from }, { propertyName: "hs_timestamp", operator: "LT", value: ms.to }, { propertyName: "hubspot_owner_id", operator: "EQ", value: o.id }, { propertyName: "hs_email_direction", operator: "EQ", value: "EMAIL" }]).catch(() => 0)
-        ]);
-        const w = wonByOwner.get(o.id) || { n: 0, amount: 0 };
-        return { name: o.name, leads, won: w.n, amount: w.amount, calls, emails };
-      }));
-      let failed: SalesView["failed"] = null;
-      if (stripeConfigured()) { try { failed = await failedCharges(Math.floor(etMidnight(range.from) / 1000), Math.floor(etMidnight(addDays(range.to, 1)) / 1000)); } catch (e) { notes.push(`Stripe: ${(e as Error).message}`); } }
-      sales = {
-        leads: created.total, leadsLastYear: leadsLY, won: won.length, wonAmount: won.reduce((n, d) => n + Number(d.properties.amount || 0), 0),
-        wonLastYear: wonLY ? { n: wonLY.total, amount: wonLY.rows.reduce((n, d) => n + Number(d.properties.amount || 0), 0) } : null,
-        conversion: created.total ? Math.round((won.length / created.total) * 1000) / 10 : null,
-        perLead: creditLeads ? fmt(creditSum / creditLeads) : "–", perLeadN: creditLeads, perSale: wonWithCredits ? fmt(creditSum / wonWithCredits) : "–", perSaleN: wonWithCredits, creditUsd,
-        closeDays: median(closeDaysArr), closeN: closeDaysArr.length,
-        nextMonth: wonNM ? { label: nmLabel, n: wonNM.total, amount: wonNM.rows.reduce((n, d) => n + Number(d.properties.amount || 0), 0) } : null,
-        bySource: [...bySource.entries()].map(([source, v]) => ({ source, ...v })).sort((a, b) => b.created - a.created).slice(0, 8),
-        states: [...cells.values()], people: peopleRows.filter((p) => p.leads || p.won || p.calls || p.emails).sort((a, b) => b.amount - a.amount || b.won - a.won),
-        planLost, failed, mapCapped: created.capped
-      };
-      if (created.capped) notes.push(`The map and sources use the first ${created.rows.length} of ${created.total} deals created in this range (HubSpot is paged); the lead count itself is complete.`);
-      if (!creditUsd) notes.push("Costs are in Bark credits until BARK_CREDIT_USD is set in Vercel.");
-    } catch (e) { notes.push(`Sales: HubSpot didn't answer (${(e as Error).message}).`); }
-  } else if (view === "sales") notes.push("Sales needs HubSpot (not set up here).");
+  if (view === "sales" && snap.hs) {
+    const h = snap.hs, inR = (d: string) => d >= range.from && d <= range.to, lyR = (d: string) => d >= addDays(range.from, -365) && d <= addDays(range.to, -365);
+    const created = h.created.filter((d) => inR(d.day)), won = h.won.filter((d) => inR(d.closed || "")), wonLY = h.wonLY.filter((d) => lyR(d.closed || "")), lost = h.lost.filter((d) => inR(d.day));
+    const totals = range.exact ? h.createdTotals[range.key] : null;
+    const leads = totals?.now || created.length, leadsLY = totals?.ly || 0; // a custom range counts the deals in the snapshot
+    const st = q.state || null;
+    const sel = <T extends { st: string | null }>(xs: T[]) => (st ? xs.filter((x) => x.st === st) : xs);
+    const creditLeads = created.filter((d) => d.credits > 0), creditSum = creditLeads.reduce((n, d) => n + d.credits, 0), wonCredits = won.filter((d) => d.credits > 0).length;
+    const creditUsd = Number(process.env.BARK_CREDIT_USD || 0) || null, fmt = (n: number) => (creditUsd ? money(n * creditUsd) : `${Math.round(n * 10) / 10} cr`);
+    // Map: leads and sales per state; a state is "full" when its active trainers' kennels are 80%+ used today
+    const cells = new Map<string, StateCell>(), cell = (x: string) => { if (!cells.has(x)) cells.set(x, { st: x, leads: 0, won: 0, wonAmount: 0, full: false }); return cells.get(x)!; };
+    for (const d of created) if (d.st) cell(d.st).leads++;
+    for (const d of won) if (d.st) { const c = cell(d.st); c.won++; c.wonAmount += d.amount; }
+    for (const t of US_TILES) {
+      const trs = snap.trainers.filter((x) => x.active && x.state === t.st), cap = trs.reduce((n, x) => n + x.cap, 0);
+      if (!cap) continue;
+      const used = live.filter((b) => trs.some((x) => x.id === b.t) && b.start <= snap.today && b.end > snap.today).length;
+      if (used / cap >= 0.8) cell(t.st).full = true;
+    }
+    const src = new Map<string, { leads: number; won: number; credits: number; creditLeads: number; wonCredits: number }>(), s = (k: string) => { if (!src.has(k)) src.set(k, { leads: 0, won: 0, credits: 0, creditLeads: 0, wonCredits: 0 }); return src.get(k)!; };
+    for (const d of created) { const x = s(d.source); x.leads++; if (d.credits > 0) { x.credits += d.credits; x.creditLeads++; } }
+    for (const d of won) { const x = s(d.source); x.won++; if (d.credits > 0) x.wonCredits++; }
+    // Chart: sales per day (short ranges) or per week, this range against the same dates last year, for the chosen state
+    const unit: "day" | "week" = range.days > 21 ? "week" : "day", buckets: { label: string; now: number; ly: number }[] = [];
+    for (let d = range.from; d <= range.to; d = addDays(d, unit === "day" ? 1 : 7)) {
+      const end = unit === "day" ? d : [addDays(d, 6), range.to].sort()[0];
+      const inB = (x: string) => x >= d && x <= end, inBLY = (x: string) => x >= addDays(d, -365) && x <= addDays(end, -365);
+      buckets.push({ label: unit === "day" ? d.slice(5).replace("-", "/") : `${d.slice(5).replace("-", "/")}–${end.slice(5).replace("-", "/")}`, now: sel(won).filter((x) => inB(x.closed || "")).length, ly: sel(h.wonLY).filter((x) => inBLY(x.closed || "")).length });
+    }
+    const peopleKey = range.key, pc = h.ownerCounts[peopleKey] || {};
+    const wonByOwner = new Map<string, { n: number; amount: number }>(); for (const d of snap.dealMoney.filter((d) => inR(d.day))) { const x = wonByOwner.get(d.owner) || { n: 0, amount: 0 }; x.n++; x.amount += d.amount; wonByOwner.set(d.owner, x); }
+    const people: SalesPerson[] = h.owners.map((o) => { const c = pc[o.id] || { leads: 0, calls: 0, emails: 0 }, w = wonByOwner.get(o.id) || { n: 0, amount: 0 }; return { name: o.name, leads: c.leads, won: w.n, amount: w.amount, calls: c.calls, emails: c.emails }; }).filter((p) => p.leads || p.won || p.calls || p.emails).sort((a, b) => b.amount - a.amount || b.won - a.won);
+    const planLost = lost.filter((d) => /payment plan/i.test(d.reason)), coverage = lost.filter((d) => d.noTrainer);
+    const covWhere = new Map<string, number>(); for (const d of coverage) if (d.st) covWhere.set(d.st, (covWhere.get(d.st) || 0) + 1);
+    const failedIn = (snap.failed || []).filter((f) => inR(f.day));
+    const closeDaysArr = won.filter((d) => d.day && d.closed).map((d) => Math.max(0, daysBetween(d.day, d.closed!)));
+    sales = {
+      leads, leadsLY, won: won.length, wonAmount: won.reduce((n, d) => n + d.amount, 0), wonLY: { n: wonLY.length, amount: wonLY.reduce((n, d) => n + d.amount, 0) },
+      conversion: leads ? Math.round((won.length / leads) * 1000) / 10 : null, conversionLY: leadsLY ? Math.round((wonLY.length / leadsLY) * 1000) / 10 : null,
+      perLead: creditLeads.length ? fmt(creditSum / creditLeads.length) : "–", perLeadN: creditLeads.length, perSale: wonCredits ? fmt(creditSum / wonCredits) : "–", perSaleN: wonCredits, creditUsd,
+      closeDays: median(closeDaysArr), closeN: closeDaysArr.length,
+      month: (() => { const ms = `${snap.today.slice(0, 7)}-01`; const m = h.won.filter((d) => (d.closed || "") >= ms && (d.closed || "") <= snap.today); return { label: h.monthLY.label, n: m.length, amount: m.reduce((n, d) => n + d.amount, 0), lyToDate: h.monthLY.toDate, lyToDateAmount: h.monthLY.toDateAmount, lyFull: h.monthLY.n, lyFullAmount: h.monthLY.amount }; })(),
+      nextMonth: h.nextMonthLY,
+      bySource: [...src.entries()].map(([source, x]) => ({ source, leads: x.leads, won: x.won, conversion: x.leads ? Math.round((x.won / x.leads) * 1000) / 10 : 0, perSale: x.wonCredits ? fmt(x.credits / x.wonCredits) : null })).sort((a, b) => b.leads - a.leads).slice(0, 8),
+      states: [...cells.values()], people, peopleRange: PRESETS.find((p) => p.key === peopleKey)?.label || range.label, emailsLogged: h.emailsLogged,
+      chart: buckets, chartUnit: unit, chartState: st,
+      planLost: { n: planLost.length, amount: planLost.reduce((n, d) => n + d.amount, 0) }, failed: snap.failed ? { n: failedIn.length, amount: failedIn.reduce((n, f) => n + f.amount, 0) } : null,
+      coverage: { n: coverage.length, where: [...covWhere.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4).map(([k, n]) => `${k} (${n})`) }
+    };
+  } else if (view === "sales" && !snap.hs) notes.push("Sales needs HubSpot.");
 
-  // ── Decision cards ──
+  // Decision cards
   const cards: Card[] = [];
   if (view !== "sales") {
     for (const t of trainers.filter((t) => t.dogs >= 2 && t.careDays >= 7 && (t.updateRate ?? 100) < 60).slice(0, 2)) cards.push({ tone: "heart", title: `${t.name}: updates on ${t.updateRate}% of days with ${t.dogs} dogs`, evidence: `${t.postDays} of ${t.careDays} dog-days had a post. Clients were promised one a day.`, href: `/a/trainers/${t.id}`, action: "Open trainer" });
-    if (now.waiting >= 5) cards.push({ tone: "heart", title: `${now.waiting} clients left waiting`, evidence: `Team reply median ${now.teamMedian == null ? "–" : label(now.teamMedian)}. Each is a client unanswered for 3+ waking hours.`, href: "/a#todo-now", action: "See To do" });
+    if (waitingNow >= 3) cards.push({ tone: "heart", title: `${waitingNow} clients are waiting for a reply right now`, evidence: `Team reply median ${now.teamMedian == null ? "–" : label(now.teamMedian)} in this range.`, href: "/a#todo-now", action: "See To do" });
     if (now.started && now.cancelled / Math.max(1, now.started) > 0.15) cards.push({ tone: "heart", title: `${now.cancelled} cancelled against ${now.started} started`, evidence: "More than 15% cancelled in this range. Reasons are on the bookings.", href: "/a/dogs", action: "See bookings" });
     if (now.formsN >= 10 && pct(now.formsOk, now.formsN)! < 70) cards.push({ tone: "biscuit", title: `Forms on time: ${pct(now.formsOk, now.formsN)}%`, evidence: `${now.formsN - now.formsOk} of ${now.formsN} forms were late.`, href: "/a#todo-week", action: "See late forms" });
   } else if (sales) {
     if (sales.planLost.n >= 2) cards.push({ tone: "biscuit", title: `${sales.planLost.n} people weren't approved for a payment plan (${money(sales.planLost.amount)})`, evidence: "Try splitting the cost into two smaller plans before these go cold." });
-    if (sales.failed && sales.failed.n >= 2) cards.push({ tone: "heart", title: `${sales.failed.n} card payments failed (${money(sales.failed.amount)})`, evidence: "From Stripe. Worth a call before the next attempt fails too.", href: "/a/sales", action: "Open sales" });
-    const cov = sales.states.reduce((n, s) => n + s.coverageLost, 0);
-    if (cov >= 3) cards.push({ tone: "biscuit", title: `${cov} deals lost for lack of a nearby trainer`, evidence: `Where: ${sales.states.filter((s) => s.coverageLost).sort((a, b) => b.coverageLost - a.coverageLost).slice(0, 4).map((s) => `${s.st} (${s.coverageLost})`).join(", ")}.`, action: "Recruit there" });
-    if (sales.wonLastYear && sales.wonLastYear.n && sales.won < sales.wonLastYear.n * 0.7) cards.push({ tone: "heart", title: `Sales are ${Math.round((1 - sales.won / sales.wonLastYear.n) * 100)}% below the same range last year`, evidence: `${sales.won} now against ${sales.wonLastYear.n} then.` });
+    if (sales.failed && sales.failed.n >= 2) cards.push({ tone: "heart", title: `${sales.failed.n} customers' last card payment failed (${money(sales.failed.amount)})`, evidence: "From Stripe: their most recent attempt in the range didn't go through and nothing succeeded after it. Worth a call.", href: "/a/sales", action: "Open sales" });
+    if (sales.coverage.n >= 3) cards.push({ tone: "biscuit", title: `${sales.coverage.n} deals lost for lack of a nearby trainer`, evidence: `Where: ${sales.coverage.where.join(", ")}.`, action: "Recruit there" });
+    if (sales.wonLY.n && sales.won < sales.wonLY.n * 0.7) cards.push({ tone: "heart", title: `Sales are ${Math.round((1 - sales.won / sales.wonLY.n) * 100)}% below the same dates last year`, evidence: `${sales.won} now against ${sales.wonLY.n} then.` });
   }
   if (!cards.length) cards.push({ tone: "mint", title: "Nothing needs a decision in this range", evidence: "Everything is inside its usual bands." });
 
-  return { range, view, tiles, cards: cards.slice(0, 5), trainers, office, sales, notes, stats: { points, ms: Date.now() - t0, at: new Date().toISOString() } };
+  return { range, view, tiles, cards: cards.slice(0, 5), trainers, office, sales, notes, stats: { points: snap.points, ms: snap.ms + (Date.now() - t0), at: snap.builtAt } };
 }
-
-/** The same, kept for 5 minutes per range and view (Refresh on the page drops it). */
-export const pulseCached = unstable_cache(async (q: { r?: string; from?: string; to?: string; v?: string }) => pulse(q), ["pulse-v3"], { revalidate: 300, tags: ["pulse"] });

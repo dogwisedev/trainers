@@ -16,6 +16,22 @@ async function stripe<T>(path: string, form: Record<string, string>): Promise<T>
   return d as T;
 }
 
+/** Every card charge between two instants (epoch seconds), newest first: who, how much, succeeded or failed. For Pulse (Sales). */
+export async function chargeOutcomes(fromSec: number, toSec: number, maxPages = 30): Promise<{ customer: string; status: string; amount: number; created: number }[]> {
+  const out: { customer: string; status: string; amount: number; created: number }[] = [];
+  let starting: string | undefined;
+  for (let page = 0; page < maxPages; page++) {
+    const qs = new URLSearchParams({ limit: "100", "created[gte]": String(fromSec), "created[lte]": String(toSec), ...(starting ? { starting_after: starting } : {}) });
+    const r = await fetch(`https://api.stripe.com/v1/charges?${qs}`, { cache: "no-store", headers: { Authorization: `Bearer ${process.env.STRIPE_SECRET_KEY}` } });
+    const d = await r.json() as { data?: { id: string; status: string; amount: number; created: number; customer: string | null; billing_details?: { email?: string | null } }[]; has_more?: boolean; error?: { message: string } };
+    if (!r.ok) throw new Error(`Stripe: ${d?.error?.message || r.status}`);
+    for (const c of d.data || []) out.push({ customer: c.customer || c.billing_details?.email || c.id, status: c.status, amount: c.amount / 100, created: c.created });
+    if (!d.has_more || !d.data?.length) break;
+    starting = d.data[d.data.length - 1].id;
+  }
+  return out;
+}
+
 /** Card payments that failed between two instants (epoch seconds): how many, and how much. For Pulse (Sales). */
 export async function failedCharges(fromSec: number, toSec: number): Promise<{ n: number; amount: number }> {
   let n = 0, amount = 0, starting: string | undefined;
