@@ -284,7 +284,7 @@ export async function closedWonBetween(from: string, to: string, maxPages = 5): 
         filterGroups: [{ filters: [
           { propertyName: "closedate", operator: "GTE", value: String(etMidnightMs(from)) }, { propertyName: "closedate", operator: "LT", value: String(etMidnightMs(addDays(to, 1))) },
           { propertyName: "hs_is_closed_won", operator: "EQ", value: "true" }
-        ] }], properties: ["dealname", "amount", "closedate", "createdate", "hubspot_owner_id", "lead_source", "deal_source", "bark_credits_paid", "type_of_program_sold"], limit: 100, ...(after ? { after } : {})
+        ] }], properties: ["dealname", "amount", "closedate", "createdate", "hubspot_owner_id", "lead_source", "deal_source", "bark_credits_paid", "type_of_program_sold", "price_before_discount", "refunded_amount"], limit: 100, ...(after ? { after } : {})
       })
     });
     total = res.total ?? total;
