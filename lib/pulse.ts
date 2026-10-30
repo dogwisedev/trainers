@@ -83,7 +83,7 @@ export async function buildAppPart(sb: SupabaseClient = serviceClient()): Promis
     all<{ id: string; name: string; capacity: number | null; active: boolean; state: string | null }>((a, b) => sb.from("trainers").select("id, name, capacity, active, state").order("name").range(a, b)),
     all<{ id: string; deal_key: string; trainer_id: string | null; quiet_at: string | null; client_user_id: string | null; client_name: string | null; title: string | null }>((a, b) => sb.from("chats").select("id, deal_key, trainer_id, quiet_at, client_user_id, client_name, title").order("created_at").range(a, b)),
     all<{ chat_id: string; sender_role: string; created_at: string }>((a, b) => sb.from("chat_messages").select("chat_id, sender_role, created_at").gte("created_at", `${from}T00:00:00Z`).in("kind", ["text", "media"]).order("created_at").range(a, b)),
-    all<{ chat_id: string | null; booking_id: string | null; kind: string; opened_at: string; status: string; title: string | null; detail: string | null }>((a, b) => sb.from("chat_incidents").select("chat_id, booking_id, kind, opened_at, status, title, detail").gte("opened_at", `${from}T00:00:00Z`).order("opened_at").range(a, b)),
+    all<{ chat_id: string | null; booking_id: string | null; kind: string; opened_at: string; status: string; detail: string | null }>((a, b) => sb.from("chat_incidents").select("chat_id, booking_id, kind, opened_at, status, detail").gte("opened_at", `${from}T00:00:00Z`).order("opened_at").range(a, b)),
     all<{ trainer_id: string; due_by: string | null; submitted_at: string | null }>((a, b) => sb.from("reports").select("trainer_id, due_by, submitted_at").gte("submitted_at", `${from}T00:00:00Z`).order("submitted_at").range(a, b)),
     all<{ trainer_id: string; start_date: string; end_date: string }>((a, b) => sb.from("time_off").select("trainer_id, start_date, end_date").lte("start_date", today).gte("end_date", from).order("start_date").range(a, b)),
     all<{ amount: number; closed_on: string; owner_id: string | null }>((a, b) => sb.from("deal_money").select("amount, closed_on, owner_id").gte("closed_on", from).order("closed_on").range(a, b))
@@ -108,7 +108,11 @@ export async function buildAppPart(sb: SupabaseClient = serviceClient()): Promis
     trainers: trs.map((t) => ({ id: t.id, name: t.name, cap: Number(t.capacity || 0), active: !!t.active, state: clean(t.state).toUpperCase() })),
     chats: chats.map((c) => ({ id: c.id, deal: c.deal_key, t: c.trainer_id, quiet: !!c.quiet_at, joined: joined.has(c.id), client: c.client_name || "", title: c.title || "" })),
     postDays, runs, lastStaff,
-    incidents: incs.map((i) => ({ c: i.chat_id, b: i.booking_id, k: i.kind, d: dayET(i.opened_at), open: i.status !== "resolved", title: clean(i.title).slice(0, 80), detail: clean(i.detail).slice(0, 120) })),
+    incidents: incs.map((i) => {
+      const bk = i.booking_id ? bks.find((b) => b.id === i.booking_id) : null, ch = i.chat_id ? chats.find((c) => c.id === i.chat_id) : null;
+      const title = bk ? `${bk.dog_name || "Dog"} (${bk.client_name})` : ch ? `${ch.title || "Dog"}${ch.client_name ? ` (${ch.client_name})` : ""}` : "";
+      return { c: i.chat_id, b: i.booking_id, k: i.kind, d: dayET(i.opened_at), open: i.status !== "resolved", title: title.slice(0, 80), detail: clean(i.detail).slice(0, 120) };
+    }),
     reports: reps.filter((r) => r.submitted_at && r.due_by && dayET(r.due_by) >= FORMS_CUTOVER).map((r) => ({ t: r.trainer_id, d: dayET(r.submitted_at!), ok: r.submitted_at! <= r.due_by! })),
     timeOff: offs.map((o) => ({ t: o.trainer_id, start: o.start_date, end: o.end_date })),
     dealMoney: dm.map((d) => ({ amount: Number(d.amount || 0), day: d.closed_on, owner: d.owner_id || "" }))
