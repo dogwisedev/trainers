@@ -83,7 +83,7 @@ export async function buildAppPart(sb: SupabaseClient = serviceClient()): Promis
   const t0 = Date.now(), today = todayIso(), from90 = addDays(today, -(SPAN - 1)), from = addDays(from90, -SPAN), notes: string[] = [];
   const [bks, trs, chats, msgs, incs, reps, offs, dm] = await Promise.all([
     all<{ id: string; trainer_id: string; hubspot_deal_id: string | null; dog_name: string | null; client_name: string; start_date: string; end_date: string; status: string; created_at: string; cancelled_at: string | null; cancel_reason: string | null; cancel_note: string | null }>((a, b) =>
-      sb.from("bookings").select("id, trainer_id, hubspot_deal_id, dog_name, client_name, start_date, end_date, status, created_at, cancelled_at, cancel_reason, cancel_note").lte("start_date", today).gte("end_date", from).order("start_date").range(a, b)),
+      sb.from("bookings").select("id, trainer_id, hubspot_deal_id, dog_name, client_name, start_date, end_date, status, created_at, cancelled_at, cancel_reason, cancel_note").lte("start_date", addDays(today, 14)).gte("end_date", from).order("start_date").range(a, b)),
     all<{ id: string; name: string; capacity: number | null; active: boolean; state: string | null }>((a, b) => sb.from("trainers").select("id, name, capacity, active, state").order("name").range(a, b)),
     all<{ id: string; deal_key: string; trainer_id: string | null; quiet_at: string | null; client_user_id: string | null; client_name: string | null; title: string | null }>((a, b) => sb.from("chats").select("id, deal_key, trainer_id, quiet_at, client_user_id, client_name, title").order("created_at").range(a, b)),
     all<{ chat_id: string; sender_role: string; created_at: string }>((a, b) => sb.from("chat_messages").select("chat_id, sender_role, created_at").gte("created_at", `${from}T00:00:00Z`).in("kind", ["text", "media"]).order("created_at").range(a, b)),
@@ -219,7 +219,7 @@ export type TrainerRow = {
 export type Move = { id: string; kind: "pickup" | "dropoff"; date: string; dog: string; client: string; trainer: string };
 export type OfficeView = {
   joined: number; chats: number; silent24: { dog: string; client: string; trainer: string; hours: number; href: string }[];
-  waitingClients: { client: string; dog: string; n: number; href: string }[]; slowTrainers: { name: string; alerts: number; href: string }[];
+  waitingClients: { client: string; dog: string; n: number; href: string }[]; slowTrainers: { name: string; alerts: number; href: string }[]; alertBar: number;
   newBookings: { name: string; n: number }[]; dateChanges: number; overbooked: number; moves: Move[];
   cancellations: { dog: string; client: string; trainer: string; reason: string; when: string }[];
   lateForms: { name: string; n: number }[]; balances: { text: string; href?: string }[]; incidents: { title: string; when: string; detail: string }[];
@@ -368,8 +368,10 @@ export async function pulse(q: { r?: string; from?: string; to?: string; v?: str
     const bar = Math.max(5, Math.round(range.days / 2)); // "repeated": alerts on half the days or more
     const slowTrainers = trainers.filter((t) => t.alerts >= bar).map((t) => ({ name: t.name, alerts: t.alerts, href: `/a/trainers/${t.id}` })).sort((a, b) => b.alerts - a.alerts);
     const nb = new Map<string, number>(); for (const b of snap.bookings.filter((b) => b.created >= range.from && b.created <= range.to)) nb.set(b.t, (nb.get(b.t) || 0) + 1);
-    const moves: Move[] = [...live.filter((b) => b.start >= range.from && b.start <= range.to).map((b) => ({ id: b.id, kind: "pickup" as const, date: b.start, dog: b.dog, client: b.client, trainer: tName(b.t) })),
-      ...live.filter((b) => b.end >= range.from && b.end <= range.to).map((b) => ({ id: b.id, kind: "dropoff" as const, date: b.end, dog: b.dog, client: b.client, trainer: tName(b.t) }))].sort((a, b) => b.date.localeCompare(a.date) || a.kind.localeCompare(b.kind));
+    // Pickups and drop-offs always look forward: today and the next 14 days, soonest first, whatever range is picked
+    const mFrom = snap.today, mTo = addDays(snap.today, 13);
+    const moves: Move[] = [...live.filter((b) => b.start >= mFrom && b.start <= mTo).map((b) => ({ id: b.id, kind: "pickup" as const, date: b.start, dog: b.dog, client: b.client, trainer: tName(b.t) })),
+      ...live.filter((b) => b.end >= mFrom && b.end <= mTo).map((b) => ({ id: b.id, kind: "dropoff" as const, date: b.end, dog: b.dog, client: b.client, trainer: tName(b.t) }))].sort((a, b) => a.date.localeCompare(b.date) || a.kind.localeCompare(b.kind));
     let counts = { todo: 0, now: 0, toReview: 0, late: 0, notBooked: 0, notSignedIn: 0 }, lateForms: OfficeView["lateForms"] = [], balances: OfficeView["balances"] = [];
     try {
       const t = await buildTodo(); const signin = t.items.find((i) => i.key === "signin");
@@ -378,7 +380,7 @@ export async function pulse(q: { r?: string; from?: string; to?: string; v?: str
       lateForms = [...lf.entries()].map(([name, n]) => ({ name, n })).sort((a, b) => b.n - a.n);
       balances = t.items.filter((i) => /balance/i.test(i.detail || "") && /ready|start/i.test(i.text)).map((i) => ({ text: i.text, href: i.dogHref || i.primary?.href }));
     } catch (e) { notes.push(`To do: ${(e as Error).message}`); }
-    office = { joined, chats: chatsNow.length, silent24, waitingClients, slowTrainers, newBookings: [...nb.entries()].map(([id, n]) => ({ name: tName(id), n })).sort((a, b) => b.n - a.n),
+    office = { joined, chats: chatsNow.length, silent24, waitingClients, slowTrainers, alertBar: bar, newBookings: [...nb.entries()].map(([id, n]) => ({ name: tName(id), n })).sort((a, b) => b.n - a.n),
       dateChanges: now.inc.filter((i) => i.k === "length_changed").length, overbooked: now.inc.filter((i) => i.k === "overbooked").length, moves,
       cancellations: snap.bookings.filter((b) => b.cancelledOn && b.cancelledOn >= range.from && b.cancelledOn <= range.to).map((b) => ({ dog: b.dog, client: b.client, trainer: tName(b.t), reason: `${b.reason || "No reason recorded"}${b.note ? `: ${b.note}` : ""}`, when: b.cancelledOn! })).sort((a, b) => b.when.localeCompare(a.when)),
       lateForms, balances, incidents: now.inc.filter((i) => i.k === "trainer_report").map((i) => ({ title: i.title || "Incident", when: i.d, detail: i.detail })).sort((a, b) => b.when.localeCompare(a.when)), counts };

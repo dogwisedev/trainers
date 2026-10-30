@@ -89,13 +89,13 @@ function Office({ o }: { o: OfficeView }) {
             {o.balances.slice(0, 8).map((x, i) => <li key={i}>{x.href ? <Link prefetch={false} href={x.href} className="block px-4 py-2.5 text-body hover:bg-paper/60">{x.text}</Link> : <span className="block px-4 py-2.5 text-body">{x.text}</span>}</li>)}
             {!o.balances.length && <Empty>Nobody starting soon still owes a balance.</Empty>}
           </ul>
-          <div className="mt-5"><MovesStrip moves={o.moves} limit={40} title="Pickups and drop-offs in this range" /></div>
+          <div className="mt-5"><MovesStrip moves={o.moves} limit={40} title="Pickups and drop-offs, next 14 days" /></div>
         </section>
         <section>
           <H n={o.slowTrainers.length}>Trainers with repeated comms alerts</H>
           <ul className="panel divide-y divide-line">
             {o.slowTrainers.map((x) => <li key={x.href}><Link prefetch={false} href={x.href} className="flex items-center justify-between gap-3 px-4 py-2.5 hover:bg-paper/60"><b>{x.name}</b><span className="text-small font-semibold tabular-nums text-heart">{x.alerts} alerts</span></Link></li>)}
-            {!o.slowTrainers.length && <Empty>No trainer had 3+ alerts in this range.</Empty>}
+            {!o.slowTrainers.length && <Empty>No trainer had {o.alertBar}+ alerts in this range.</Empty>}
           </ul>
           <H n={o.lateForms.reduce((n, x) => n + x.n, 0)}>Forms missing, by trainer</H>
           <ul className="panel divide-y divide-line">

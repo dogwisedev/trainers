@@ -30,10 +30,12 @@ export function TodoList({ items, late, beforeApp = [], canQuiet = false }: { it
   return (
     <>
       <div id="todo-list">
-      <nav className="-mx-1 mt-4 flex items-center gap-2 overflow-x-auto px-1 pb-1" aria-label="Jump to">
+      <div className="mt-4 flex flex-wrap items-center gap-2">
         <TodoTypes />
-        {counts.length > 1 && counts.map((g) => <a key={g.key} href={`#todo-${g.key}`} className={`chip shrink-0 ${g.key === "now" ? "border-heart/30 text-heart" : ""}`}>{g.short}<span className="count">{g.n}</span></a>)}
-      </nav>
+        {counts.length > 1 && <nav className="-mx-1 flex min-w-0 gap-2 overflow-x-auto px-1 pb-1" aria-label="Jump to">
+          {counts.map((g) => <a key={g.key} href={`#todo-${g.key}`} className={`chip shrink-0 ${g.key === "now" ? "border-heart/30 text-heart" : ""}`}>{g.short}<span className="count">{g.n}</span></a>)}
+        </nav>}
+      </div>
       {GROUPS.map((g) => {
         const list = items.filter((i) => i.group === g.key);
         const showLate = g.key === "week" && late.length > 0, showOld = g.key === "week" && beforeApp.length > 0;

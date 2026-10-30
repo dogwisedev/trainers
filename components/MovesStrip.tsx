@@ -27,7 +27,7 @@ export function MovesStrip({ moves, title, today = false, limit }: { moves: Move
           ))}
           {shown.length < moves.length && <li className="px-4 py-2 text-caption text-ink-faint">+{moves.length - shown.length} more</li>}
         </ul>
-      ) : <p className="px-4 py-3 text-small text-ink-soft">No pickups or drop-offs{today ? " today" : " in this range"}.</p>}
+      ) : <p className="px-4 py-3 text-small text-ink-soft">No pickups or drop-offs{today ? " today" : " in the next 14 days"}.</p>}
     </section>
   );
 }
