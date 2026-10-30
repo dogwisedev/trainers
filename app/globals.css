@@ -47,6 +47,7 @@ p { text-wrap: pretty; }
   .kennel-blocked { background: repeating-linear-gradient(135deg, #FDE8EC 0 4px, #F7C4CE 4px 8px); }
   [data-theme="dark"] .kennel-blocked { background: repeating-linear-gradient(135deg, #3A1E2A 0 4px, #5A2C3C 4px 8px); }
   @keyframes fade-in { to { opacity: 1; } }
+  .todo-filtering .count { display: none; } /* To do "Types" filter on: header counts would mislead */
   [data-theme="dark"] .skeleton { background-image: linear-gradient(90deg, #241D4A 0%, #2E2660 40%, #241D4A 80%); }
 }
 

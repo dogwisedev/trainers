@@ -160,7 +160,7 @@ function Trainers({ rows }: { rows: TrainerRow[] }) {
               <div><p className="text-caption text-ink-faint">Forms on time</p><p className="text-body font-semibold tabular-nums">{t.formsOnTime == null ? "–" : `${t.formsOnTime}%`} <span className="text-caption font-normal text-ink-faint">{t.formsN || ""}</span></p></div>
               <div><p className="text-caption text-ink-faint">Alerts</p><p className={`text-body font-semibold tabular-nums ${t.alerts >= 5 ? "text-heart" : ""}`}>{t.alerts}</p></div>
               <div><p className="text-caption text-ink-faint">Kennels used</p><p className="text-body font-semibold tabular-nums">{t.utilisation == null ? "–" : `${t.utilisation}%`} <span className="text-caption font-normal text-ink-faint">{t.cap ? `of ${t.cap}` : ""}</span></p>{t.utilisation != null && <Bar v={t.utilisation} tone="bg-fern" />}</div>
-              <div><p className="text-caption text-ink-faint">Days off</p><p className={`text-body font-semibold tabular-nums ${t.daysOff >= 7 ? "text-warn" : ""}`}>{t.daysOff}</p></div>
+              <div><p className="text-caption text-ink-faint">Days off</p><p className={`text-body font-semibold tabular-nums ${t.daysOff >= 7 ? "text-warn" : ""}`}>{t.daysOff}{t.offNote && <span className="block text-caption font-normal text-ink-faint">{t.offNote}</span>}</p></div>
             </div>
           )}
         </li>
@@ -178,7 +178,7 @@ function TileMap({ s, q }: { s: SalesView; q: Q }) {
       <div className="mb-3 grid gap-x-4 gap-y-1 text-caption text-ink-soft sm:grid-cols-2">
         <span><b className="text-ink">Big number</b> = leads from that state</span>
         <span><span className="mr-1 inline-block h-3 w-3 rounded-[3px] bg-lav/60 align-[-2px]" /><b className="text-ink">Purple fill</b> = sales, as a share of the busiest state</span>
-        <span><span className="mr-1 inline-block rounded bg-ink px-1 text-[9px] font-bold text-white">12</span><b className="text-ink">Badge</b> = number of sales</span>
+        <span><span className="mr-1 inline-block rounded bg-canvas px-1 text-[9px] font-bold text-ink ring-1 ring-line">12</span><b className="text-ink">Badge</b> = number of sales</span>
         <span><span className="mr-1 inline-block h-3 w-3 rounded-[3px] ring-2 ring-heart align-[-2px]" /><b className="text-ink">Red edge</b> = kennels there 80%+ full today</span>
       </div>
       {sel && <p className="mb-2 text-caption"><Link prefetch={false} href={href(q, { state: undefined })} className="font-semibold underline">Show all states</Link></p>}
@@ -193,7 +193,7 @@ function TileMap({ s, q }: { s: SalesView; q: Q }) {
               {fill > 0 && <span className="absolute inset-x-0 bottom-0 -z-10 bg-lav/60" style={{ height: `${fill}%` }} aria-hidden />}
               <span className={`absolute left-1 top-0.5 text-[8px] font-bold leading-none md:text-[10px] ${any ? "text-ink-soft" : "text-ink-faint"}`}>{t.st}</span>
               {leads > 0 && <span className="text-[11px] font-extrabold leading-none tabular-nums md:text-[15px]">{leads}</span>}
-              {won > 0 && <span className="absolute bottom-0.5 right-0.5 rounded bg-ink px-1 text-[8px] font-bold leading-[1.4] tabular-nums text-white md:text-[10px]">{won}</span>}
+              {won > 0 && <span className="absolute bottom-0.5 right-0.5 rounded bg-canvas px-1 text-[8px] font-bold leading-[1.4] tabular-nums text-ink ring-1 ring-line md:text-[10px]">{won}</span>}
             </Link>
           );
         })}
@@ -223,7 +223,7 @@ function Sales({ s, q }: { s: SalesView; q: Q }) {
     { key: "leads", label: "Leads", value: s.leads.toLocaleString("en-US"), sub: s.leadsLY ? `${s.leadsLY.toLocaleString("en-US")} on the same dates last year` : "deals created in HubSpot", delta: s.leadsLY ? dlt(s.leads, s.leadsLY, true) : { text: "", up: null }, good: "up", how: `Deals created in HubSpot in the range (every contact becomes a deal, so this is leads), against the same dates one year earlier. The map and the salespeople's lead counts use the newest ${s.sample.toLocaleString("en-US")} leads' shares, scaled to this total; sources are counted exactly.`, spark: [] },
     { key: "sold", label: "Sold", value: money(s.wonAmount), sub: `${s.won} closed won · last year ${s.wonLY.n} (${money(s.wonLY.amount)})`, delta: s.wonLY.amount ? dlt(s.wonAmount, s.wonLY.amount, true) : { text: "", up: null }, good: "up", how: "Closed Won by close date, program price, against the same dates last year.", spark: [], to: "/a/sales" },
     { key: "conv", label: "Conversion", value: s.conversion == null ? "–" : `${s.conversion}%`, sub: `${s.conversionLY != null ? `${s.conversionLY}% last year · ` : ""}${s.closeN ? `${s.closeDays} days to close (median)` : ""}`, delta: s.conversionLY ? dlt(s.conversion || 0, s.conversionLY, true) : { text: "", up: null }, good: "up", how: "Won in the range ÷ leads created in the range (same window, not the same cohort), and the same for last year. Days to close: created to closed, median, for deals won in the range.", spark: [] },
-    { key: "cost", label: "Cost per sale", value: s.perSale, sub: `per lead ${s.perLead} · about ${s.perLeadN.toLocaleString("en-US")} leads with credits`, delta: { text: "", up: null }, how: `Credits per lead are measured on the newest ${s.sample.toLocaleString("en-US")} leads (only ones that carry Bark credits), then applied to the real lead counts. Per sale: that spend ÷ the ${s.perSaleN} won deals that carry credits. ${s.creditUsd ? `1 credit = $${s.creditUsd}.` : "Set BARK_CREDIT_USD in Vercel to see dollars."}`, spark: [] }
+    { key: "cost", label: "Cost per sale", value: s.perSale, sub: `per lead ${s.perLead} · average of ${s.perLeadN.toLocaleString("en-US")} leads with credits`, delta: { text: "", up: null }, how: `Average credits per lead, measured only on leads that carry Bark credits (${s.perLeadN.toLocaleString("en-US")} of the newest ${s.sample.toLocaleString("en-US")}), applied to all ${s.leads.toLocaleString("en-US")} leads, divided by all ${s.perSaleN} sales. ${s.creditUsd ? `1 credit = $${s.creditUsd}.` : "Set BARK_CREDIT_USD in Vercel to see dollars."}`, spark: [] }
   ];
   return (
     <>
@@ -259,7 +259,7 @@ function Sales({ s, q }: { s: SalesView; q: Q }) {
             ))}
             {!s.bySource.length && <Empty>No source on these deals.</Empty>}
           </ul>
-          <p className="mt-1 text-caption text-ink-faint">Leads per source counted in HubSpot for {s.peopleRange.toLowerCase()}. Bar = conversion (full at 25%). Per sale = credits per lead measured on that source&apos;s sampled leads × its lead count, ÷ its won deals with credits.</p>
+          <p className="mt-1 text-caption text-ink-faint">Leads per source counted in HubSpot for {s.peopleRange.toLowerCase()}. Bar = conversion (full at 25%). Per sale = that source&apos;s average credits per lead × its leads, ÷ its sales.</p>
           <H>Salespeople</H>
           <ul className="panel divide-y divide-line">
             {s.people.map((p) => (

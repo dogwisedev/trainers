@@ -4,6 +4,7 @@ import type { TodoGroup, TodoIcon, TodoItem } from "@/lib/todo";
 import type { Todo } from "@/lib/reports";
 import { TodoRow } from "@/components/ReportBits";
 import { QuietChatButton } from "@/components/QuietChatButton";
+import { TodoTypes } from "@/components/TodoTypes";
 import { TodoDone } from "@/components/TodoDone";
 import { IconTile } from "@/components/ui";
 
@@ -28,17 +29,17 @@ export function TodoList({ items, late, beforeApp = [], canQuiet = false }: { it
   const counts = GROUPS.map((g) => ({ ...g, n: items.filter((i) => i.group === g.key).length + (g.key === "week" ? forms : 0) })).filter((g) => g.n);
   return (
     <>
-      {counts.length > 1 && (
-        <nav className="-mx-1 mt-4 flex gap-2 overflow-x-auto px-1 pb-1" aria-label="Jump to">
-          {counts.map((g) => <a key={g.key} href={`#todo-${g.key}`} className={`chip shrink-0 ${g.key === "now" ? "border-heart/30 text-heart" : ""}`}>{g.short}<span className="count">{g.n}</span></a>)}
-        </nav>
-      )}
+      <div id="todo-list">
+      <nav className="-mx-1 mt-4 flex items-center gap-2 overflow-x-auto px-1 pb-1" aria-label="Jump to">
+        <TodoTypes />
+        {counts.length > 1 && counts.map((g) => <a key={g.key} href={`#todo-${g.key}`} className={`chip shrink-0 ${g.key === "now" ? "border-heart/30 text-heart" : ""}`}>{g.short}<span className="count">{g.n}</span></a>)}
+      </nav>
       {GROUPS.map((g) => {
         const list = items.filter((i) => i.group === g.key);
         const showLate = g.key === "week" && late.length > 0, showOld = g.key === "week" && beforeApp.length > 0;
         if (!list.length && !showLate && !showOld) return null;
         return (
-          <section key={g.key} id={`todo-${g.key}`} className="scroll-mt-20">
+          <section key={g.key} id={`todo-${g.key}`} data-group={g.key} className="scroll-mt-20">
             <h2 className="group-title">{g.title}<span className="count">{list.length + (showLate ? 1 : 0) + (showOld ? 1 : 0)}</span></h2>
             {g.hint && <p className="-mt-1.5 mb-2.5 px-1 text-small text-ink-faint">{g.hint}</p>}
             <ul className="panel divide-y divide-line overflow-hidden">
@@ -51,6 +52,7 @@ export function TodoList({ items, late, beforeApp = [], canQuiet = false }: { it
           </section>
         );
       })}
+      </div>
     </>
   );
 }
@@ -58,7 +60,7 @@ export function TodoList({ items, late, beforeApp = [], canQuiet = false }: { it
 /** A list of forms folded into one To do row. */
 function FormGroup({ title, list, note }: { title: string; list: (Todo & { trainerName?: string })[]; note: React.ReactNode }) {
   return (
-    <li>
+    <li data-kind="form">
       <details className="group">
         <summary className="flex cursor-pointer list-none items-center gap-3 p-4 [&::-webkit-details-marker]:hidden">
           <IconTile tone="biscuit"><ClipboardCheck size={19} /></IconTile>
@@ -77,7 +79,7 @@ function Item({ i, canQuiet = false }: { i: TodoItem; canQuiet?: boolean }) {
   const I = ICONS[i.icon || "alert"];
   const tone = i.tone === "heart" ? "heart" : i.tone === "biscuit" ? "biscuit" : "paper";
   return (
-    <li className="flex gap-3 p-4">
+    <li className="flex gap-3 p-4" data-kind={i.icon || "alert"}>
       <IconTile tone={tone}><I size={19} /></IconTile>
       <div className="min-w-0 flex-1">
         <p className="font-bold leading-snug">{i.text}</p>

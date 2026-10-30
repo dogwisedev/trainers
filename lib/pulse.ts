@@ -54,7 +54,7 @@ export type Snapshot = {
   builtAt: string; today: string; from: string; points: number; ms: number; notes: string[];
   bookings: SBooking[]; trainers: { id: string; name: string; cap: number; active: boolean; state: string }[]; chats: SChat[];
   postDays: Record<string, string[]>; runs: Record<string, SRun[]>; lastStaff: Record<string, string>;
-  incidents: SInc[]; reports: { t: string; d: string; ok: boolean }[]; timeOff: { t: string; start: string; end: string }[];
+  incidents: SInc[]; reports: { t: string; d: string; ok: boolean }[]; timeOff: { t: string; start: string; end: string; blocked: number | null }[]; // blocked = kennels blocked (null = all)
   dealMoney: { amount: number; day: string; owner: string }[]; hs: null | {
     created: SDeal[]; createdTotals: Record<string, { now: number; ly: number }>; won: SDeal[]; wonLY: SDeal[]; lost: SDeal[];
     monthLY: { label: string; n: number; amount: number; toDate: number; toDateAmount: number }; nextMonthLY: { label: string; n: number; amount: number };
@@ -89,7 +89,7 @@ export async function buildAppPart(sb: SupabaseClient = serviceClient()): Promis
     all<{ chat_id: string; sender_role: string; created_at: string }>((a, b) => sb.from("chat_messages").select("chat_id, sender_role, created_at").gte("created_at", `${from}T00:00:00Z`).in("kind", ["text", "media"]).order("created_at").range(a, b)),
     all<{ chat_id: string | null; booking_id: string | null; kind: string; opened_at: string; status: string; detail: string | null }>((a, b) => sb.from("chat_incidents").select("chat_id, booking_id, kind, opened_at, status, detail").gte("opened_at", `${from}T00:00:00Z`).order("opened_at").range(a, b)),
     all<{ trainer_id: string; due_by: string | null; submitted_at: string | null }>((a, b) => sb.from("reports").select("trainer_id, due_by, submitted_at").gte("submitted_at", `${from}T00:00:00Z`).order("submitted_at").range(a, b)),
-    all<{ trainer_id: string; start_date: string; end_date: string }>((a, b) => sb.from("time_off").select("trainer_id, start_date, end_date").lte("start_date", today).gte("end_date", from).order("start_date").range(a, b)),
+    all<{ trainer_id: string; start_date: string; end_date: string; slots_blocked: number | null }>((a, b) => sb.from("time_off").select("trainer_id, start_date, end_date, slots_blocked").lte("start_date", today).gte("end_date", from).order("start_date").range(a, b)),
     all<{ amount: number; closed_on: string; owner_id: string | null }>((a, b) => sb.from("deal_money").select("amount, closed_on, owner_id").gte("closed_on", from).order("closed_on").range(a, b))
   ]);
   const reads = await all<{ chat_id: string; user_id: string }>((a, b) => sb.from("chat_reads").select("chat_id, user_id").order("chat_id").range(a, b));
@@ -118,7 +118,7 @@ export async function buildAppPart(sb: SupabaseClient = serviceClient()): Promis
       return { c: i.chat_id, b: i.booking_id, k: i.kind, d: dayET(i.opened_at), open: i.status !== "resolved", title: title.slice(0, 80), detail: clean(i.detail).slice(0, 120) };
     }),
     reports: reps.filter((r) => r.submitted_at && r.due_by && dayET(r.due_by) >= FORMS_CUTOVER).map((r) => ({ t: r.trainer_id, d: dayET(r.submitted_at!), ok: r.submitted_at! <= r.due_by! })),
-    timeOff: offs.map((o) => ({ t: o.trainer_id, start: o.start_date, end: o.end_date })),
+    timeOff: offs.map((o) => ({ t: o.trainer_id, start: o.start_date, end: o.end_date, blocked: o.slots_blocked })),
     dealMoney: dm.map((d) => ({ amount: Number(d.amount || 0), day: d.closed_on, owner: d.owner_id || "" }))
   };
 }
@@ -213,7 +213,7 @@ export type Tile = { key: string; label: string; value: string; sub: string; del
 export type Card = { tone: "heart" | "biscuit" | "mint"; title: string; evidence: string; href?: string; action?: string; more?: { label: string; items: string[] } };
 export type TrainerRow = {
   id: string; name: string; dogs: number; appDogs: number; careDays: number; postDays: number; updateRate: number | null; replyMedian: number | null; replyN: number;
-  formsOnTime: number | null; formsN: number; alerts: number; utilisation: number | null; daysOff: number; cap: number; rank: number | null;
+  formsOnTime: number | null; formsN: number; alerts: number; utilisation: number | null; daysOff: number; offNote: string; cap: number; rank: number | null; baseUtilisation: number | null;
   score: number | null; baseline: number | null; confidence: "ok" | "low" | "none"; unusual: boolean; summary: string;
 };
 export type Move = { id: string; kind: "pickup" | "dropoff"; date: string; dog: string; client: string; trainer: string };
@@ -340,12 +340,17 @@ export async function pulse(q: { r?: string; from?: string; to?: string; v?: str
     const x = now.perTrainer.get(id) || { dogs: new Set<string>(), care: 0, post: 0, replies: [] as number[], formsOk: 0, formsN: 0, alerts: 0 }, b = base.perTrainer.get(id);
     const tr = snap.trainers.find((t) => t.id === id), cap = tr?.cap || 0;
     const dogsAll = new Set(live.filter((bk) => bk.t === id && bk.start <= range.to && bk.end > range.from).map((bk) => bk.id));
-    const daysOff = snap.timeOff.filter((o) => o.t === id).reduce((n, o) => n + overlapDays(o.start, o.end, range.from, range.to), 0);
+    // Time off: a block of some kennels counts as that share of a day (2 of 4 kennels for 90 days = 45 days off)
+    const offs = snap.timeOff.filter((o) => o.t === id && overlapDays(o.start, o.end, range.from, range.to) > 0);
+    const daysOff = Math.round(offs.reduce((n, o) => n + overlapDays(o.start, o.end, range.from, range.to) * (o.blocked && cap ? Math.min(1, o.blocked / cap) : 1), 0));
+    const partial = offs.filter((o) => o.blocked && cap && o.blocked < cap);
+    const offNote = partial.length ? `${partial[0].blocked} of ${cap} kennels for ${offs.reduce((n, o) => n + overlapDays(o.start, o.end, range.from, range.to), 0)} d` : "";
     const allCare = live.filter((bk) => bk.t === id).reduce((n, bk) => n + overlapDays(bk.start, addDays(bk.end, -1), range.from, range.to), 0);
+    const baseFrom = addDays(snap.today, -(SPAN - 1)), baseCare = live.filter((bk) => bk.t === id).reduce((n, bk) => n + overlapDays(bk.start, addDays(bk.end, -1), baseFrom, snap.today), 0);
     const score = scoreOf(x, groupRate), baseline = b ? scoreOf(b, baseRate) : null;
     const row: TrainerRow = { id, name: tr?.name || tName(id), dogs: dogsAll.size, appDogs: x.dogs.size, careDays: x.care, postDays: x.post, updateRate: x.care ? Math.round((x.post / x.care) * 100) : null,
       replyMedian: median(x.replies), replyN: x.replies.length, formsOnTime: x.formsN ? Math.round((x.formsOk / x.formsN) * 100) : null, formsN: x.formsN, alerts: x.alerts,
-      utilisation: cap ? Math.min(100, Math.round((allCare / (cap * range.days)) * 100)) : null, daysOff, cap, rank: null,
+      utilisation: cap ? Math.min(100, Math.round((allCare / (cap * range.days)) * 100)) : null, daysOff, offNote, cap, rank: null, baseUtilisation: cap ? Math.min(100, Math.round((baseCare / (cap * SPAN)) * 100)) : null,
       score, baseline, confidence: score == null ? "none" : x.care < 14 || (x.replies.length < 5 && x.care < 21) ? "low" : "ok", unusual: score != null && baseline != null && b!.care >= 21 && Math.abs(score - baseline) >= 20, summary: "" };
     row.summary = summaryOf(row);
     return row;
@@ -392,15 +397,16 @@ export async function pulse(q: { r?: string; from?: string; to?: string; v?: str
     const st = q.state || null;
     const sel = <T extends { st: string | null }>(xs: T[]) => (st ? xs.filter((x) => x.st === st) : xs);
     const creditUsd = Number(process.env.BARK_CREDIT_USD || 0) || null, fmt = (n: number) => (creditUsd ? money(n * creditUsd) : `${Math.round(n * 10) / 10} cr`);
-    // Per source: exact leads, credits per lead (on the sample), spend = that × exact leads, cost per sale = spend ÷ won deals with credits
-    const srcS = new Map<string, { sample: number; credits: number; creditLeads: number; won: number; wonCredits: number }>();
-    const srcGet = (k: string) => { if (!srcS.has(k)) srcS.set(k, { sample: 0, credits: 0, creditLeads: 0, won: 0, wonCredits: 0 }); return srcS.get(k)!; };
+    // Cost: the average credits per lead, measured only on leads that carry Bark credits, applied to ALL leads, over ALL sales.
+    // Simple and steady: it doesn't move with which leads happen to be in the sample.
+    const srcS = new Map<string, { sample: number; credits: number; creditLeads: number; won: number }>();
+    const srcGet = (k: string) => { if (!srcS.has(k)) srcS.set(k, { sample: 0, credits: 0, creditLeads: 0, won: 0 }); return srcS.get(k)!; };
     for (const d of created) { const x = srcGet(d.source); x.sample++; if (d.credits > 0) { x.credits += d.credits; x.creditLeads++; } }
-    for (const d of won) { const x = srcGet(d.source); x.won++; if (d.credits > 0) x.wonCredits++; }
+    for (const d of won) srcGet(d.source).won++;
+    const creditLeadsAll = created.filter((d) => d.credits > 0), avgCredits = creditLeadsAll.length ? creditLeadsAll.reduce((n, d) => n + d.credits, 0) / creditLeadsAll.length : 0;
     const srcLeads = (k: string, x: { sample: number }) => (range.exact && srcExact[k] != null ? srcExact[k] : Math.round(x.sample * scale));
-    const srcSpend = (k: string, x: { sample: number; credits: number; creditLeads: number }) => (x.sample ? (x.credits / x.sample) * srcLeads(k, x) : 0); // credits per lead on the sample × real leads
-    let spend = 0, creditLeadsAll = 0, wonCredits = 0;
-    for (const [k, x] of srcS) { spend += srcSpend(k, x); creditLeadsAll += x.sample ? Math.round((x.creditLeads / x.sample) * srcLeads(k, x)) : 0; wonCredits += x.wonCredits; }
+    const srcAvg = (x: { credits: number; creditLeads: number }) => (x.creditLeads ? x.credits / x.creditLeads : avgCredits);
+    const spend = avgCredits * leads;
     // Map: leads per state (the sample's share, scaled to the total) and sales; "full" = that state's active trainers' kennels are 80%+ used today
     const cells = new Map<string, StateCell>(), cell = (x: string) => { if (!cells.has(x)) cells.set(x, { st: x, leads: 0, won: 0, wonAmount: 0, full: false }); return cells.get(x)!; };
     for (const d of created) if (d.st) cell(d.st).leads++;
@@ -433,11 +439,11 @@ export async function pulse(q: { r?: string; from?: string; to?: string; v?: str
     sales = {
       leads, leadsLY, won: won.length, wonAmount: won.reduce((n, d) => n + d.amount, 0), wonLY: { n: wonLY.length, amount: wonLY.reduce((n, d) => n + d.amount, 0) },
       conversion: leads ? Math.round((won.length / leads) * 1000) / 10 : null, conversionLY: leadsLY ? Math.round((wonLY.length / leadsLY) * 1000) / 10 : null,
-      perLead: creditLeadsAll ? fmt(spend / creditLeadsAll) : "–", perLeadN: creditLeadsAll, perSale: wonCredits ? fmt(spend / wonCredits) : "–", perSaleN: wonCredits, creditUsd,
+      perLead: avgCredits ? fmt(avgCredits) : "–", perLeadN: creditLeadsAll.length, perSale: avgCredits && won.length ? fmt(spend / won.length) : "–", perSaleN: won.length, creditUsd,
       closeDays: median(closeDaysArr), closeN: closeDaysArr.length,
       month: (() => { const ms = `${snap.today.slice(0, 7)}-01`; const m = h.won.filter((d) => (d.closed || "") >= ms && (d.closed || "") <= snap.today); return { label: h.monthLY.label, n: m.length, amount: m.reduce((n, d) => n + d.amount, 0), lyToDate: h.monthLY.toDate, lyToDateAmount: h.monthLY.toDateAmount, lyFull: h.monthLY.n, lyFullAmount: h.monthLY.amount }; })(),
       nextMonth: h.nextMonthLY,
-      bySource: [...srcS.entries()].map(([source, x]) => { const l = srcLeads(source, x); return { source, leads: l, won: x.won, conversion: l ? Math.round((x.won / l) * 1000) / 10 : 0, perSale: x.wonCredits && x.credits ? fmt(srcSpend(source, x) / x.wonCredits) : null }; }).sort((a, b) => b.leads - a.leads).slice(0, 8),
+      bySource: [...srcS.entries()].map(([source, x]) => { const l = srcLeads(source, x), a = srcAvg(x); return { source, leads: l, won: x.won, conversion: l ? Math.round((x.won / l) * 1000) / 10 : 0, perSale: x.won && a && x.creditLeads ? fmt((a * l) / x.won) : null }; }).sort((a, b) => b.leads - a.leads).slice(0, 8),
       states: [...cells.values()], people, peopleRange: PRESETS.find((p) => p.key === ck)?.label || range.label, emailsLogged: h.emailsLogged,
       chart: buckets, chartUnit: unit, chartState: st,
       planLost: { n: planLost.length, amount: planLost.reduce((n, d) => n + d.amount, 0) }, failed: snap.failed ? { n: failedIn.length, amount: failedIn.reduce((n, f) => n + f.amount, 0) } : null,
@@ -453,6 +459,8 @@ export async function pulse(q: { r?: string; from?: string; to?: string; v?: str
     if (waitingNow >= 3) cards.push({ tone: "heart", title: `${waitingNow} clients are waiting for a reply right now`, evidence: `Team reply median ${now.teamMedian == null ? "–" : label(now.teamMedian)} in this range.`, href: "/a#todo-now", action: "See To do" });
     if (now.started && now.cancelled / Math.max(1, now.started) > 0.15) cards.push({ tone: "heart", title: `${now.cancelled} cancelled against ${now.started} started`, evidence: "More than 15% cancelled in this range. Reasons are on the bookings.", href: "/a/dogs", action: "See bookings" });
     if (now.formsN >= 10 && pct(now.formsOk, now.formsN)! < 70) cards.push({ tone: "biscuit", title: `Forms on time: ${pct(now.formsOk, now.formsN)}%`, evidence: `${now.formsN - now.formsOk} of ${now.formsN} forms were late.`, href: "/a#todo-week", action: "See late forms" });
+    const packed = trainers.filter((t) => (t.baseUtilisation ?? 0) >= 80 && t.cap > 0);
+    if (packed.length) cards.push({ tone: "mint", title: `Worth discussing more kennels? ${packed.map((t) => t.name).join(", ")}`, evidence: `Booked 80%+ of their kennels across the last 90 days (${packed.map((t) => `${t.name} ${t.baseUtilisation}%`).join(", ")}).` });
   } else if (sales) {
     if (sales.planLost.n >= 2) cards.push({ tone: "biscuit", title: `${sales.planLost.n} people weren't approved for a payment plan (${money(sales.planLost.amount)})`, evidence: "Try splitting the cost into two smaller plans before these go cold." });
     if (sales.failed && sales.failed.n >= 2) cards.push({ tone: "heart", title: `${sales.failed.n} customers' last card payment failed (${money(sales.failed.amount)})`, evidence: "From Stripe: their most recent attempt in the range didn't go through and nothing succeeded after it. Worth a call." });
