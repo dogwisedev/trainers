@@ -12,6 +12,7 @@ import { notifyMessage } from "@/lib/chatNotify";
 import { BRAND_LOGO_PNG_BASE64 } from "@/lib/brandLogo";
 import type { Booking } from "@/lib/types";
 import { QUIET_KINDS, QUIET_LABEL, canQuiet } from "@/lib/quietChats";
+import { trashDriveFile } from "@/lib/drive";
 
 export type ChatResult = { ok: boolean; message: string; chatId?: string };
 const DEMO: ChatResult = { ok: false, message: "Demo mode: connect Supabase to use chats." };
@@ -247,6 +248,28 @@ export async function cancelScheduledAction(id: string): Promise<ChatResult> {
     if (error) return { ok: false, message: error.message };
     revalidatePath(`/a/chats/${m.chat_id}`); revalidatePath(`/t/chats/${m.chat_id}`);
     return { ok: true, message: "Cancelled.", chatId: m.chat_id };
+  } catch (e) { return { ok: false, message: (e as Error).message }; }
+});
+}
+
+/** Delete a message for everyone: trainers their own, the office any. Its photos, videos and files go to the Drive trash too. */
+export async function deleteMessageAction(messageId: string): Promise<ChatResult> {
+  return audited("deleteMessageAction", { messageId }, async () => {
+  if (isDemo()) return DEMO;
+  try {
+    const v = await getViewer();
+    if (!v || (v.role !== "admin" && v.role !== "trainer")) return { ok: false, message: "Trainers and the office only." };
+    const sb = serviceClient();
+    const { data: m } = await sb.from("chat_messages").select("id, chat_id, sender_id, sender_role, media, chats(trainer_id)").eq("id", messageId).maybeSingle();
+    const msg = m as unknown as { id: string; chat_id: string; sender_id: string | null; sender_role: string; media: { id: string; name: string }[] | null; chats: { trainer_id: string | null } | null } | null;
+    if (!msg) return { ok: false, message: "That message is already gone." };
+    if (v.role === "trainer" && (msg.sender_id !== v.userId || msg.chats?.trainer_id !== v.trainerId)) return { ok: false, message: "You can only delete your own messages." };
+    const { error } = await sb.from("chat_messages").delete().eq("id", msg.id);
+    if (error) return { ok: false, message: error.message };
+    const files = (msg.media || []).filter((x) => x?.id);
+    const trashed = (await Promise.all(files.map((x) => trashDriveFile(x.id).catch(() => false)))).filter(Boolean).length;
+    revalidatePath(`/a/chats/${msg.chat_id}`); revalidatePath(`/t/chats/${msg.chat_id}`); revalidatePath(`/c/${msg.chat_id}`);
+    return { ok: true, message: files.length ? (trashed === files.length ? "Deleted, and removed from Drive." : `Deleted. ${files.length - trashed} file couldn't be removed from Drive: ask Alma.`) : "Deleted.", chatId: msg.chat_id };
   } catch (e) { return { ok: false, message: (e as Error).message }; }
 });
 }

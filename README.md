@@ -77,6 +77,9 @@ Asks why (`lib/cancelReasons.ts`, saved on the booking: migration 040) and says 
 ## Chat list order
 Groups stay as they are; inside each group the newest message is first. "By dates" (`?o=dates`) puts the soonest drop-off / start first instead. The trainer's list is still by dates.
 
+## Deleting a chat message
+Under each message: **Delete** (trainers on their own messages, the office on any). It removes the message for everyone (open chats drop it live) and moves its photos, videos and files to the Drive trash, so the folder link stops showing them too. Logged as "Deleted a chat message". Before a trainer or the office sends a document (anything that isn't a photo or video), the app asks whether it's meant for the client.
+
 ## Scheduled messages (trainers and the office)
 Migration 041. The clock next to Send opens a sheet: write the message, add photos or videos, pick when (quick picks or any date and time, up to 30 days ahead). It's kept in `scheduled_messages` and posted into the chat by the 10-minute chat job (`lib/scheduled.ts`) at that time, as the person who scheduled it, so the client sees nothing before (no message, preview or notification). Pending ones show in a "Scheduled" strip above the composer with Cancel (yours, or any as admin). If the chat closes first, it's cancelled with a note.
 

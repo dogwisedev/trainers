@@ -183,3 +183,10 @@ export async function listFolderFiles(folderId: string): Promise<{ id: string; n
   // "Strong Companion 2 - …" before "Strong Companion 10 - …"
   return out.sort((a, b) => a.name.localeCompare(b.name, "en", { numeric: true }));
 }
+
+/** Moves a Drive file to the trash (a chat message deleted in the app takes its files with it). Anyone with the folder link loses it at once. */
+export async function trashDriveFile(fileId: string): Promise<boolean> {
+  if (!driveConfigured() || !fileId) return false;
+  const r = await api(`/drive/v3/files/${encodeURIComponent(fileId)}?supportsAllDrives=true`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ trashed: true }) });
+  return r.ok || r.status === 404;
+}

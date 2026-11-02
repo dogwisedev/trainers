@@ -4,6 +4,7 @@ import { createBrowserClient } from "@supabase/ssr";
 import { FolderOpen, Paperclip, SendHorizontal, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { ScheduleButton, ScheduledStrip, type ScheduledLite } from "@/components/ScheduleMessage";
+import { deleteMessageAction } from "@/app/chat-actions";
 import { notifyChatAction } from "@/app/chat-actions";
 import { uploadToDrive } from "@/lib/driveUpload";
 import { allowedType, deviceLabel, fileType, mediaKind, newId, shrinkPhoto } from "@/lib/uploadPrep";
@@ -145,6 +146,9 @@ export function ChatThread(p: { chatId: string; me: Me; initial: ChatMsg[]; hasM
         outbox.drop((e.new as ChatMsg).id);
         if ((e.new as ChatMsg).sender_id !== meRef.current.userId && document.visibilityState === "visible") markRead();
       })
+      .on("postgres_changes", { event: "DELETE", schema: "public", table: "chat_messages" }, (e) => {
+        const id = (e.old as { id?: string })?.id; if (id) setMsgs((cur) => cur.filter((x) => x.id !== id));
+      })
       .subscribe((status) => { if (status === "SUBSCRIBED") fetchSince(); });
     const resend = () => msgsRef.current.filter((m) => m.local && m.failed).forEach((m) => retryRef.current(m));
     const vis = () => { if (document.visibilityState === "visible") { fetchSince(); markRead(); resend(); } };
@@ -254,6 +258,8 @@ export function ChatThread(p: { chatId: string; me: Me; initial: ChatMsg[]; hasM
   };
   const attach = (files: FileList | null) => {
     if (!files || !p.open) return;
+    const docs = [...files].filter((f) => !/^(image|video)\//.test(f.type) && !/\.(heic|heif|mov|mp4|jpe?g|png|gif|webp)$/i.test(f.name));
+    if (me.role !== "client" && docs.length && !window.confirm(`You're sending ${docs.length > 1 ? `${docs.length} documents` : `a document`} (${docs.map((f) => f.name).join(", ")}) into ${p.otherLabel ? `the chat with ${p.otherLabel}` : "the client's chat"}. The client will see ${docs.length > 1 ? "them" : "it"}.\n\nIs that right?`)) return;
     const added: Task[] = [...files].map((file) => ({ key: ++seq.current, file, progress: 0, note: "", error: "", stage: "prepare" }));
     setTasks((cur) => [...cur, ...added]);
     added.reduce((chain, t) => chain.then(() => runUpload(t)), Promise.resolve()); // one at a time: kind to a phone connection
@@ -295,6 +301,14 @@ export function ChatThread(p: { chatId: string; me: Me; initial: ChatMsg[]; hasM
                     {m.media.length > 0 && <div className={`${m.body ? "mt-2" : ""} space-y-2`}>{m.media.map((x) => <MediaCard key={x.id} m={x} local={previews.current.get(x.id)} onOpen={setViewing} dark={mine} />)}</div>}
                     <p className={`mt-1 text-micro ${mine ? "text-white/75" : "text-ink-faint"}`}>
                       {m.failed ? <button type="button" onClick={() => retry(m)} className="font-semibold underline">Not sent. Tap to retry</button> : m.local ? (demo ? "Demo: not saved" : "Sending…") : clock(m.created_at)}
+                      {!m.local && !demo && (me.role === "admin" || (mine && me.role === "trainer")) && (
+                        <button type="button" className="ml-2 font-semibold underline-offset-2 hover:underline"
+                          onClick={async () => {
+                            if (!window.confirm(`Delete this message for everyone?${m.media.length ? " Its photos, videos and files are removed from Drive too." : ""} This can't be undone.`)) return;
+                            const r = await deleteMessageAction(m.id);
+                            if (r.ok) setMsgs((cur) => cur.filter((x) => x.id !== m.id)); else window.alert(r.message);
+                          }}>Delete</button>
+                      )}
                     </p>
                   </div>
                 </div>
