@@ -77,6 +77,9 @@ Asks why (`lib/cancelReasons.ts`, saved on the booking: migration 040) and says 
 ## Chat list order
 Groups stay as they are; inside each group the newest message is first. "By dates" (`?o=dates`) puts the soonest drop-off / start first instead. The trainer's list is still by dates.
 
+## Scheduled messages (trainers and the office)
+Migration 041. The clock next to Send opens a sheet: write the message, add photos or videos, pick when (quick picks or any date and time, up to 30 days ahead). It's kept in `scheduled_messages` and posted into the chat by the 10-minute chat job (`lib/scheduled.ts`) at that time, as the person who scheduled it, so the client sees nothing before (no message, preview or notification). Pending ones show in a "Scheduled" strip above the composer with Cancel (yours, or any as admin). If the chat closes first, it's cancelled with a note.
+
 ## Quiet chats (finishing on Signal)
 Migration 039. On a chat page (or a To do row for "hasn't posted" / "client waiting"), **Quiet chat** stops that chat's "hasn't posted today", "client waiting" and "unanswered messages" alerts (and clears open ones), its client "new updates" emails and its automatic invite. Messages still notify as normal if anyone posts. Only the emails in `QUIET_CHAT_EMAILS` (default alma@dogwiseacademy.com) see the button, and the server checks it; everyone else sees "Quiet: finishing on Signal". **Alerts back on** undoes it.
 

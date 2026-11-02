@@ -9,12 +9,13 @@ import { ChatThread } from "@/components/ChatThread";
 import { ArchivedNotice } from "@/components/ChatBits";
 import { ChatMore } from "@/components/ChatMore";
 import { chatReadiness } from "@/lib/pretraining";
+import { listScheduled } from "@/lib/scheduled";
 
 export default async function TrainerChat({ params }: { params: { id: string } }) {
   const v = await requireRole("trainer");
   const chat = await getChat(params.id);
   if (!chat || chat.trainer_id !== v.trainerId) notFound();
-  const [{ messages, hasMore }, ready] = await Promise.all([listChatMessages(chat.id), chatReadiness(chat.deal_key, false)]);
+  const [{ messages, hasMore }, ready, scheduled] = await Promise.all([listChatMessages(chat.id), chatReadiness(chat.deal_key, false), isDemo() ? Promise.resolve([]) : listScheduled(chat.id)]);
   return (
     <>
       <div className="mb-4 flex items-center gap-3">
@@ -23,7 +24,8 @@ export default async function TrainerChat({ params }: { params: { id: string } }
         <div className="min-w-0 flex-1"><h1 className="truncate text-h2 font-extrabold leading-tight">{chat.title || "Dog"}</h1><p className="truncate text-body text-ink-soft">{chat.client_name}</p></div>
         <ChatMore profileHref={/^\d+$/.test(chat.deal_key) ? `/t/chats/${chat.id}/profile` : /^[0-9a-f-]{36}$/i.test(chat.deal_key) ? `/t/dogs/${chat.deal_key}` : null} left={ready ? ready.left : null} incidentHref={chat.status === "open" ? `/t/chats/${chat.id}/incident` : null} />
       </div>
-      {chat.archived_at ? <ArchivedNotice chat={chat} audience="staff" /> : <ChatThread chatId={chat.id} me={{ userId: v.userId, role: "trainer", name: v.name }} initial={messages} hasMore={hasMore} open={chat.status === "open"} folderUrl={chat.drive_folder_url} demo={isDemo()} withBottomNav otherLabel={`${chat.client_name || "the client"} and the Dogwise team`} />}
+      {chat.archived_at ? <ArchivedNotice chat={chat} audience="staff" /> : <ChatThread chatId={chat.id} me={{ userId: v.userId, role: "trainer", name: v.name }} initial={messages} hasMore={hasMore} open={chat.status === "open"} folderUrl={chat.drive_folder_url} demo={isDemo()} withBottomNav otherLabel={`${chat.client_name || "the client"} and the Dogwise team`}
+        scheduled={scheduled.map((m) => ({ id: m.id, body: m.body, media: m.media, send_at: m.send_at, sender_name: m.sender_name, mine: m.created_by === v.userId }))} />}
     </>
   );
 }

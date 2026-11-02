@@ -206,3 +206,47 @@ export async function quietChatAction(chatId: string, on: boolean): Promise<Chat
   } catch (e) { return { ok: false, message: (e as Error).message }; }
 });
 }
+
+/** Schedule a message: posted into the chat at `sendAt` (within 10 minutes of it) as you. Trainer of the chat, or admin. */
+export async function scheduleMessageAction(chatId: string, body: string, media: { id: string; name: string; kind: "video" | "photo" | "file"; size?: number }[], sendAt: string): Promise<ChatResult> {
+  return audited("scheduleMessageAction", { chatId, sendAt, media: media.length, bodyLength: body.length }, async () => {
+  if (isDemo()) return DEMO;
+  try {
+    const v = await getViewer();
+    if (!v || (v.role !== "admin" && v.role !== "trainer")) return { ok: false, message: "Trainers and the office only." };
+    const sb = serviceClient();
+    const { data: chat } = await sb.from("chats").select("id, status, trainer_id").eq("id", chatId).maybeSingle();
+    if (!chat || chat.status !== "open") return { ok: false, message: "This chat isn't open." };
+    if (v.role === "trainer" && chat.trainer_id !== v.trainerId) return { ok: false, message: "Not your chat." };
+    const text = body.trim(), when = new Date(sendAt);
+    if (!text && !media.length) return { ok: false, message: "Write something or add a photo." };
+    if (isNaN(when.getTime())) return { ok: false, message: "Pick a date and time." };
+    if (when.getTime() < Date.now() + 5 * 60000) return { ok: false, message: "Pick a time at least 5 minutes from now (or just send it)." };
+    if (when.getTime() > Date.now() + 30 * 86400000) return { ok: false, message: "Up to 30 days ahead." };
+    const { error } = await sb.from("scheduled_messages").insert({ chat_id: chatId, created_by: v.userId, sender_role: v.role, sender_name: v.name, body: text || null, media, send_at: when.toISOString() });
+    if (error) return { ok: false, message: /scheduled_messages|schema cache/i.test(error.message) ? "Scheduling isn't switched on yet (migration 041)." : error.message };
+    revalidatePath(`/a/chats/${chatId}`); revalidatePath(`/t/chats/${chatId}`);
+    return { ok: true, message: `Scheduled for ${when.toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "America/New_York" })} ET.`, chatId };
+  } catch (e) { return { ok: false, message: (e as Error).message }; }
+});
+}
+
+/** Cancel a scheduled message that hasn't gone yet: whoever scheduled it, or admin. */
+export async function cancelScheduledAction(id: string): Promise<ChatResult> {
+  return audited("cancelScheduledAction", { id }, async () => {
+  if (isDemo()) return DEMO;
+  try {
+    const v = await getViewer();
+    if (!v) return { ok: false, message: "Please sign in." };
+    const sb = serviceClient();
+    const { data: m } = await sb.from("scheduled_messages").select("id, chat_id, created_by, sent_message_id").eq("id", id).maybeSingle();
+    if (!m) return { ok: false, message: "Not found." };
+    if (m.sent_message_id) return { ok: false, message: "It's already been sent." };
+    if (v.role !== "admin" && m.created_by !== v.userId) return { ok: false, message: "Not yours to cancel." };
+    const { error } = await sb.from("scheduled_messages").update({ cancelled_at: new Date().toISOString(), note: `Cancelled by ${v.name}` }).eq("id", id);
+    if (error) return { ok: false, message: error.message };
+    revalidatePath(`/a/chats/${m.chat_id}`); revalidatePath(`/t/chats/${m.chat_id}`);
+    return { ok: true, message: "Cancelled.", chatId: m.chat_id };
+  } catch (e) { return { ok: false, message: (e as Error).message }; }
+});
+}

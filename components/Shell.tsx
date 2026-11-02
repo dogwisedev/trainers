@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { usePathname } from "next/navigation";
-import { CalendarDays, ClipboardList, Home, KeyRound, LayoutGrid, MessageCircle, MessagesSquare, TriangleAlert, UserRound, Users, Wallet, PawPrint, ListChecks, TrendingUp } from "lucide-react";
+import { CalendarDays, ClipboardList, Home, KeyRound, LayoutGrid, MessageCircle, MessagesSquare, TriangleAlert, UserRound, Users, Wallet, PawPrint, ListChecks, TrendingUp, Activity } from "lucide-react";
 import { PasswordForm } from "@/components/forms";
 import { Avatar } from "@/components/ui";
 import { AppSetup } from "@/components/AppSetup";
@@ -13,7 +13,7 @@ import { BrandLogo } from "@/components/BrandLogo";
 const ICONS = { home: Home, calendar: CalendarDays, messages: MessageCircle, profile: UserRound, grid: LayoutGrid, users: Users, pay: Wallet, reports: ClipboardList, chats: MessagesSquare, alert: TriangleAlert, paw: PawPrint, todo: ListChecks, sales: TrendingUp };
 export type NavItem = { href: string; label: string; icon: keyof typeof ICONS; badge?: number; also?: string[] };
 
-export function Shell({ nav, who, children, demo, accountHref, needsPassword, headerActions = true, tourHome }: { nav: NavItem[]; who: string; children: React.ReactNode; demo?: boolean; accountHref: string; needsPassword?: boolean; headerActions?: boolean; tourHome?: string }) {
+export function Shell({ nav, who, children, demo, accountHref, needsPassword, headerActions = true, tourHome, pulse = false }: { pulse?: boolean; nav: NavItem[]; who: string; children: React.ReactNode; demo?: boolean; accountHref: string; needsPassword?: boolean; headerActions?: boolean; tourHome?: string }) {
   const path = usePathname();
   // First visit, one thing at a time: set a password, then get the app on the phone, then the tour
   const [setupShowing, setSetupShowing] = useState<boolean | null>(null);
@@ -38,6 +38,7 @@ export function Shell({ nav, who, children, demo, accountHref, needsPassword, he
         </nav>
         <div className="mt-auto border-t border-line pt-4 text-small text-ink-soft">
           <p className="flex items-center gap-2.5 truncate font-semibold text-ink"><Avatar name={who} size={32} />{who}</p>
+          {pulse && <Link prefetch={false} href="/a/pulse" className="mt-2 flex items-center gap-2 font-semibold text-ink hover:underline"><Activity size={15} />Pulse</Link>}
           <Link prefetch={false} href={accountHref} className="mt-2 flex items-center gap-2 hover:text-ink"><KeyRound size={15} />Your account</Link>
           <SignOutButton className="mt-2" />
         </div>

@@ -2,6 +2,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createBrowserClient } from "@supabase/ssr";
 import { FolderOpen, Paperclip, SendHorizontal, X } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { ScheduleButton, ScheduledStrip, type ScheduledLite } from "@/components/ScheduleMessage";
 import { notifyChatAction } from "@/app/chat-actions";
 import { uploadToDrive } from "@/lib/driveUpload";
 import { allowedType, deviceLabel, fileType, mediaKind, newId, shrinkPhoto } from "@/lib/uploadPrep";
@@ -45,8 +47,9 @@ function reportUpload(chatId: string, t: { name: string; type: string; size: num
   } catch { /* never in the way */ }
 }
 
-export function ChatThread(p: { chatId: string; me: Me; initial: ChatMsg[]; hasMore: boolean; open: boolean; folderUrl: string | null; demo: boolean; withBottomNav: boolean; otherLabel: string }) {
+export function ChatThread(p: { chatId: string; me: Me; initial: ChatMsg[]; hasMore: boolean; open: boolean; folderUrl: string | null; demo: boolean; withBottomNav: boolean; otherLabel: string; scheduled?: ScheduledLite[] }) {
   const { me, chatId, demo } = p;
+  const router = useRouter();
   const draftKey = `dw-draft:${chatId}`, outKey = `dw-outbox:${chatId}`;
   const [msgs, setMsgs] = useState<Local[]>(p.initial);
   const [more, setMore] = useState(p.hasMore);
@@ -317,6 +320,7 @@ export function ChatThread(p: { chatId: string; me: Me; initial: ChatMsg[]; hasM
         </ul>
       )}
 
+      {p.open && p.me.role !== "client" && p.scheduled && <ScheduledStrip items={p.scheduled} canCancelAll={p.me.role === "admin"} />}
       {p.open ? (
         <div data-tour="composer" className={`sticky z-10 mt-4 flex items-end gap-1.5 rounded-[22px] border border-line bg-white p-2 shadow-card ${p.withBottomNav ? "bottom-[calc(76px+env(safe-area-inset-bottom))] md:bottom-4" : "bottom-3"}`}>
           <label data-tour="attach" className={`grid h-11 w-11 shrink-0 cursor-pointer place-items-center rounded-full text-ink-soft hover:bg-paper ${demo ? "opacity-40" : ""}`} aria-label="Add photo, video or PDF">
@@ -327,6 +331,7 @@ export function ChatThread(p: { chatId: string; me: Me; initial: ChatMsg[]; hasM
           <textarea ref={box} id="chat-msg" rows={1} value={text} onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !coarse) { e.preventDefault(); send(); } }}
             placeholder="Write a message" className="max-h-[180px] min-h-[44px] flex-1 resize-none bg-transparent px-1.5 py-2.5 text-input focus:outline-none md:text-body" />
+          {p.me.role !== "client" && <ScheduleButton chatId={p.chatId} text={text} disabled={demo} onScheduled={() => { setText(""); store.set(draftKey, ""); router.refresh(); }} />}
           <button type="button" onClick={send} disabled={!text.trim()} className="btn-ink h-11 w-11 shrink-0 rounded-full p-0" aria-label="Send"><SendHorizontal size={18} /></button>
         </div>
       ) : <p className="mt-4 rounded-2xl bg-paper p-4 text-center text-body text-ink-soft">This chat is closed. Everything was sent to the client, and the client can start a fresh chat any time.</p>}

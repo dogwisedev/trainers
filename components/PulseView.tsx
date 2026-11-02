@@ -280,7 +280,7 @@ function Sales({ s, q }: { s: SalesView; q: Q }) {
 export function PulseView({ p, q }: { p: Pulse; q: Q }) {
   const active = q.from ? "custom" : (q.r || "14d");
   const tile = (k: string) => p.tiles.find((t) => t.key === k)!;
-  const keys = p.view === "office" ? ["update", "team", "waiting", "care"] : p.view === "trainers" ? ["update", "reply", "forms", "waiting"] : [];
+  const keys = p.view === "office" ? ["update", "team", "waiting", "todo", "care"] : p.view === "trainers" ? ["update", "reply", "forms", "waiting"] : [];
   return (
     <>
       <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
@@ -306,7 +306,7 @@ export function PulseView({ p, q }: { p: Pulse; q: Q }) {
         {VIEWS.map((v) => <Link key={v.key} prefetch={false} href={href(q, { v: v.key, state: undefined })} aria-current={p.view === v.key ? "page" : undefined} className={`flex items-center justify-center rounded-xl px-5 py-2.5 ${p.view === v.key ? "bg-ink text-white" : "text-ink-soft hover:text-ink"}`}>{v.label}</Link>)}
       </nav>
       {p.cards.length > 0 && <section aria-label="Needs a decision" className="-mx-4 mb-5 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-1 md:mx-0 md:grid md:grid-cols-2 md:overflow-visible md:px-0 lg:grid-cols-3">{p.cards.map((c, i) => <CardView key={i} c={c} />)}</section>}
-      {keys.length > 0 && <section aria-label="The numbers" className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4">{keys.map((k) => <TileCard key={k} t={tile(k)} />)}</section>}
+      {keys.length > 0 && <section aria-label="The numbers" className={`mb-6 grid grid-cols-2 gap-3 ${keys.length === 5 ? "md:grid-cols-3 lg:grid-cols-5" : "md:grid-cols-4"}`}>{keys.map((k) => <TileCard key={k} t={tile(k)} />)}</section>}
       {p.view === "office" && p.office && <Office o={p.office} />}
       {p.view === "trainers" && (
         <section>

@@ -5,12 +5,14 @@ import { ChatThread } from "@/components/ChatThread";
 import { InviteClient } from "@/components/InviteClient";
 import { ArchivedNotice } from "@/components/ChatBits";
 import { ReopenChat, SendSummaryAgain } from "@/components/ChatActions";
+import { listScheduled } from "@/lib/scheduled";
 
 /** The chat itself for admins (client access, the thread or the archive notice). Used on the Chats page and the dog page. */
 export async function AdminChatPanel({ chat, me }: { chat: ChatRow; me: { userId: string; name: string } }) {
-  const [{ messages, hasMore }, seen] = await Promise.all([
+  const [{ messages, hasMore }, seen, scheduled] = await Promise.all([
     listChatMessages(chat.id),
-    chat.client_user_id && !isDemo() ? serviceClient().from("chat_reads").select("last_read_at").eq("chat_id", chat.id).eq("user_id", chat.client_user_id).maybeSingle().then((r) => (r.data?.last_read_at as string | undefined) || null) : Promise.resolve(null)
+    chat.client_user_id && !isDemo() ? serviceClient().from("chat_reads").select("last_read_at").eq("chat_id", chat.id).eq("user_id", chat.client_user_id).maybeSingle().then((r) => (r.data?.last_read_at as string | undefined) || null) : Promise.resolve(null),
+    isDemo() ? Promise.resolve([]) : listScheduled(chat.id)
   ]);
   const when = (iso: string) => new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "America/New_York" });
   const status = !chat.client_email ? { t: "No client email", tone: "text-heart" } : !chat.invited_at ? { t: "Client not invited yet", tone: "text-heart" }
@@ -26,7 +28,8 @@ export async function AdminChatPanel({ chat, me }: { chat: ChatRow; me: { userId
         <ArchivedNotice chat={chat} audience="staff">
           <div className="flex flex-wrap gap-2"><ReopenChat chatId={chat.id} base="/a/chats" label="Start a new chat" />{chat.client_email && <SendSummaryAgain chatId={chat.id} />}</div>
         </ArchivedNotice>
-      ) : <ChatThread chatId={chat.id} me={{ userId: me.userId, role: "admin", name: me.name }} initial={messages} hasMore={hasMore} open={chat.status === "open"} folderUrl={chat.drive_folder_url} demo={isDemo()} withBottomNav otherLabel="the client and trainer" />}
+      ) : <ChatThread chatId={chat.id} me={{ userId: me.userId, role: "admin", name: me.name }} initial={messages} hasMore={hasMore} open={chat.status === "open"} folderUrl={chat.drive_folder_url} demo={isDemo()} withBottomNav otherLabel="the client and trainer"
+          scheduled={scheduled.map((m) => ({ id: m.id, body: m.body, media: m.media, send_at: m.send_at, sender_name: m.sender_name, mine: m.created_by === me.userId }))} />}
     </>
   );
 }

@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 
 // The loading card for Pulse: says what's being pulled, keeps a little company while it happens, and counts the seconds.
 const STEPS = ["Bookings and dogs in care", "Every chat message, 90 days", "Forms, alerts, time off", "HubSpot: leads, sales, last year", "Stripe", "Working it out"];
-const LINES = ["Patience, Papi.", "Counting every dog twice, to be sure.", "Asking HubSpot nicely.", "Working out who replied, and how fast.", "Nearly. Nearly.", "Still faster than 18 spreadsheets."];
+const LINES = ["Patience, Papi.", "Counting every dog twice, to be sure.", "Asking HubSpot nicely.", "Working out who replied, and how fast.", "Nearly. Nearly.", "Deleting Google Sheets…"];
 
 export function PulseLoading({ instant = false, steps = STEPS, lines = LINES, note }: { instant?: boolean; steps?: string[]; lines?: string[]; note?: string }) {
   const [sec, setSec] = useState(0);

@@ -14,6 +14,7 @@ import { clearFormIncidents } from "./incidents";
 import { catchUpBookings } from "./bookingCatchup";
 import { sendDailyDigest } from "./digest";
 import { QUIET_KINDS } from "./quietChats";
+import { releaseScheduled } from "./scheduled";
 import { autoInviteClients } from "./autoInvite";
 import { postSystemMessage } from "./chat";
 import { etParts } from "./chatRules";
@@ -42,11 +43,13 @@ type Incident = { id: string; chat_id: string; kind: IncidentKind; status: strin
 
 /** Runs every few minutes (Vercel cron): opens and clears incidents, alerts admins, sends the (rare) client digest emails. */
 export async function runChatChecks(now = new Date()) {
+  // Scheduled messages whose time has come go out first, so this same run can see them as posts
+  const released = await releaseScheduled(now).catch((e) => ({ posted: 0, errors: [(e as Error).message] }));
   const autoClose = (process.env.CHAT_AUTO_CLOSE || "").trim().toLowerCase() !== "off";
   const sb = serviceClient();
   const { data: chatRows } = await sb.from("chats").select("*").eq("status", "open");
   const chats = (chatRows || []) as ChatRow[];
-  const out = { chats: chats.length, opened: 0, cleared: 0, realerted: 0, digests: 0, invited: 0, notified: 0, noticed: 0, autoClosed: 0, training: 0, errors: [] as string[] };
+  const out = { chats: chats.length, opened: 0, cleared: 0, realerted: 0, digests: 0, invited: 0, notified: 0, noticed: 0, autoClosed: 0, training: 0, scheduled: released.posted, errors: [...released.errors.map((x) => `scheduled: ${x}`)] as string[] };
   try { out.cleared += await clearFormIncidents(sb); } catch (e) { out.errors.push(`forms: ${(e as Error).message}`); }
   try { const c = await catchUpBookings(sb); out.errors.push(...c.errors.map((x) => `booking email: ${x}`)); } catch (e) { out.errors.push(`booking email: ${(e as Error).message}`); }
   try { if (await sendDailyDigest(sb)) out.digests++; } catch (e) { out.errors.push(`daily summary: ${(e as Error).message}`); }
