@@ -66,26 +66,33 @@ function Office({ o }: { o: OfficeView }) {
           <Link key={l} prefetch={false} href={h} className="panel p-3 hover:bg-paper/60"><p className="text-caption font-semibold text-ink-soft">{l}</p><p className={`mt-1 text-[24px] font-extrabold leading-none tabular-nums ${n ? "" : "text-ink-faint"}`}>{n}</p></Link>
         ))}
       </section>
-      <section className="mb-6">
-        <H>How To do is being handled</H>
-        <p className="mb-2 text-small text-ink-soft">A burst is 6+ items marked Done or approved each within 15 seconds of the last: clearing, not checking. A fast approval is a form approved under 20 seconds after the previous one. &ldquo;Cleared, not fixed&rdquo; is a &ldquo;no update today&rdquo; alert marked Done while the trainer still hadn&apos;t posted that day.</p>
-        <ul className="panel divide-y divide-line">
-          {o.handling.people.map((p) => (
-            <li key={p.who} className="p-3.5">
-              <div className="flex items-center justify-between gap-2"><b className="min-w-0 truncate">{p.who}</b><span className="shrink-0 text-small tabular-nums text-ink-soft">{p.done} done · {p.approved} approved{p.sentBack ? ` · ${p.sentBack} sent back` : ""}</span></div>
-              <p className={`mt-0.5 text-small tabular-nums ${p.share >= 50 || p.notFixed >= 5 ? "text-heart font-semibold" : "text-ink-soft"}`}>
-                {p.bursts ? `${p.share}% in bursts (${p.bursts} burst${p.bursts > 1 ? "s" : ""}, ${p.inBursts} items, ${p.gap} s apart)` : "no bursts"}{p.fastApprovals ? ` · ${p.fastApprovals} forms approved in under 20 s` : ""}{p.notFixed ? ` · ${p.notFixed} cleared, not fixed` : ""}
-              </p>
-            </li>
-          ))}
-          {!o.handling.people.length && <Empty>Nothing marked Done or approved in this range.</Empty>}
-        </ul>
-        {o.handling.bursts.length > 0 && (
-          <ul className="mt-2 space-y-1 text-small text-ink-soft">
-            {o.handling.bursts.map((b, i) => <li key={i}><b className="text-ink">{b.who}</b>, {b.when}: {b.n} items in {b.minutes} min, {b.gap} s apart ({b.what}).</li>)}
+
+      <details className="group mb-6 panel overflow-hidden">
+        <summary className="flex cursor-pointer list-none items-center justify-between p-4 [&::-webkit-details-marker]:hidden">
+          <h2 className="text-lead font-extrabold m-0">How To do is being handled</h2>
+          <ChevronRight size={20} className="text-ink-soft transition-transform group-open:rotate-90" />
+        </summary>
+        <div className="px-4 pb-4">
+          <p className="mb-2 text-small text-ink-soft">A burst is 6+ items marked Done or approved each within 15 seconds of the last: clearing, not checking. A fast approval is a form approved under 20 seconds after the previous one. &ldquo;Cleared, not fixed&rdquo; is a &ldquo;no update today&rdquo; alert marked Done while the trainer still hadn&apos;t posted that day.</p>
+          <ul className="panel divide-y divide-line">
+            {o.handling.people.map((p) => (
+              <li key={p.who} className="p-3.5">
+                <div className="flex items-center justify-between gap-2"><b className="min-w-0 truncate">{p.who}</b><span className="shrink-0 text-small tabular-nums text-ink-soft">{p.done} done · {p.approved} approved{p.sentBack ? ` · ${p.sentBack} sent back` : ""}</span></div>
+                <p className={`mt-0.5 text-small tabular-nums ${p.share >= 50 || p.notFixed >= 5 ? "text-heart font-semibold" : "text-ink-soft"}`}>
+                  {p.bursts ? `${p.share}% in bursts (${p.bursts} burst${p.bursts > 1 ? "s" : ""}, ${p.inBursts} items, ${p.gap} s apart)` : "no bursts"}{p.fastApprovals ? ` · ${p.fastApprovals} forms approved in under 20 s` : ""}{p.notFixed ? ` · ${p.notFixed} cleared, not fixed` : ""}
+                </p>
+              </li>
+            ))}
+            {!o.handling.people.length && <Empty>Nothing marked Done or approved in this range.</Empty>}
           </ul>
-        )}
-      </section>
+          {o.handling.bursts.length > 0 && (
+            <ul className="mt-2 space-y-1 text-small text-ink-soft">
+              {o.handling.bursts.map((b, i) => <li key={i}><b className="text-ink">{b.who}</b>, {b.when}: {b.n} items in {b.minutes} min, {b.gap} s apart ({b.what}).</li>)}
+            </ul>
+          )}
+        </div>
+      </details>
+
       <div className="grid gap-6 lg:grid-cols-2">
         <section>
           <H>Clients</H>
