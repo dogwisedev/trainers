@@ -285,7 +285,7 @@ export function PulseView({ p, q }: { p: Pulse; q: Q }) {
     <>
       <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-h1 font-extrabold leading-tight">Pulse <Pill tone="line">Preview</Pill></h1>
+          <h1 className="text-h1 font-extrabold leading-tight">Pulse</h1>
           <p className="text-body text-ink-soft">{p.range.label} · compared with the {p.range.days} days before</p>
           <p className="mt-1 flex flex-wrap items-center gap-2 text-caption text-ink-faint">
             <span>Snapshot of {p.stats.points.toLocaleString("en-US")} data points, taken {new Date(p.stats.at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" })} ET</span>

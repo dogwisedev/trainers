@@ -12,7 +12,7 @@ export default async function AdminAccount() {
       <h1 className="text-h1 font-extrabold">Your account</h1>
       <p className="mb-5 mt-1 text-ink-soft">{v.name}{v.email ? `, ${v.email}` : ""}</p>
       <div className="max-w-md"><AppSetup always /></div>
-      {canSeePulse(v.email) && <p className="mb-4 max-w-md"><Link prefetch={false} href="/a/pulse" className="btn-ghost">Pulse (preview)</Link></p>}
+      {canSeePulse(v.email) && <p className="mb-4 max-w-md"><Link prefetch={false} href="/a/pulse" className="btn-ghost">Pulse</Link></p>}
       <div className="panel mb-4 max-w-md p-4 md:p-5">
         <h2 className="mb-3 text-lead font-bold">Appearance</h2>
         <ThemeToggle />

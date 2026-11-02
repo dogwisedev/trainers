@@ -4,7 +4,8 @@ import type { Seller } from "@/lib/sales";
 import { Avatar, Empty } from "@/components/ui";
 
 const usd = (n: number) => n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: n % 1 ? 2 : 0 });
-export const monthLabel = (m: string) => new Date(`${m}-15T12:00:00Z`).toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
+export { monthLabel } from "@/components/MonthNav";
+import { MonthNav, monthLabel } from "@/components/MonthNav";
 
 /** Month chips, totals, and each seller's sales. Admins see everyone; a sales person sees their own. */
 export function SalesView({ month, months, base, sellers, total, remaining, count, owed = 0, admin, onlyOwed = false }: { month: string; months: string[]; base: string; sellers: Seller[]; total: number; remaining: number; count: number; owed?: number; admin: boolean; onlyOwed?: boolean }) {
@@ -12,9 +13,7 @@ export function SalesView({ month, months, base, sellers, total, remaining, coun
   const shown = onlyOwed ? sellers.map((s) => ({ ...s, sales: s.sales.filter((x) => x.remaining > 0) })).filter((s) => s.sales.length) : sellers;
   return (
     <>
-      <nav className="-mx-1 mt-4 flex gap-2 overflow-x-auto px-1 pb-1" aria-label="Month">
-        {months.map((m) => <Link key={m} prefetch={false} href={`${base}?m=${m}${onlyOwed ? "&owed=1" : ""}`} aria-current={m === month ? "page" : undefined} className={`chip shrink-0 ${m === month ? "chip-on" : ""}`}>{monthLabel(m)}</Link>)}
-      </nav>
+      <MonthNav months={months} month={month} base={base} onlyOwed={onlyOwed} />
       <div className="mt-4 grid grid-cols-2 gap-3">
         <div className="panel p-4"><p className="text-small font-semibold text-ink-soft">Sales</p><p className="mt-1 text-h1 font-extrabold leading-none">{usd(total)}</p><p className="mt-1 text-small text-ink-faint">{count} program{count === 1 ? "" : "s"}</p></div>
         <div className="panel p-4"><p className="text-small font-semibold text-ink-soft">Remaining balance</p><p className={`mt-1 text-h1 font-extrabold leading-none ${remaining ? "text-heart" : ""}`}>{usd(remaining)}</p><p className="mt-1 text-small text-ink-faint">still owed{owed ? ` on ${owed} deal${owed === 1 ? "" : "s"}` : ""}</p></div>
