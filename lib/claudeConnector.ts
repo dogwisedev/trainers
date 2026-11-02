@@ -10,6 +10,8 @@ import { dealKey } from "./chatTypes";
 import { cleanDealId } from "./dealId";
 import { auditCall } from "./audit";
 import { commsOverview, NarrowDown, recentMessages, trainerComms } from "./claudeComms";
+import { PULSE_RANGES, PULSE_VIEWS, pulseForClaude, pulseOnConnector } from "./claudePulse";
+import type { View } from "./pulse";
 
 // The tools behind the app's Claude connector (app/api/mcp/route.ts). Claude calls them through MCP with the
 // CLAUDE_MCP_KEY. Each tool reads with the service key, like the admin To do list and the daily email do, so whoever
@@ -17,7 +19,8 @@ import { commsOverview, NarrowDown, recentMessages, trainerComms } from "./claud
 
 type Args = Record<string, unknown>;
 type Field = { type: "string" | "number" | "boolean"; description: string; optional?: boolean; pattern?: string; min?: number; max?: number };
-export type ClaudeTool = { name: string; title: string; description: string; input: Record<string, Field>; run: (a: Args) => Promise<unknown> };
+/** seconds: how long the tool may take (default TOOL_SECONDS). enabled: when it returns false the tool isn't offered. */
+export type ClaudeTool = { name: string; title: string; description: string; input: Record<string, Field>; run: (a: Args) => Promise<unknown>; seconds?: number; enabled?: () => boolean };
 
 /** A problem with the request (bad date, nothing to search for...): the message goes back to Claude as it is. */
 class Ask extends Error {}
@@ -331,6 +334,25 @@ export const CLAUDE_TOOLS: ClaudeTool[] = [
     }
   },
   {
+    name: "pulse", title: "Pulse",
+    description: "Pulse, the app's dashboard (the admin page /a/pulse): the same figures, as data, for the last 7, 14, 30 or 90 days, each compared with the same number of days before (sales: with the same dates last year). tiles: daily updates, trainer and team reply times, forms on time, To do turnaround, clients waiting, dogs in care. office: To do counts, how To do is being handled (bursts of items marked Done seconds apart), clients who opened their chat, dogs with no word from Dogwise for 24 hours, clients left waiting more than once, balances owed before a start, pickups and drop-offs for the next 14 days, trainers with repeated alerts, late forms, new bookings, cancellations and incidents. trainers: every trainer's score out of 100 (daily updates 40, replies 25, forms on time 20, alerts 15), its parts, kennels used and days off. sales (HubSpot and Stripe): leads, sold, conversion, cost per sale, this month against last year, leads and sales by state, by source and by salesperson. cards: what Pulse says needs a decision. Worked out from a snapshot of the last 90 days that the app keeps for an hour (snapshotAt says when it was taken).",
+    input: {
+      range: { type: "string", description: "7d, 14d, 30d or 90d (the last that many days, ending today). Default 14d.", optional: true, pattern: "^(7d|14d|30d|90d)$" },
+      views: { type: "string", description: "Which views, separated by commas: office, trainers, sales. Default all three.", optional: true }
+    },
+    seconds: 50,                                   // a snapshot taken from scratch waits on HubSpot (about 30 seconds)
+    enabled: pulseOnConnector,
+    run: async (a) => {
+      const range = text(a, "range") || "14d";
+      if (!PULSE_RANGES.includes(range)) throw new Ask(`range should be one of ${PULSE_RANGES.join(", ")}, not "${range.slice(0, 20)}".`);
+      const asked = text(a, "views").toLowerCase().split(/[\s,]+/).filter(Boolean);
+      const bad = asked.filter((v) => !PULSE_VIEWS.includes(v as View));
+      if (bad.length) throw new Ask(`views can be office, trainers and sales, not "${bad.join(", ").slice(0, 40)}".`);
+      const views = asked.length ? PULSE_VIEWS.filter((v) => asked.includes(v)) : PULSE_VIEWS;
+      return pulseForClaude({ range, views, link: (p) => link(p)! });
+    }
+  },
+  {
     name: "availability", title: "Trainer availability",
     description: "Active trainers and their free kennels over the next 16 weeks, nearest first when a ZIP is given (with whether the client is inside the trainer's driving range). soonestStart is the first week (starting Sunday) a 2, 3 or 4 week program could begin. With a start date, freeForProgram says whether the trainer has a kennel free every night of the program (counted day by day), and firstFullDay shows where it isn't.",
     input: {
@@ -366,6 +388,9 @@ export const CLAUDE_TOOLS: ClaudeTool[] = [
   }
 ];
 
+/** The tools on offer right now (a tool can be switched off in Vercel, like Pulse with PULSE_CONNECTOR=off). */
+export const activeTools = () => CLAUDE_TOOLS.filter((t) => !t.enabled || t.enabled());
+
 /** JSON Schema for a tool's arguments, as MCP's tools/list wants it. */
 export function toolInputSchema(t: ClaudeTool) {
   const properties = Object.fromEntries(Object.entries(t.input).map(([k, f]) => [k, {
@@ -382,19 +407,19 @@ async function logQuickly(p: Promise<unknown>, ms = 3000) {
 }
 
 /** A hung database can keep each read waiting about 87 seconds (20-second timeout, tried 4 times), past Vercel's 60-second limit.
- *  So every tool gets 25 seconds, then Claude is told plainly that the app is slow right now. */
+ *  So every tool gets 25 seconds (or its own `seconds`, always under the route's 60), then Claude is told plainly that the app is slow right now. */
 const TOOL_SECONDS = 25;
 class TooSlow extends Error {}
-function inTime<T>(p: Promise<T>): Promise<T> {
+function inTime<T>(p: Promise<T>, seconds = TOOL_SECONDS): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
-  return Promise.race([p, new Promise<never>((_, no) => { timer = setTimeout(() => no(new TooSlow(`No answer within ${TOOL_SECONDS} seconds`)), TOOL_SECONDS * 1000); })])
+  return Promise.race([p, new Promise<never>((_, no) => { timer = setTimeout(() => no(new TooSlow(`No answer within ${seconds} seconds`)), seconds * 1000); })])
     .finally(() => clearTimeout(timer));
 }
 
 /** Runs one tool for the connector and logs it. Never throws. */
 export async function runClaudeTool(name: string, args: Args): Promise<{ ok: true; result: unknown } | { ok: false; error: string }> {
-  const tool = CLAUDE_TOOLS.find((t) => t.name === name);
-  if (!tool) return { ok: false, error: `No tool called "${name}". Tools: ${CLAUDE_TOOLS.map((t) => t.name).join(", ")}.` };
+  const tools = activeTools(), tool = tools.find((t) => t.name === name);
+  if (!tool) return { ok: false, error: `No tool called "${name}". Tools: ${tools.map((t) => t.name).join(", ")}.` };
   if (isDemo()) return { ok: false, error: "The app is in demo mode (no database), so there is nothing to read." };
   const who = { name: "Claude connector", role: "claude" };
   // What was asked, for the log. A chat id is passed as chatId so the log names the dog and client and links the chat.
@@ -405,10 +430,10 @@ export async function runClaudeTool(name: string, args: Args): Promise<{ ok: tru
   try {
     const unknown = Object.keys(args).filter((k) => !Object.hasOwn(tool.input, k));
     if (unknown.length) throw new Ask(`Unknown argument${unknown.length > 1 ? "s" : ""}: ${unknown.join(", ")}. ${name} takes: ${Object.keys(tool.input).join(", ") || "no arguments"}.`);
-    out = { ok: true, result: await inTime(tool.run(args)) };
+    out = { ok: true, result: await inTime(tool.run(args), tool.seconds) };
   } catch (e) {
     const detail = (e as Error)?.message || String(e);
-    const slow = name === "availability" && text(args, "zip") ? "the app's database or the ZIP lookup" : "the app's database";
+    const slow = name === "availability" && text(args, "zip") ? "the app's database or the ZIP lookup" : name === "pulse" ? "Pulse (the app's database, HubSpot or Stripe)" : "the app's database";
     out = {
       ok: false, detail,
       error: e instanceof Ask || e instanceof NarrowDown ? detail
