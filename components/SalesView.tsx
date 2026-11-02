@@ -4,8 +4,9 @@ import type { Seller } from "@/lib/sales";
 import { Avatar, Empty } from "@/components/ui";
 
 const usd = (n: number) => n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: n % 1 ? 2 : 0 });
-export { monthLabel } from "@/components/MonthNav";
-import { MonthNav, monthLabel } from "@/components/MonthNav";
+import { MonthNav } from "@/components/MonthNav";
+import { monthLabel } from "@/lib/monthLabel";
+export { monthLabel };
 
 /** Month chips, totals, and each seller's sales. Admins see everyone; a sales person sees their own. */
 export function SalesView({ month, months, base, sellers, total, remaining, count, owed = 0, admin, onlyOwed = false }: { month: string; months: string[]; base: string; sellers: Seller[]; total: number; remaining: number; count: number; owed?: number; admin: boolean; onlyOwed?: boolean }) {

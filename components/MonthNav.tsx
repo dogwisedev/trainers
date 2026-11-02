@@ -3,7 +3,7 @@ import { useRouter } from "next/navigation";
 import { useTransition } from "react";
 import { PulseLoading } from "@/components/PulseLoading";
 
-export const monthLabel = (m: string) => new Date(`${m}-15T12:00:00Z`).toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
+import { monthLabel } from "@/lib/monthLabel";
 
 /** Month chips on Sales. A month that hasn't loaded yet takes a few seconds (then it's kept for an hour), so the loading card shows while it does. */
 export function MonthNav({ months, month, base, onlyOwed }: { months: string[]; month: string; base: string; onlyOwed: boolean }) {
