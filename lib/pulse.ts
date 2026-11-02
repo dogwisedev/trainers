@@ -43,7 +43,8 @@ export function pulseRange(q: { r?: string; from?: string; to?: string }, today 
 type SBooking = { id: string; t: string; deal: string | null; dog: string; client: string; start: string; end: string; status: string; created: string; cancelledOn: string | null; reason: string | null; note: string | null };
 type SChat = { id: string; deal: string; t: string | null; quiet: boolean; joined: boolean; client: string; title: string };
 type SRun = { d: string; m: number; by: "t" | "a" };
-type SInc = { c: string | null; b: string | null; k: string; d: string; open: boolean; title: string; detail: string; hrs: number | null; byHand: boolean }; // hrs: open → cleared
+type SInc = { c: string | null; b: string | null; k: string; d: string; open: boolean; title: string; detail: string; hrs: number | null; byHand: boolean; by: string }; // hrs: open → cleared; by: who
+type SAct = { who: string; raw: string; a: "done" | "approved" | "sentback" | "took"; t: number; kind: string }; // one Done / Approve / Send back from the activity log; raw = the login's name
 type SDeal = { st: string | null; day: string; closed: string | null; won: boolean; amount: number; credits: number; source: string; owner: string; reason: string; noTrainer: boolean };
 type OwnerCounts = Record<string, Record<string, { calls: number; emails: number }>>;   // preset → owner id → counts
 type SourceCounts = Record<string, Record<string, number>>;                              // preset → source → exact leads
@@ -55,7 +56,7 @@ export type Snapshot = {
   bookings: SBooking[]; trainers: { id: string; name: string; cap: number; active: boolean; state: string }[]; chats: SChat[];
   postDays: Record<string, string[]>; runs: Record<string, SRun[]>; lastStaff: Record<string, string>;
   incidents: SInc[]; reports: { t: string; d: string; ok: boolean }[]; timeOff: { t: string; start: string; end: string; blocked: number | null }[]; // blocked = kennels blocked (null = all)
-  dealMoney: { amount: number; day: string; owner: string }[]; hs: null | {
+  dealMoney: { amount: number; day: string; owner: string }[]; actions: SAct[]; hs: null | {
     created: SDeal[]; createdTotals: Record<string, { now: number; ly: number }>; won: SDeal[]; wonLY: SDeal[]; lost: SDeal[];
     monthLY: { label: string; n: number; amount: number; toDate: number; toDateAmount: number }; nextMonthLY: { label: string; n: number; amount: number };
     owners: { id: string; name: string }[]; ownerCounts: OwnerCounts; sourceCounts: SourceCounts; emailsLogged: boolean; sample: number;
@@ -75,25 +76,32 @@ async function all<T>(q: (from: number, to: number) => PromiseLike<{ data: T[] |
   return out;
 }
 const clean = (s: unknown) => String(s ?? "").replace(/\s+/g, " ").trim();
+/** "Dogwise Admin (jahrony@dogwiseacademy.com)" → "jahrony" (a shared login: the email says who); "Ana Lopez (ana@…)" → "Ana Lopez". */
+function personFrom(who: unknown): string {
+  const w = clean(who), m = w.match(/^(.*?)\s*\(([^)]+@[^)]+)\)$/), name = (m ? m[1] : w).trim();
+  if (/^dogwise (admin|team)$|^admin$|^someone/i.test(name) && m) return m[2].split("@")[0].toLowerCase();
+  return name || "Someone";
+}
 const day = (iso: string | null | undefined) => (iso ? dayET(iso) : "");
 
 type AppPart = Omit<Snapshot, "hs" | "failed">;
 /** The app's own tables for the window (every read paged). */
 export async function buildAppPart(sb: SupabaseClient = serviceClient()): Promise<AppPart> {
   const t0 = Date.now(), today = todayIso(), from90 = addDays(today, -(SPAN - 1)), from = addDays(from90, -SPAN), notes: string[] = [];
-  const [bks, trs, chats, msgs, incs, reps, offs, dm] = await Promise.all([
+  const [bks, trs, chats, msgs, incs, reps, offs, dm, acts] = await Promise.all([
     all<{ id: string; trainer_id: string; hubspot_deal_id: string | null; dog_name: string | null; client_name: string; start_date: string; end_date: string; status: string; created_at: string; cancelled_at: string | null; cancel_reason: string | null; cancel_note: string | null }>((a, b) =>
       sb.from("bookings").select("id, trainer_id, hubspot_deal_id, dog_name, client_name, start_date, end_date, status, created_at, cancelled_at, cancel_reason, cancel_note").lte("start_date", addDays(today, 14)).gte("end_date", from).order("start_date").range(a, b)),
     all<{ id: string; name: string; capacity: number | null; active: boolean; state: string | null }>((a, b) => sb.from("trainers").select("id, name, capacity, active, state").order("name").range(a, b)),
     all<{ id: string; deal_key: string; trainer_id: string | null; quiet_at: string | null; client_user_id: string | null; client_name: string | null; title: string | null }>((a, b) => sb.from("chats").select("id, deal_key, trainer_id, quiet_at, client_user_id, client_name, title").order("created_at").range(a, b)),
     all<{ chat_id: string; sender_role: string; created_at: string }>((a, b) => sb.from("chat_messages").select("chat_id, sender_role, created_at").gte("created_at", `${from}T00:00:00Z`).in("kind", ["text", "media"]).order("created_at").range(a, b)),
-    all<{ chat_id: string | null; booking_id: string | null; kind: string; opened_at: string; status: string; detail: string | null; resolved_at: string | null; auto_resolved: boolean | null }>((a, b) => sb.from("chat_incidents").select("chat_id, booking_id, kind, opened_at, status, detail, resolved_at, auto_resolved").gte("opened_at", `${from}T00:00:00Z`).order("opened_at").range(a, b)),
+    all<{ chat_id: string | null; booking_id: string | null; kind: string; opened_at: string; status: string; detail: string | null; resolved_at: string | null; auto_resolved: boolean | null; resolved_by: string | null }>((a, b) => sb.from("chat_incidents").select("chat_id, booking_id, kind, opened_at, status, detail, resolved_at, auto_resolved, resolved_by").gte("opened_at", `${from}T00:00:00Z`).order("opened_at").range(a, b)),
     all<{ trainer_id: string; due_by: string | null; submitted_at: string | null }>((a, b) => sb.from("reports").select("trainer_id, due_by, submitted_at").gte("submitted_at", `${from}T00:00:00Z`).order("submitted_at").range(a, b)),
     all<{ trainer_id: string; start_date: string; end_date: string; slots_blocked: number | null }>((a, b) => sb.from("time_off").select("trainer_id, start_date, end_date, slots_blocked").lte("start_date", today).gte("end_date", from).order("start_date").range(a, b)),
-    all<{ amount: number; closed_on: string; owner_id: string | null }>((a, b) => sb.from("deal_money").select("amount, closed_on, owner_id").gte("closed_on", from).order("closed_on").range(a, b))
+    all<{ amount: number; closed_on: string; owner_id: string | null }>((a, b) => sb.from("deal_money").select("amount, closed_on, owner_id").gte("closed_on", from).order("closed_on").range(a, b)),
+    all<{ who: string | null; action: string; detail: string | null; at: string }>((a, b) => sb.from("audit_log").select("who, action, detail, at").in("action", ["Marked a to-do Done", "Approved a form", "Sent a form back", "Took a to-do"]).gte("at", `${from}T00:00:00Z`).order("at").range(a, b)).catch(() => [])
   ]);
   const reads = await all<{ chat_id: string; user_id: string }>((a, b) => sb.from("chat_reads").select("chat_id, user_id").order("chat_id").range(a, b));
-  let points = bks.length + trs.length + chats.length + msgs.length + incs.length + reps.length + offs.length + dm.length + reads.length;
+  let points = bks.length + trs.length + chats.length + msgs.length + incs.length + reps.length + offs.length + dm.length + reads.length + acts.length;
 
   // Chats, and what each one's messages add up to
   const joined = new Set(reads.filter((r) => chats.some((c) => c.id === r.chat_id && c.client_user_id === r.user_id)).map((r) => r.chat_id));
@@ -116,11 +124,12 @@ export async function buildAppPart(sb: SupabaseClient = serviceClient()): Promis
       const bk = i.booking_id ? bks.find((b) => b.id === i.booking_id) : null, ch = i.chat_id ? chats.find((c) => c.id === i.chat_id) : null;
       const title = bk ? `${bk.dog_name || "Dog"} (${bk.client_name})` : ch ? `${ch.title || "Dog"}${ch.client_name ? ` (${ch.client_name})` : ""}` : "";
       const hrs = i.resolved_at ? Math.round(((Date.parse(i.resolved_at) - Date.parse(i.opened_at)) / 3600000) * 10) / 10 : null;
-      return { c: i.chat_id, b: i.booking_id, k: i.kind, d: dayET(i.opened_at), open: i.status !== "resolved", title: title.slice(0, 80), detail: clean(i.detail).slice(0, 120), hrs, byHand: !!i.resolved_at && !i.auto_resolved };
+      return { c: i.chat_id, b: i.booking_id, k: i.kind, d: dayET(i.opened_at), open: i.status !== "resolved", title: title.slice(0, 80), detail: clean(i.detail).slice(0, 120), hrs, byHand: !!i.resolved_at && !i.auto_resolved, by: clean(i.resolved_by).replace(/\s*\(.*\)$/, "") };
     }),
     reports: reps.filter((r) => r.submitted_at && r.due_by && dayET(r.due_by) >= FORMS_CUTOVER).map((r) => ({ t: r.trainer_id, d: dayET(r.submitted_at!), ok: r.submitted_at! <= r.due_by! })),
     timeOff: offs.map((o) => ({ t: o.trainer_id, start: o.start_date, end: o.end_date, blocked: o.slots_blocked })),
-    dealMoney: dm.map((d) => ({ amount: Number(d.amount || 0), day: d.closed_on, owner: d.owner_id || "" }))
+    dealMoney: dm.map((d) => ({ amount: Number(d.amount || 0), day: d.closed_on, owner: d.owner_id || "" })),
+    actions: acts.map((x) => ({ who: personFrom(x.who), raw: clean(x.who).replace(/\s*\(.*\)$/, "") || "Someone", a: x.action === "Approved a form" ? "approved" as const : x.action === "Sent a form back" ? "sentback" as const : x.action === "Took a to-do" ? "took" as const : "done" as const, t: Date.parse(x.at), kind: x.action === "Marked a to-do Done" ? (clean(x.detail).split(": ")[1] || "") : "" }))
   };
 }
 
@@ -225,6 +234,7 @@ export type OfficeView = {
   cancellations: { dog: string; client: string; trainer: string; reason: string; when: string }[];
   lateForms: { name: string; n: number }[]; balances: { text: string; href?: string }[]; incidents: { title: string; when: string; detail: string }[];
   counts: { todo: number; now: number; toReview: number; late: number; notBooked: number; notSignedIn: number };
+  handling: { people: { who: string; done: number; approved: number; sentBack: number; bursts: number; inBursts: number; share: number; gap: number | null; fastApprovals: number; notFixed: number }[]; bursts: { who: string; when: string; n: number; minutes: number; gap: number; what: string }[] };
 };
 export type StateCell = { st: string; leads: number; won: number; wonAmount: number; full: boolean };
 export type SalesPerson = { name: string; leads: number; won: number; amount: number; calls: number; emails: number; conversion: number | null };
@@ -384,7 +394,26 @@ export async function pulse(q: { r?: string; from?: string; to?: string; v?: str
       lateForms = [...lf.entries()].map(([name, n]) => ({ name, n })).sort((a, b) => b.n - a.n);
       balances = t.items.filter((i) => /balance/i.test(i.detail || "") && /ready|start/i.test(i.text)).map((i) => ({ text: i.text, href: i.dogHref || i.primary?.href }));
     } catch (e) { notes.push(`To do: ${(e as Error).message}`); }
-    office = { joined, chats: chatsNow.length, silent24, waitingClients, slowTrainers, alertBar: bar, newBookings: [...nb.entries()].map(([id, n]) => ({ name: tName(id), n })).sort((a, b) => b.n - a.n),
+    // How To do is being handled: a burst = 6+ Done/Approve actions each within 15 s of the last (clearing without looking);
+    // a fast approval = a form approved under 20 s after the previous one; "cleared, not fixed" = a "no update today" alert
+    // marked Done by hand while the trainer still hadn't posted that day.
+    const acts = snap.actions.filter((x) => { const d = dayET(x.t); return d >= range.from && d <= range.to && x.a !== "took"; }).sort((a, b) => a.t - b.t);
+    const byWho = new Map<string, SAct[]>(); for (const x of acts) (byWho.get(x.who) || byWho.set(x.who, []).get(x.who)!).push(x);
+    const bursts: OfficeView["handling"]["bursts"] = [], people: OfficeView["handling"]["people"] = [];
+    const chatById2 = chatById;
+    for (const [who, list] of byWho) {
+      let inBursts = 0, nBursts = 0, gaps: number[] = [], fast = 0, run: SAct[] = [];
+      const flush = () => { if (run.length >= 6) { nBursts++; inBursts += run.length; const g = run.slice(1).map((x, i) => (x.t - run[i].t) / 1000); gaps.push(...g); const kinds = run.map((x) => x.a === "approved" ? "forms approved" : x.kind ? `${x.kind} done` : "done"); const top = [...new Set(kinds)].slice(0, 2).join(", "); bursts.push({ who, when: new Date(run[0].t).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "America/New_York" }) + " ET", n: run.length, minutes: Math.max(1, Math.round((run[run.length - 1].t - run[0].t) / 60000)), gap: Math.round(median(g) || 0), what: top }); } run = []; };
+      for (let i = 0; i < list.length; i++) { const x = list[i], prev = list[i - 1]; if (prev && x.t - prev.t <= 15000) run.push(x); else { flush(); run = [x]; } if (x.a === "approved" && prev?.a === "approved" && x.t - prev.t < 20000) fast++; }
+      flush();
+      const raw = list[0].raw.toLowerCase();
+      const notFixed = now.inc.filter((i) => i.byHand && i.k === "trainer_silent" && i.by && raw.startsWith(i.by.toLowerCase().split(" ")[0]) && i.c && !(snap.postDays[i.c] || []).includes(i.d)).length;
+      people.push({ who, done: list.filter((x) => x.a === "done").length, approved: list.filter((x) => x.a === "approved").length, sentBack: list.filter((x) => x.a === "sentback").length, bursts: nBursts, inBursts, share: list.length ? Math.round((inBursts / list.length) * 100) : 0, gap: median(gaps), fastApprovals: fast, notFixed });
+    }
+    people.sort((a, b) => b.done + b.approved - (a.done + a.approved));
+    bursts.sort((a, b) => b.n - a.n);
+    void chatById2;
+    office = { joined, chats: chatsNow.length, silent24, waitingClients, slowTrainers, alertBar: bar, handling: { people, bursts: bursts.slice(0, 8) }, newBookings: [...nb.entries()].map(([id, n]) => ({ name: tName(id), n })).sort((a, b) => b.n - a.n),
       dateChanges: now.inc.filter((i) => i.k === "length_changed").length, overbooked: now.inc.filter((i) => i.k === "overbooked").length, moves,
       cancellations: snap.bookings.filter((b) => b.cancelledOn && b.cancelledOn >= range.from && b.cancelledOn <= range.to).map((b) => ({ dog: b.dog, client: b.client, trainer: tName(b.t), reason: `${b.reason || "No reason recorded"}${b.note ? `: ${b.note}` : ""}`, when: b.cancelledOn! })).sort((a, b) => b.when.localeCompare(a.when)),
       lateForms, balances, incidents: now.inc.filter((i) => i.k === "trainer_report").map((i) => ({ title: i.title || "Incident", when: i.d, detail: i.detail })).sort((a, b) => b.when.localeCompare(a.when)), counts };
@@ -465,6 +494,7 @@ export async function pulse(q: { r?: string; from?: string; to?: string; v?: str
     if (waitingNow >= 3) cards.push({ tone: "heart", title: `${waitingNow} clients are waiting for a reply right now`, evidence: `Team reply median ${now.teamMedian == null ? "–" : label(now.teamMedian)} in this range.`, href: "/a#todo-now", action: "See To do" });
     if (now.started && now.cancelled / Math.max(1, now.started) > 0.15) cards.push({ tone: "heart", title: `${now.cancelled} cancelled against ${now.started} started`, evidence: "More than 15% cancelled in this range. Reasons are on the bookings.", href: "/a/dogs", action: "See bookings" });
     if (now.formsN >= 10 && pct(now.formsOk, now.formsN)! < 70) cards.push({ tone: "biscuit", title: `Forms on time: ${pct(now.formsOk, now.formsN)}%`, evidence: `${now.formsN - now.formsOk} of ${now.formsN} forms were late.`, href: "/a#todo-week", action: "See late forms" });
+    if (office) { const b = office.handling.bursts[0]; if (b && b.n >= 10) cards.unshift({ tone: "heart", title: `${b.who} cleared ${b.n} To do items in ${b.minutes} min (${b.gap} s apart) on ${b.when.split(",")[0]}`, evidence: `${b.what}. That's faster than reading them. Worth a word: open, read, then Done. Details under "How To do is being handled".` }); }
     const packed = trainers.filter((t) => (t.baseUtilisation ?? 0) >= 80 && t.cap > 0);
     if (packed.length) cards.push({ tone: "mint", title: `Worth discussing more kennels? ${packed.map((t) => t.name).join(", ")}`, evidence: `Booked 80%+ of their kennels across the last 90 days (${packed.map((t) => `${t.name} ${t.baseUtilisation}%`).join(", ")}).` });
   } else if (sales) {
