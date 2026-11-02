@@ -35,7 +35,7 @@ export default async function ToDo() {
       </div>
       <div className="mt-4"><MovesStrip moves={moves} title="Today" today /></div>
       {!total && <div className="mt-6"><Empty title="All done.">New things show up here as they happen: clients waiting, forms to check, vaccines, payslips.</Empty></div>}
-      <TodoList items={todo.items} late={todo.late} beforeApp={todo.beforeApp} canQuiet={canQuiet(v.email)} />
+      <TodoList items={todo.items} late={todo.late} beforeApp={todo.beforeApp} canQuiet={canQuiet(v.email)} pocs={todo.pocs} />
     </>
   );
 }

@@ -23,16 +23,17 @@ export type TodoItem = {
   primary?: { label: string; href: string; external?: boolean };
   dogHref?: string; hubspot?: string; incidentId?: string; doneLabel?: string;
   quietChatId?: string; // a chat alert that Quiet chat would silence (finishing on Signal)
+  poc?: string;         // the trainer's Point of Contact (from the trainer's profile), for the POC filter; none = not tied to a trainer
 };
 /** late: forms past their deadline. beforeApp: handover reports due before the app took over the forms (still needed for the certificate). */
-export type TodoData = { items: TodoItem[]; late: (Todo & { trainerName: string })[]; beforeApp: (Todo & { trainerName: string })[] };
+export type TodoData = { items: TodoItem[]; late: (Todo & { trainerName: string; poc?: string })[]; beforeApp: (Todo & { trainerName: string; poc?: string })[]; pocs: string[] };
 
 export const hubspotDeal = (id: string | null | undefined) => (id && /^\d+$/.test(id) ? `https://app.hubspot.com/contacts/21869370/record/0-3/${id}` : undefined);
 export const dogPage = (bookingId: string, tab?: string, hash?: string) => `/a/dogs/${bookingId}${tab ? `?tab=${tab}` : ""}${hash ? `#${hash}` : ""}`;
 
 type Inc = {
   id: string; kind: IncidentKind; status: string; detail: string | null; opened_at: string; chat_id: string | null; booking_id: string | null; report_id: string | null; ref: string | null;
-  chat: { id: string; title: string | null; client_name: string | null; trainer_name: string | null; deal_key: string } | null;
+  chat: { id: string; title: string | null; client_name: string | null; trainer_name: string | null; trainer_id?: string | null; deal_key: string } | null;
   booking: { id: string; dog_name: string | null; client_name: string; start_date: string; hubspot_deal_id: string | null; trainer_id: string; trainers: { name: string } | null } | null;
 };
 type B = BookingForReports & { hubspot_deal_id: string | null; reports_enabled?: boolean | null };
@@ -46,18 +47,21 @@ export const todoTotal = (d: TodoData) => d.items.length + (d.late.length ? 1 : 
 export async function todoCount(): Promise<number> { return todoTotal(await buildTodo()); }
 
 async function buildTodoUncached(): Promise<TodoData> {
-  if (isDemo()) return { items: [], late: [], beforeApp: [] };
+  if (isDemo()) return { items: [], late: [], beforeApp: [], pocs: [] };
   const sb = serviceClient(), today = etParts(new Date()).date;
   const [{ data: incs }, { data: reps }, { data: msgs }, { data: trainers }, signins, { data: bks }] = await Promise.all([
-    sb.from("chat_incidents").select("id, kind, status, detail, opened_at, chat_id, booking_id, report_id, ref, chat:chats(id, title, client_name, trainer_name, deal_key), booking:bookings!booking_id(id, dog_name, client_name, start_date, hubspot_deal_id, trainer_id, trainers(name))").neq("status", "resolved").order("opened_at"),
-    sb.from("reports").select("id, kind, week_number, booking_id, submitted_at, trainers(name), booking:bookings!booking_id(dog_name, client_name, hubspot_deal_id)").eq("status", "submitted").order("submitted_at"),
+    sb.from("chat_incidents").select("id, kind, status, detail, opened_at, chat_id, booking_id, report_id, ref, chat:chats(id, title, client_name, trainer_name, trainer_id, deal_key), booking:bookings!booking_id(id, dog_name, client_name, start_date, hubspot_deal_id, trainer_id, trainers(name))").neq("status", "resolved").order("opened_at"),
+    sb.from("reports").select("id, kind, week_number, booking_id, submitted_at, trainer_id, trainers(name), booking:bookings!booking_id(dog_name, client_name, hubspot_deal_id)").eq("status", "submitted").order("submitted_at"),
     sb.from("messages").select("trainer_id, created_at, body").eq("sender_role", "trainer").is("read_at", null).order("created_at"),
-    sb.from("trainers").select("id, name, data_flags, active, probation"),
+    sb.from("trainers").select("id, name, data_flags, active, probation, poc"),
     trainerSignins().catch(() => []),
     sb.from("bookings").select("id, trainer_id, client_name, dog_name, start_date, end_date, weeks, status, reports_enabled, hubspot_deal_id").neq("status", "cancelled").gte("end_date", addDays(today, -75))
   ]);
   const bookings = (bks || []) as B[];
   const tName = new Map(((trainers || []) as { id: string; name: string }[]).map((t) => [t.id, t.name]));
+  // Point of Contact per trainer (free text on the trainer's profile): the To do POC filter
+  const tPoc = new Map(((trainers || []) as { id: string; poc: string | null }[]).map((t) => [t.id, String(t.poc || "").replace(/\s+/g, " ").trim()]));
+  const pocOf = (trainerId: string | null | undefined) => (trainerId && tPoc.get(trainerId)) || undefined;
   const bookingOfKey = (key: string) => bookings.find((b) => dealKey(b) === key);
   const items: TodoItem[] = [];
 
@@ -72,7 +76,7 @@ async function buildTodoUncached(): Promise<TodoData> {
     const chat = i.chat_id ? { label: "Open chat", href: `/a/chats/${i.chat_id}` } : undefined;
     const dogHref = bookingId ? dogPage(bookingId) : undefined;
     const startsSoon = !!i.booking && i.booking.start_date <= addDays(today, 2);
-    const base = { key: `inc:${i.id}`, since: i.opened_at, incidentId: i.id, dogHref, hubspot: deal, detail: i.detail || undefined };
+    const base = { key: `inc:${i.id}`, since: i.opened_at, incidentId: i.id, dogHref, hubspot: deal, detail: i.detail || undefined, poc: pocOf(i.booking?.trainer_id || bk?.trainer_id || i.chat?.trainer_id) };
     const ICON: Partial<Record<IncidentKind, TodoIcon>> = { client_waiting: "chat", client_pileup: "chat", trainer_silent: "chat", reopened: "chat", ready_to_close: "chat",
       intake_media_missing: "camera", handover_photo_missing: "camera", overbooked: "dog", length_changed: "money", booking_cancelled: "money", hubspot_problem: "deal",
       not_ready: "dog", check_vaccines: "vaccine", trainer_report: "alert" };
@@ -112,9 +116,9 @@ async function buildTodoUncached(): Promise<TodoData> {
   }
 
   // ── Forms sent in, waiting for review ──
-  for (const r of (reps || []) as unknown as { id: string; kind: Kind; week_number: number; booking_id: string; submitted_at: string | null; trainers: { name: string } | null; booking: { dog_name: string | null; client_name: string; hubspot_deal_id: string | null } | null }[]) {
+  for (const r of (reps || []) as unknown as { id: string; kind: Kind; week_number: number; booking_id: string; submitted_at: string | null; trainer_id: string | null; trainers: { name: string } | null; booking: { dog_name: string | null; client_name: string; hubspot_deal_id: string | null } | null }[]) {
     items.push({
-      key: `rep:${r.id}`, group: r.kind === "handover" ? "now" : "week", tone: "biscuit", icon: "form", since: r.submitted_at || undefined,
+      key: `rep:${r.id}`, group: r.kind === "handover" ? "now" : "week", tone: "biscuit", icon: "form", since: r.submitted_at || undefined, poc: pocOf(r.trainer_id),
       text: `${r.trainers?.name || "A trainer"} sent ${r.booking?.dog_name || "a dog"}'s ${kindName(r.kind).toLowerCase()}${r.kind === "weekly" ? ` (week ${r.week_number})` : ""}`,
       detail: r.kind === "handover" ? "Check it, then send it to the client." : undefined,
       primary: { label: "Review", href: `/a/reports/${r.id}` }, dogHref: dogPage(r.booking_id), hubspot: hubspotDeal(r.booking?.hubspot_deal_id)
@@ -128,19 +132,19 @@ async function buildTodoUncached(): Promise<TodoData> {
     byTrainer.set(m.trainer_id, { n: x.n + 1, first: x.first, last: m.body });
   }
   for (const [id, x] of byTrainer) items.push({
-    key: `msg:${id}`, group: "now", tone: "heart", icon: "message", since: x.first, text: `${tName.get(id) || "A trainer"} sent you ${x.n > 1 ? `${x.n} messages` : "a message"}`,
+    key: `msg:${id}`, group: "now", tone: "heart", icon: "message", since: x.first, poc: pocOf(id), text: `${tName.get(id) || "A trainer"} sent you ${x.n > 1 ? `${x.n} messages` : "a message"}`,
     detail: x.last.slice(0, 140), primary: { label: "Reply", href: `/a/messages/${id}` }
   });
 
   // ── Trainer profiles to check, trainers not signed in ──
   for (const t of (trainers || []) as { id: string; name: string; data_flags: string[] | null; active: boolean }[]) {
-    if (t.active && t.data_flags?.length) items.push({ key: `flag:${t.id}`, group: "later", tone: "line", icon: "people", text: `Check ${t.name}'s profile`, detail: t.data_flags.join("; "), primary: { label: "Open trainer", href: `/a/trainers/${t.id}` } });
+    if (t.active && t.data_flags?.length) items.push({ key: `flag:${t.id}`, group: "later", tone: "line", icon: "people", poc: pocOf(t.id), text: `Check ${t.name}'s profile`, detail: t.data_flags.join("; "), primary: { label: "Open trainer", href: `/a/trainers/${t.id}` } });
   }
   // Probation: after a new trainer's 4th finished training, an admin approves or declines
   for (const t of (trainers || []) as { id: string; name: string; active: boolean; probation?: string }[]) {
     if (!t.active || t.probation !== "on") continue;
     const { count } = await sb.from("bookings").select("id", { count: "exact", head: true }).eq("trainer_id", t.id).neq("status", "cancelled").lte("end_date", today);
-    if ((count || 0) >= 4) items.push({ key: `prob:${t.id}`, group: "week", tone: "biscuit", icon: "people", text: `Approve or decline probation for ${t.name}`, detail: `${count} trainings finished. Their program pay is at 75% until approved.`, primary: { label: "Decide", href: `/a/trainers/${t.id}#probation` } });
+    if ((count || 0) >= 4) items.push({ key: `prob:${t.id}`, group: "week", tone: "biscuit", icon: "people", poc: pocOf(t.id), text: `Approve or decline probation for ${t.name}`, detail: `${count} trainings finished. Their program pay is at 75% until approved.`, primary: { label: "Decide", href: `/a/trainers/${t.id}#probation` } });
   }
   const notIn = signins.filter((s) => !s.lastSignIn);
   if (notIn.length) items.push({
@@ -150,11 +154,11 @@ async function buildTodoUncached(): Promise<TodoData> {
 
   // ── Dogs whose program isn't clear (e.g. booked as "4-week"): no training materials and a vague certificate until it's set ──
   {
-    const { data: unclear, error: uErr } = await sb.from("bookings").select("id, dog_name, client_name, program, program_choice, start_date")
+    const { data: unclear, error: uErr } = await sb.from("bookings").select("id, trainer_id, dog_name, client_name, program, program_choice, start_date")
       .neq("status", "cancelled").gte("end_date", today).not("hubspot_deal_id", "is", null).limit(500);
-    if (!uErr) for (const b of (unclear || []) as { id: string; dog_name: string | null; client_name: string; program: string | null; program_choice: string | null; start_date: string }[]) {
+    if (!uErr) for (const b of (unclear || []) as { id: string; trainer_id: string | null; dog_name: string | null; client_name: string; program: string | null; program_choice: string | null; start_date: string }[]) {
       if (programFor(b.program_choice || "") || programFor(b.program || "") || notAProgram(b.program)) continue;
-      items.push({ key: `program:${b.id}`, group: b.start_date <= addDays(today, 7) ? "now" : "week", tone: "biscuit", icon: "dog",
+      items.push({ key: `program:${b.id}`, group: b.start_date <= addDays(today, 7) ? "now" : "week", tone: "biscuit", icon: "dog", poc: pocOf(b.trainer_id),
         text: `Set the program for ${b.dog_name || "the dog"}`, detail: `${b.client_name}: booked as "${b.program || "no program"}". Pick one of the 7 programs so training materials go out.`,
         dogHref: `/a/dogs/${b.id}`, primary: { label: "Set program", href: `/a/dogs/${b.id}#program` } });
     }
@@ -174,7 +178,7 @@ async function buildTodoUncached(): Promise<TodoData> {
     const { data } = await sb.from("reports").select("id, booking_id, kind, week_number, status, submitted_at, due_by").in("booking_id", withForms.slice(i, i + 150).map((b) => b.id));
     rows.push(...((data || []) as RowLike[]));
   }
-  const forms = todos(withForms, rows).map((t) => ({ ...t, trainerName: tName.get(t.booking.trainer_id) || "" }));
+  const forms = todos(withForms, rows).map((t) => ({ ...t, trainerName: tName.get(t.booking.trainer_id) || "", poc: pocOf(t.booking.trainer_id) }));
   const late = forms.filter((t) => !t.beforeApp && (t.state === "overdue" || t.state === "changes"));
   const beforeApp = forms.filter((t) => t.beforeApp && t.state !== "waiting");
 
@@ -189,5 +193,7 @@ async function buildTodoUncached(): Promise<TodoData> {
       items.push({ key: "pay", group: isPayMonday(todayIso()) ? "now" : "week", tone: "biscuit", icon: "pay", text: `${list.length} payslip${list.length > 1 ? "s" : ""} to approve`, detail: r ? periodLabel(r.period_start, r.period_end) : undefined, primary: { label: "Open payslips", href: "/a/trainers?view=pay" } });
     }
   }
-  return { items, late, beforeApp };
+  // Every POC written on an active trainer's profile, for the filter (even ones with nothing on To do right now)
+  const pocs = [...new Map(((trainers || []) as { active: boolean; poc: string | null }[]).filter((t) => t.active).map((t) => String(t.poc || "").replace(/\s+/g, " ").trim()).filter(Boolean).map((p) => [p.toLowerCase(), p] as const)).values()].sort((a, b) => a.localeCompare(b));
+  return { items, late, beforeApp, pocs };
 }

@@ -33,12 +33,12 @@ export function TodoRowCompact({ t }: { t: Todo }) {
   );
 }
 
-export function TodoRow({ t, mode }: { t: Todo & { trainerName?: string }; mode: "trainer" | "admin" }) {
+export function TodoRow({ t, mode, poc }: { t: Todo & { trainerName?: string }; mode: "trainer" | "admin"; poc?: string }) {
   const q = `booking=${t.booking.id}&kind=${t.window.kind}&week=${t.window.week}`;
   const href = t.report?.id ? `/${mode === "admin" ? "a" : "t"}/reports/${t.report.id}` : `/${mode === "admin" ? "a" : "t"}/reports/new?${q}`;
   const verb = t.state === "changes" ? "Fix" : t.state === "draft" ? "Continue" : mode === "admin" ? "Fill in" : "Start";
   return (
-    <li className="flex flex-wrap items-center gap-x-3 gap-y-2 p-3.5">
+    <li className="flex flex-wrap items-center gap-x-3 gap-y-2 p-3.5" data-poc={poc === undefined ? undefined : poc.toLowerCase()}>
       <div className="min-w-[55%] flex-1">
         <p className="truncate font-bold">{t.booking.dog_name || "Dog"} <span className="font-normal text-ink-soft">{todoLabel(t)}</span></p>
         <p className="truncate text-small text-ink-soft">{mode === "admin" && t.trainerName ? `${t.trainerName}, ` : ""}{t.booking.client_name}</p>

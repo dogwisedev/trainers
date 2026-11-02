@@ -24,14 +24,14 @@ function ago(iso?: string) {
 }
 
 /** The admin To do list. Mobile first: icon, sentence, details, then the buttons on their own line. */
-export function TodoList({ items, late, beforeApp = [], canQuiet = false }: { items: TodoItem[]; late: (Todo & { trainerName?: string })[]; beforeApp?: (Todo & { trainerName?: string })[]; canQuiet?: boolean }) {
+export function TodoList({ items, late, beforeApp = [], canQuiet = false, pocs = [] }: { items: TodoItem[]; late: (Todo & { trainerName?: string; poc?: string })[]; beforeApp?: (Todo & { trainerName?: string; poc?: string })[]; canQuiet?: boolean; pocs?: string[] }) {
   const forms = (late.length ? 1 : 0) + (beforeApp.length ? 1 : 0); // each is one row in "This week"
   const counts = GROUPS.map((g) => ({ ...g, n: items.filter((i) => i.group === g.key).length + (g.key === "week" ? forms : 0) })).filter((g) => g.n);
   return (
     <>
       <div id="todo-list">
       <div className="mt-4 flex flex-wrap items-center gap-2">
-        <TodoTypes />
+        <TodoTypes pocs={pocs} />
         {counts.length > 1 && <nav className="-mx-1 flex min-w-0 gap-2 overflow-x-auto px-1 pb-1" aria-label="Jump to">
           {counts.map((g) => <a key={g.key} href={`#todo-${g.key}`} className={`chip shrink-0 ${g.key === "now" ? "border-heart/30 text-heart" : ""}`}>{g.short}<span className="count">{g.n}</span></a>)}
         </nav>}
@@ -60,7 +60,7 @@ export function TodoList({ items, late, beforeApp = [], canQuiet = false }: { it
 }
 
 /** A list of forms folded into one To do row. */
-function FormGroup({ title, list, note }: { title: string; list: (Todo & { trainerName?: string })[]; note: React.ReactNode }) {
+function FormGroup({ title, list, note }: { title: string; list: (Todo & { trainerName?: string; poc?: string })[]; note: React.ReactNode }) {
   return (
     <li data-kind="form">
       <details className="group">
@@ -70,7 +70,7 @@ function FormGroup({ title, list, note }: { title: string; list: (Todo & { train
           <span className="btn-ghost h-9 min-h-0 px-3 text-small group-open:hidden">Show</span>
           <span className="btn-ghost hidden h-9 min-h-0 px-3 text-small group-open:inline-flex">Hide</span>
         </summary>
-        <ul className="divide-y divide-line border-t border-line bg-canvas/60">{list.map((t) => <TodoRow key={`${t.booking.id}-${t.window.kind}-${t.window.week}`} t={t} mode="admin" />)}</ul>
+        <ul className="divide-y divide-line border-t border-line bg-canvas/60">{list.map((t) => <TodoRow key={`${t.booking.id}-${t.window.kind}-${t.window.week}`} t={t} mode="admin" poc={t.poc || ""} />)}</ul>
         <p className="border-t border-line px-4 py-2.5 text-caption text-ink-faint">{note}</p>
       </details>
     </li>
@@ -81,7 +81,7 @@ function Item({ i, canQuiet = false }: { i: TodoItem; canQuiet?: boolean }) {
   const I = ICONS[i.icon || "alert"];
   const tone = i.tone === "heart" ? "heart" : i.tone === "biscuit" ? "biscuit" : "paper";
   return (
-    <li className="flex gap-3 p-4" data-kind={i.icon || "alert"}>
+    <li className="flex gap-3 p-4" data-kind={i.icon || "alert"} data-poc={(i.poc || "").toLowerCase()}>
       <IconTile tone={tone}><I size={19} /></IconTile>
       <div className="min-w-0 flex-1">
         <p className="font-bold leading-snug">{i.text}</p>
