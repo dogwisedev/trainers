@@ -60,8 +60,10 @@ function ScheduleSheet({ chatId, initialText, onClose, onScheduled }: { chatId: 
   });
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-ink/40 p-0 md:items-center md:p-4" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div role="dialog" aria-modal="true" aria-labelledby="sched-title" className="max-h-[92dvh] w-full overflow-y-auto rounded-t-[22px] bg-white p-4 pb-[calc(16px+env(safe-area-inset-bottom))] shadow-card md:max-w-lg md:rounded-[22px]">
-        <div className="flex items-center justify-between"><h2 id="sched-title" className="text-lead font-extrabold">Schedule a message</h2><button type="button" onClick={onClose} className="grid h-10 w-10 place-items-center rounded-full hover:bg-paper" aria-label="Close"><X size={18} /></button></div>
+      {/* The sheet: a scrolling body and a footer with the buttons that is always on screen, whatever the phone's viewport does */}
+      <div role="dialog" aria-modal="true" aria-labelledby="sched-title" className="flex max-h-[88vh] w-full flex-col rounded-t-[22px] bg-white shadow-card supports-[height:1dvh]:max-h-[90dvh] md:max-w-lg md:rounded-[22px]">
+        <div className="flex items-center justify-between px-4 pt-4"><h2 id="sched-title" className="text-lead font-extrabold">Schedule a message</h2><button type="button" onClick={onClose} className="grid h-10 w-10 place-items-center rounded-full hover:bg-paper" aria-label="Close"><X size={18} /></button></div>
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-3">
         <p className="mt-1 text-small text-ink-soft">It&apos;s posted in the chat at the time you pick, as you. The client sees nothing until then.</p>
         <label className="mt-3 block"><span className="label">Message</span><textarea value={text} onChange={(e) => setText(e.target.value)} rows={4} className="field min-h-[96px]" placeholder="Write the update" /></label>
         <div className="mt-3">
@@ -78,7 +80,8 @@ function ScheduleSheet({ chatId, initialText, onClose, onScheduled }: { chatId: 
           <p className="mt-1 text-caption text-ink-faint">Your time. It goes out within 10 minutes of that.</p>
         </div>
         {msg && <p role="alert" className="mt-3 text-small font-semibold text-heart">{msg}</p>}
-        <div className="mt-4 flex gap-2">
+        </div>
+        <div className="flex shrink-0 gap-2 border-t border-line bg-white px-4 pt-3 pb-[calc(16px+env(safe-area-inset-bottom))]">
           <button type="button" onClick={submit} disabled={pending || uploading || (!text.trim() && !refs.length)} className="btn-ink flex-1">{pending ? "Scheduling…" : uploading ? "Uploading…" : "Schedule"}</button>
           <button type="button" onClick={onClose} className="btn-ghost">Cancel</button>
         </div>
