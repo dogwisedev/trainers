@@ -79,16 +79,17 @@ export function haversine(a: { lat: number; lon: number }, b: { lat: number; lon
 export const googleUrl = (from: string, to: string) =>
   `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(from)}&destination=${encodeURIComponent(to)}&travelmode=driving`;
 
-export type MileStatus = "over" | "paid" | "ok" | "unchecked";
+export type MileStatus = "over" | "paid" | "free";
 /**
- * One trip: declared miles (round trip, as the forms ask) against the route (one way, doubled).
- *  over: more than 5% or 15 miles over the route  ·  paid: mileage is paid on it (over the trainer's free miles): check it
- *  ok: neither  ·  unchecked: no route yet
+ * One trip: declared miles (round trip, as the forms ask) against the route (one way, doubled). Only trips that earn
+ * mileage pay are checked at all: under the trainer's free miles, no money changes hands, so there's nothing to check.
+ *  paid: mileage is paid on it (over the free miles): check it  ·  over: paid AND more than 5% or 15 miles over the route
+ *  free: under the free miles (or no mileage rate): not checked
  */
 export function mileCheck(declared: number, oneWay: number | null | undefined, freeMiles: number, rate: number | null | undefined) {
   const round = oneWay == null ? null : Math.round(oneWay * 2 * 10) / 10;
   const paid = rate != null && declared > (freeMiles || 0);
-  const over = round != null && (declared > round * OVER_SHARE || declared - round > OVER_MILES);
-  const status: MileStatus = over ? "over" : paid ? "paid" : round == null ? "unchecked" : "ok";
+  const over = paid && round != null && (declared > round * OVER_SHARE || declared - round > OVER_MILES);
+  const status: MileStatus = !paid ? "free" : over ? "over" : "paid";
   return { round, paid, over, overBy: round == null ? null : Math.round((declared - round) * 10) / 10, status };
 }

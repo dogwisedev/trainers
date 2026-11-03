@@ -12,7 +12,7 @@ const SOURCE: Record<string, string> = { address: "address", profile: "map point
 export function MileageCheck({ rows, payslipId, setUp, onSlip }: { rows: MileageRow[]; payslipId: string; setUp: boolean; onSlip?: Record<string, number | null> }) {
   if (!rows.length) return null;
   const missing = onSlip ? rows.filter((r) => onSlip[r.tripId] === null).length : 0;
-  const flagged = rows.filter((r) => r.check.over || r.check.paid).length, unchecked = rows.filter((r) => !r.route).length;
+  const flagged = rows.filter((r) => r.check.paid).length, unchecked = rows.filter((r) => !r.route).length;
   return (
     <section className="panel overflow-hidden" aria-labelledby="miles-title">
       <div className="flex flex-wrap items-start justify-between gap-2 border-b border-line bg-paper/60 px-4 py-3">
@@ -37,7 +37,7 @@ export function MileageCheck({ rows, payslipId, setUp, onSlip }: { rows: Mileage
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 {c.over && <Pill tone="heart">Over the route by {c.overBy} mi</Pill>}
                 {c.paid && <Pill tone="biscuit">Paid mileage: check it</Pill>}
-                {!c.over && !c.paid && c.round != null && <Pill tone="mint">Matches the route</Pill>}
+                {c.paid && !c.over && c.round != null && <Pill tone="mint">Matches the route</Pill>}
                 {onSlip && onSlip[r.tripId] === null && <Pill tone="heart">Not on the payslip</Pill>}
                 {onSlip && onSlip[r.tripId] != null && <Pill tone="line">On the payslip: ${onSlip[r.tripId]!.toFixed(2)}</Pill>}
                 {route?.google_url && <a href={route.google_url} target="_blank" rel="noopener" className="btn-ghost h-9 min-h-0 px-3 text-small">Check on Google Maps<ExternalLink size={13} /></a>}
@@ -51,7 +51,7 @@ export function MileageCheck({ rows, payslipId, setUp, onSlip }: { rows: Mileage
           );
         })}
       </ul>
-      <p className="border-t border-line px-4 py-2.5 text-caption text-ink-faint">Flags: more than 5% or 15 miles over the route, or any trip that earns mileage pay. Pay is worked out from the declared miles either way; change the line below if it&apos;s wrong.</p>
+      <p className="border-t border-line px-4 py-2.5 text-caption text-ink-faint">Only trips that earn mileage pay are listed (over the free miles); the rest need no check. Flagged red when also more than 5% or 15 miles over the route. Pay is worked out from the declared miles either way; change the line below if it&apos;s wrong.</p>
     </section>
   );
 }

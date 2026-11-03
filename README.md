@@ -101,6 +101,8 @@ Each payslip has a **Mileage check**: every pickup, drop-off and follow-up trip 
 - Routes come from FreeRoute (`FREEROUTE_API_KEY` in Vercel; free tier 1,000 requests a day, we use a few). Its address search can pick a same-name town in another state, so an address only counts when the result is in the same ZIP (or state); otherwise the ZIP's centre is used. If FreeRoute errors or doesn't answer, it's a straight-line estimate + 25% for roads, marked "estimate", tried again 6 hours later. No key = estimates only. FreeRoute doesn't report tolls; Google does, on the link.
 - One check per booking and trainer, kept in `trip_routes` (migration 038), redone only when an address changes. The 20-minute forms job checks a few at a time; **Check now** on the payslip does that trainer's trips straight away.
 
+
+Only trips that earn mileage pay (over the trainer's free miles, with a mileage rate set) are checked: they're the only ones listed on the payslip, counted on the payslip cards, and sent to the route service. A trip under the free miles is never flagged, even if it's over the route, because no money depends on it.
 ## October 2026 update (run once)
 1. Supabase → SQL editor: run `supabase/migrations/032_audit_outcomes_and_integrity.sql`, then `033_server_notifications_and_direct_edit_log.sql` (in that order; don't re-run 032 after 033).
 2. Vercel variables (optional, defaults shown):

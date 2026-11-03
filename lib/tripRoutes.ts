@@ -158,12 +158,16 @@ async function contactsFor(sb: SupabaseClient, dealIds: string[]): Promise<Map<s
 export async function checkTripRoutes(o: { trainerId?: string; from?: string; to?: string; budgetMs?: number; limit?: number; force?: boolean } = {}, sb: SupabaseClient = serviceClient()) {
   const out = { checked: 0, waiting: 0, errors: [] as string[] };
   const started = Date.now(), budget = o.budgetMs ?? 25000, limit = o.limit ?? 8;
-  let q = sb.from("trips").select("trainer_id, booking_id").not("booking_id", "is", null).gte("trip_date", o.from || addDays(todayIso(), -60));
+  let q = sb.from("trips").select("trainer_id, booking_id, miles").not("booking_id", "is", null).gte("trip_date", o.from || addDays(todayIso(), -60));
   if (o.to) q = q.lte("trip_date", o.to);
   if (o.trainerId) q = q.eq("trainer_id", o.trainerId);
   const { data: trips, error } = await q;
   if (error) { out.errors.push(error.message); return out; }
-  const pairs = [...new Map(((trips || []) as { trainer_id: string; booking_id: string }[]).map((x) => [`${x.booking_id}|${x.trainer_id}`, x])).values()];
+  // Only trips that earn mileage pay need a route: under the free miles there's nothing to check
+  const allTrips = (trips || []) as { trainer_id: string; booking_id: string; miles: number }[];
+  const rates = allTrips.length ? await ratesOf(sb, [...new Set(allTrips.map((x) => x.trainer_id))]) : new Map<string, Rates>();
+  const paidTrips = allTrips.filter((x) => { const r = rates.get(x.trainer_id) || EMPTY_RATES; return mileCheck(Number(x.miles), null, Number(r.mileage_free_miles || 0), r.mileage_rate == null ? null : Number(r.mileage_rate)).paid; });
+  const pairs = [...new Map(paidTrips.map((x) => [`${x.booking_id}|${x.trainer_id}`, x])).values()];
   if (!pairs.length) return out;
   const [{ data: bks }, { data: trs }, { data: have, error: hErr }] = await Promise.all([
     sb.from("bookings").select("id, trainer_id, hubspot_deal_id, client_name, dog_name").in("id", [...new Set(pairs.map((p) => p.booking_id))]),
@@ -215,10 +219,10 @@ export async function mileageRows(trainerId: string, start: string, end: string,
     const route = routes.find((x) => x.booking_id === t.booking_id && x.trainer_id === t.trainer_id) || null;
     return { tripId: t.id, bookingId: t.booking_id, kind: t.kind, date: t.trip_date, declared: Number(t.miles), dog: t.bookings?.dog_name || "", client: t.bookings?.client_name || "",
       route, check: mileCheck(Number(t.miles), route?.one_way_miles == null ? null : Number(route.one_way_miles), Number(r.mileage_free_miles || 0), r.mileage_rate == null ? null : Number(r.mileage_rate)) };
-  });
+  }).filter((x) => x.check.paid); // under the free miles: no money, nothing to check
 }
 
-/** Per trainer: how many trips in the period need a look (over the route, or paid mileage). For the payslip cards. */
+/** Per trainer: how many trips in the period earn mileage pay (the only ones worth a look). For the payslip cards. */
 export async function mileageFlags(trainerIds: string[], start: string, end: string, sb: SupabaseClient = serviceClient()): Promise<Map<string, number>> {
   const out = new Map<string, number>();
   if (!trainerIds.length) return out;
@@ -228,7 +232,7 @@ export async function mileageFlags(trainerIds: string[], start: string, end: str
     for (const t of trips) {
       const r = rates.get(t.trainer_id) || EMPTY_RATES, route = routes.find((x) => x.booking_id === t.booking_id && x.trainer_id === t.trainer_id);
       const c = mileCheck(Number(t.miles), route?.one_way_miles == null ? null : Number(route.one_way_miles), Number(r.mileage_free_miles || 0), r.mileage_rate == null ? null : Number(r.mileage_rate));
-      if (c.over || c.paid) out.set(t.trainer_id, (out.get(t.trainer_id) || 0) + 1);
+      if (c.paid) out.set(t.trainer_id, (out.get(t.trainer_id) || 0) + 1);
     }
   } catch { /* no trips or routes table yet: no flags */ }
   return out;
