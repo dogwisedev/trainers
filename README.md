@@ -77,6 +77,9 @@ Asks why (`lib/cancelReasons.ts`, saved on the booking: migration 040) and says 
 ## Chat list order
 Groups stay as they are; inside each group the newest message is first. "By dates" (`?o=dates`) puts the soonest drop-off / start first instead. The trainer's list is still by dates.
 
+## Closest trainers (booking page and the Sales Assistant)
+Once a deal loads on Book a dog, the 5 closest trainers to the client's ZIP (the pickup address's ZIP if different, else the client's, else the deal name's) show above the Trainer box, in the Sales Assistant's order (covers the client and has room first), each with **Route** (driving miles one way, from FreeRoute) and **Straight** (as the crow flies), their range and next opening, and Pick. `/api/availability` adds `routeMiles` whenever 10 or fewer trainers are asked for (`&routes=0` skips it), each pair cached 30 days; anything slower than 9 s is left out. The FreeRoute key lives only in Vercel (`FREEROUTE_API_KEY`); the extension gets the miles from the app.
+
 ## Client emails: getting people in
 The invite (once, when the chat opens) has a 30-day one-click button and a simple password. The daily "New updates" email (at most once a day, 9 AM–8 PM ET, only with something unread for 90+ minutes) says "Not signed in yet? Click here": a fresh 14-day one-click link, which is also the main button for clients who have never opened the chat. Two days after the invite, a client who still hasn't opened the chat gets one "[dog]'s chat is ready for you" email with the same kind of link (migration 042, `chats.join_reminded_at`, so it's sent once). Both respect "stop these emails" and Quiet chats.
 
@@ -101,8 +104,6 @@ Each payslip has a **Mileage check**: every pickup, drop-off and follow-up trip 
 - Routes come from FreeRoute (`FREEROUTE_API_KEY` in Vercel; free tier 1,000 requests a day, we use a few). Its address search can pick a same-name town in another state, so an address only counts when the result is in the same ZIP (or state); otherwise the ZIP's centre is used. If FreeRoute errors or doesn't answer, it's a straight-line estimate + 25% for roads, marked "estimate", tried again 6 hours later. No key = estimates only. FreeRoute doesn't report tolls; Google does, on the link.
 - One check per booking and trainer, kept in `trip_routes` (migration 038), redone only when an address changes. The 20-minute forms job checks a few at a time; **Check now** on the payslip does that trainer's trips straight away.
 
-
-Only trips that earn mileage pay (over the trainer's free miles, with a mileage rate set) are checked: they're the only ones listed on the payslip, counted on the payslip cards, and sent to the route service. A trip under the free miles is never flagged, even if it's over the route, because no money depends on it.
 ## October 2026 update (run once)
 1. Supabase → SQL editor: run `supabase/migrations/032_audit_outcomes_and_integrity.sql`, then `033_server_notifications_and_direct_edit_log.sql` (in that order; don't re-run 032 after 033).
 2. Vercel variables (optional, defaults shown):

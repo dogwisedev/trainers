@@ -1,5 +1,6 @@
 import "server-only";
 import seed from "./demo-seed.json";
+import { routeMilesBetween } from "./tripRoutes";
 import { isDemo, serviceClient } from "./supabase";
 import { soonestOpening, weekUsage } from "./capacity";
 import { addDays, todayIso, weeksFrom } from "./dates";
@@ -26,7 +27,8 @@ async function geocodeZip(zip: string) {
 export type Origin = { lat: number; lon: number; city?: string; state?: string; zip?: string };
 
 /** zip: a 5-digit US ZIP. lat/lon: used when there's no ZIP. limit: 0 = everyone. today: the day to count from (default: the server's date, as the feed always has). */
-export async function availability(o: { zip?: string; lat?: string | null; lon?: string | null; limit?: number; today?: string }) {
+/** routes: also driving miles (one way, trainer → the lead) for the trainers returned, when there are 10 or fewer. */
+export async function availability(o: { zip?: string; lat?: string | null; lon?: string | null; limit?: number; today?: string; routes?: boolean }) {
   const today = o.today || todayIso();
 
   let trainers: Trainer[], bookings: Booking[], off: TimeOff[];
@@ -84,5 +86,13 @@ export async function availability(o: { zip?: string; lat?: string | null; lon?:
   }
   if (o.limit && o.limit > 0) list = list.slice(0, o.limit);
 
-  return { ok: true as const, generated: new Date().toISOString(), origin, weeks, trainers: list };
+  // Driving miles for a short list: all at once, each cached 30 days; anything slower than 9 s is left out (straight miles still show)
+  let withRoutes: (typeof list[number] & { routeMiles: number | null })[] = list.map((t) => ({ ...t, routeMiles: null }));
+  if (o.routes !== false && origin && list.length && list.length <= 10 && !isDemo()) {
+    const from = origin;
+    const timeout = new Promise<null>((ok) => setTimeout(() => ok(null), 9000));
+    const miles = await Promise.all(list.map((t) => (t.lat != null && t.lon != null ? Promise.race([routeMilesBetween({ lat: Number(t.lat), lon: Number(t.lon) }, from), timeout]) : Promise.resolve(null))));
+    withRoutes = list.map((t, i) => ({ ...t, routeMiles: miles[i] }));
+  }
+  return { ok: true as const, generated: new Date().toISOString(), origin, weeks, trainers: withRoutes };
 }

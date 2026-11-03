@@ -1,4 +1,6 @@
 "use server";
+import { availability } from "@/lib/availability";
+import { clientPlace, zipIn } from "@/lib/mileageCheck";
 import { isCancelReason } from "@/lib/cancelReasons";
 import { auditCall, audited } from "@/lib/audit";
 import { cookies } from "next/headers";
@@ -241,7 +243,7 @@ export async function deleteTimeOff(id: string): Promise<Result> {
 // ── Booking a dog from the app (same rules as the HubSpot extension) ─────
 export type DealPrefill = {
   ok: boolean; message: string;
-  deal?: { id: string; name: string; client: string; email: string; dogs: string[]; start: string | null; end: string | null; weeks: number | null; extra: number; stage: string; closedWon: boolean; program?: string;
+  deal?: { id: string; name: string; client: string; email: string; zip?: string; dogs: string[]; start: string | null; end: string | null; weeks: number | null; extra: number; stage: string; closedWon: boolean; program?: string;
     booked: { id: string; dog: string; trainer: string; dates: string }[] };
 };
 const DEAL_DOGS = ["k9___dog_name", "dog_2_name", "dog_3_name", "dog_4_name"];
@@ -264,13 +266,15 @@ export async function dealPrefillAction(input: string): Promise<DealPrefill> {
     const d = deals.get(id);
     if (!d) return { ok: false, message: `HubSpot has no deal ${id}. Check the link.` };
     const contactIds = (await dealContacts([id])).get(id) || [];
-    const contacts = [...(await readContacts(contactIds, ["firstname", "lastname", "email"])).values()];
+    const contacts = [...(await readContacts(contactIds, ["firstname", "lastname", "email", "zip", "address", "if_no_please_provide_the_full_pickup_address", "is_the_pickup_address_the_same_as_the_address_provided_above"])).values()];
     const c = contacts.find((x) => x.email) || contacts[0] || {};
     const start = hsDate(d[props.start.name]), end = props.end ? hsDate(d[props.end.name]) : null;
     let weeks: number | null = null, extra = 0;
     if (start && end && end > start) { const days = daysBetween(start, end); weeks = Math.min(12, Math.max(1, Math.floor(days / 7))); extra = Math.min(13, Math.max(0, days - weeks * 7)); }
     return { ok: true, message: "", deal: {
       id, name: d.dealname || `Deal ${id}`, client: [c.firstname, c.lastname].filter(Boolean).join(" ").trim(), email: String(c.email || "").trim().toLowerCase(),
+      // Where the trainer drives to: the pickup address's ZIP if it's different, else the client's ZIP, else the one in the deal name
+      zip: (clientPlace(c as Record<string, unknown>)?.zip || zipIn(d.dealname) || "").slice(0, 5),
       dogs: DEAL_DOGS.map((k) => String(d[k] || "").trim()).filter(Boolean), start, end, weeks, extra,
       stage: await stageLabel(d.dealstage), closedWon: d.hs_is_closed_won === "true", booked, program: PROGRAM_SOLD[String(d.type_of_program_sold || "").trim()] || ""
     } };
@@ -672,4 +676,20 @@ export async function linkDealAction(bookingId: string, input: string): Promise<
   const names = moving.map((x) => x.dog_name || "dog").join(" & ");
   return { ok: true, message: `Linked ${names} to ${dealName || `deal ${deal}`}.${merged ? ` Merged ${merged} chat${merged > 1 ? "s" : ""} into one, every message kept.` : ""} HubSpot keeps the dates, checklist and payments in sync from now on.` };
 });
+}
+
+/** Booking page: the 5 closest trainers to a deal's client (by their ZIP), with straight and driving miles and openings. */
+export async function nearestTrainersAction(zip: string) {
+  if (isDemo()) return { ok: false as const, message: "Demo mode." };
+  const v = await viewerOrThrow();
+  if (v.role !== "admin") return { ok: false as const, message: "Admins only." };
+  if (!/^\d{5}$/.test(zip)) return { ok: false as const, message: "No ZIP on this deal." };
+  const r = await availability({ zip, limit: 5, routes: true });
+  if (!r.ok) return { ok: false as const, message: r.error };
+  const thisWeek = r.weeks[0];
+  return { ok: true as const, place: [r.origin?.city, r.origin?.state].filter(Boolean).join(", "), trainers: r.trainers.map((t) => ({
+    id: t.id, name: t.name, place: [t.city, t.state].filter(Boolean).join(", "), straight: t.distance, route: t.routeMiles, range: t.range, inRange: t.inRange,
+    opening: t.soon3 === thisWeek ? (t.freeNow ? `Now (${t.freeNow} free)` : "Now") : t.soon3 ? short(t.soon3) : t.soon2 ? `${short(t.soon2)} (2 weeks)` : t.awayNow ? "Away" : "Full",
+    open: !!(t.soon3 || t.soon2), programs: t.programs || ""
+  })) };
 }

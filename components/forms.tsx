@@ -1,4 +1,5 @@
 "use client";
+import { NearestTrainers } from "@/components/NearestTrainers";
 import { useEffect, useState, useTransition } from "react";
 import { useFormState, useFormStatus } from "react-dom";
 import { Trash2 } from "lucide-react";
@@ -207,6 +208,7 @@ export function BookingForm({ trainers, defaultTrainer, defaultStart, defaultDea
         )}
       </div>
 
+      {deal?.zip && <NearestTrainers zip={deal.zip} picked={tid} onPick={setTid} />}
       <F label="Trainer">
         <select name="trainer_id" required value={tid} onChange={(e) => setTid(e.target.value)} className="field">
           <option value="">Choose a trainer</option>
