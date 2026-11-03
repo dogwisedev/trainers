@@ -11,6 +11,8 @@
   /* Surfaces */
   --surface: 255 255 255; --canvas: 248 246 253; --paper: 240 232 248; --line: 227 222 242;
   --mint-wash: 240 232 248; --heart-wash: 251 238 232; --biscuit-wash: 247 241 232;
+  /* Status (Dogs list): plain green / amber / red, text and a soft tint each */
+  --ok: 21 128 61; --ok-wash: 220 252 231; --amber: 180 83 9; --amber-wash: 254 243 199; --bad: 185 28 28; --bad-wash: 254 226 226;
   /* Strong backgrounds (white text sits on these) */
   --ink-bg: 40 24 112; --fern-bg: 63 37 120; --heart-bg: 144 75 39; --lav-bg: 152 120 248; --mint-bg: 152 120 248; --lav-deep-bg: 110 79 224; --mint-deep-bg: 63 37 120; --biscuit-bg: 201 181 158;
 }
@@ -21,6 +23,7 @@
   --lav: 176 150 255; --lav-deep: 190 168 255; --fern: 196 178 255; --warn: 232 188 110; --heart: 245 160 122; --biscuit: 150 125 85; --mint-deep: 110 91 184;
   --surface: 28 22 62; --canvas: 17 13 40; --paper: 38 30 80; --line: 58 49 102;
   --mint-wash: 40 31 92; --heart-wash: 58 30 24; --biscuit-wash: 52 42 24;
+  --ok: 74 222 128; --ok-wash: 20 54 36; --amber: 251 191 36; --amber-wash: 66 48 12; --bad: 252 129 129; --bad-wash: 72 24 28;
   --ink-bg: 98 71 214; --fern-bg: 116 87 232; --heart-bg: 176 88 50; --lav-bg: 124 98 240; --mint-bg: 58 47 122; --lav-deep-bg: 110 79 224; --mint-deep-bg: 72 52 160; --biscuit-bg: 110 90 56;
 }
 html, body { overflow-x: clip; background: rgb(var(--canvas)); color: rgb(var(--ink)); -webkit-tap-highlight-color: transparent; }

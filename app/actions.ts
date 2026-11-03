@@ -812,3 +812,31 @@ export async function setFollowupTrainerAction(bookingId: string, trainerId: str
   return r;
 });
 }
+
+/** Dogs: save the current tab + filters as a named view for the office. */
+export async function saveDogViewAction(name: string, query: string): Promise<Result> {
+  return audited("saveDogViewAction", { name, query }, async () => {
+  if (isDemo()) return DEMO;
+  const v = await viewerOrThrow();
+  if (v.role !== "admin") return { ok: false, message: "Admins only." };
+  const n = name.trim().slice(0, 60), q = query.replace(/^\?/, "").slice(0, 1000);
+  if (!n) return { ok: false, message: "Give the view a name." };
+  const { error } = await serviceClient().from("dog_views").insert({ name: n, query: q, sort: 100, created_by: v.name });
+  if (error) return { ok: false, message: /dog_views|schema cache/i.test(error.message) ? "Saving views isn't switched on yet (migration 047)." : error.message };
+  revalidatePath("/a/dogs");
+  return { ok: true, message: `Saved "${n}".` };
+});
+}
+
+/** Dogs: remove a saved view (for everyone). */
+export async function deleteDogViewAction(id: string): Promise<Result> {
+  return audited("deleteDogViewAction", { id }, async () => {
+  if (isDemo()) return DEMO;
+  const v = await viewerOrThrow();
+  if (v.role !== "admin") return { ok: false, message: "Admins only." };
+  const { error } = await serviceClient().from("dog_views").delete().eq("id", id);
+  if (error) return { ok: false, message: error.message };
+  revalidatePath("/a/dogs");
+  return { ok: true, message: "Removed." };
+});
+}

@@ -6,27 +6,32 @@
 import type { Strip } from "./programStrip";
 
 export type DogFilter = {
+  sw?: string; ew?: string;           // a relative window for the start / end (today, weekend, week…): saved views stay right
   sf?: string; st?: string;           // starts from / to (YYYY-MM-DD; the same day twice = "on")
   ef?: string; et?: string;           // ends from / to
   vac?: "missing" | "ok"; forms?: "missing" | "done"; bal?: "owed" | "paid";
   rep?: "late"; ho?: "missing" | "in"; fu?: "none" | "asked" | "booked" | "done"; pu?: "late";
   state?: string; prog?: string;
 };
-export const FILTER_KEYS = ["sf", "st", "ef", "et", "vac", "forms", "bal", "rep", "ho", "fu", "pu", "state", "prog"] as const;
+export const FILTER_KEYS = ["sw", "ew", "sf", "st", "ef", "et", "vac", "forms", "bal", "rep", "ho", "fu", "pu", "state", "prog"] as const;
+export const WINDOWS: [string, string][] = [["today", "Today"], ["weekend", "This weekend (Thu–Wed)"], ["week", "This week"], ["nextweek", "Next week"], ["next7", "Next 7 days"], ["next14", "Next 14 days"], ["month", "This month"], ["last7", "Last 7 days"]];
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const one = <T extends string>(v: unknown, ok: readonly T[]) => (ok.includes(String(v) as T) ? (String(v) as T) : undefined);
 
-export function parseFilter(sp: Record<string, string | undefined> | URLSearchParams): DogFilter {
+export function parseFilter(sp: Record<string, string | undefined> | URLSearchParams, today?: string): DogFilter {
   const g = (k: string) => (sp instanceof URLSearchParams ? sp.get(k) || undefined : sp[k]);
   const d = (k: string) => (DATE.test(g(k) || "") ? g(k) : undefined);
+  const win = (k: string) => (WINDOWS.some(([x]) => x === g(k)) ? g(k) : undefined);
+  const sw = win("sw"), ew = win("ew"), w = today ? windows(today) : null;
   return {
-    sf: d("sf"), st: d("st"), ef: d("ef"), et: d("et"),
+    sw, ew,
+    sf: sw && w ? w[sw][0] : d("sf"), st: sw && w ? w[sw][1] : d("st"), ef: ew && w ? w[ew][0] : d("ef"), et: ew && w ? w[ew][1] : d("et"),
     vac: one(g("vac"), ["missing", "ok"] as const), forms: one(g("forms"), ["missing", "done"] as const), bal: one(g("bal"), ["owed", "paid"] as const),
     rep: one(g("rep"), ["late"] as const), ho: one(g("ho"), ["missing", "in"] as const), fu: one(g("fu"), ["none", "asked", "booked", "done"] as const), pu: one(g("pu"), ["late"] as const),
     state: /^[A-Z]{2}$/.test(g("state") || "") ? g("state") : undefined, prog: (g("prog") || "").trim().slice(0, 80) || undefined
   };
 }
-export const activeCount = (f: DogFilter) => FILTER_KEYS.filter((k) => k !== "st" && k !== "et" && f[k]).length + (!f.sf && f.st ? 1 : 0) + (!f.ef && f.et ? 1 : 0);
+export const activeCount = (f: DogFilter) => FILTER_KEYS.filter((k) => !["sw", "ew", "st", "et"].includes(k) && f[k]).length + (!f.sf && f.st ? 1 : 0) + (!f.ef && f.et ? 1 : 0);
 /** Needs the before-training checklist (vaccines, forms, balance from the checklist). */
 export const needsReadiness = (f: DogFilter) => !!(f.vac || f.forms || f.bal);
 
@@ -40,23 +45,20 @@ export function windows(today: string) {
   const weekendFrom = dow >= 4 || dow === 0 ? plus(today, -((dow + 3) % 7)) : thu;  // Thu–Sun: the current Thu–Wed; Mon–Wed: the next one
   const mon = plus(today, -((dow + 6) % 7));
   const m0 = `${today.slice(0, 7)}-01`, mEnd = iso(new Date(Date.UTC(+today.slice(0, 4), +today.slice(5, 7), 0)));
-  return { weekend: [weekendFrom, plus(weekendFrom, 6)], week: [mon, plus(mon, 6)], nextweek: [plus(mon, 7), plus(mon, 13)], month: [m0, mEnd], today: [today, today] } as Record<string, [string, string]>;
+  return { weekend: [weekendFrom, plus(weekendFrom, 6)], week: [mon, plus(mon, 6)], nextweek: [plus(mon, 7), plus(mon, 13)], month: [m0, mEnd], today: [today, today],
+    next7: [today, plus(today, 6)], next14: [today, plus(today, 13)], last7: [plus(today, -6), today] } as Record<string, [string, string]>;
 }
 
-// ── One-tap views: the office's reports ──
-export type Preset = { key: string; label: string; tab: string; f: (w: ReturnType<typeof windows>) => DogFilter };
-export const PRESETS: Preset[] = [
-  { key: "start-wknd", label: "To start this weekend", tab: "upcoming", f: (w) => ({ sf: w.weekend[0], st: w.weekend[1] }) },
-  { key: "vac-wknd", label: "Vaccines missing · this weekend", tab: "upcoming", f: (w) => ({ sf: w.weekend[0], st: w.weekend[1], vac: "missing" }) },
-  { key: "forms-wknd", label: "Forms missing · this weekend", tab: "upcoming", f: (w) => ({ sf: w.weekend[0], st: w.weekend[1], forms: "missing" }) },
-  { key: "bal-wknd", label: "Balance due · this weekend", tab: "upcoming", f: (w) => ({ sf: w.weekend[0], st: w.weekend[1], bal: "owed" }) },
-  { key: "pickup-late", label: "Pickup not confirmed", tab: "upcoming", f: () => ({ pu: "late" }) },
-  { key: "ho-wknd", label: "Handover this weekend", tab: "now", f: (w) => ({ ef: w.weekend[0], et: w.weekend[1] }) },
-  { key: "end-week", label: "To complete this week", tab: "now", f: (w) => ({ ef: w.week[0], et: w.week[1] }) },
-  { key: "end-next", label: "To complete next week", tab: "now", f: (w) => ({ ef: w.nextweek[0], et: w.nextweek[1] }) },
-  { key: "reports-late", label: "Weekly reports late", tab: "now", f: () => ({ rep: "late" }) },
-  { key: "money", label: "Money outstanding", tab: "now", f: () => ({ bal: "owed" }) },
-  { key: "fu-none", label: "Finished, no follow-up booked", tab: "finished", f: () => ({ fu: "none" }) }
+// ── The starting views (the office's reports); saved in the database so people can add their own and remove these ──
+export const DEFAULT_VIEWS: { name: string; query: string }[] = [
+  { name: "Starting this weekend", query: "f=upcoming&sw=weekend" },
+  { name: "Vaccines missing · this weekend", query: "f=upcoming&sw=weekend&vac=missing" },
+  { name: "Forms missing · this weekend", query: "f=upcoming&sw=weekend&forms=missing" },
+  { name: "Balance due · this weekend", query: "f=upcoming&sw=weekend&bal=owed" },
+  { name: "Handover this weekend", query: "f=now&ew=weekend" },
+  { name: "Completing next week", query: "f=now&ew=nextweek" },
+  { name: "Money outstanding", query: "f=now&bal=owed" },
+  { name: "Finished, no follow-up booked", query: "f=finished&fu=none" }
 ];
 
 // ── The rule ──
@@ -84,8 +86,9 @@ export function describe(f: DogFilter): { key: string; text: string; drop: strin
   const out: { key: string; text: string; drop: string[] }[] = [];
   const day = (s: string) => at(s).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
   const range = (a?: string, b?: string) => (a && b ? (a === b ? `on ${day(a)}` : `${day(a)} to ${day(b)}`) : a ? `from ${day(a)}` : b ? `until ${day(b)}` : "");
-  if (f.sf || f.st) out.push({ key: "s", text: `Starts ${range(f.sf, f.st)}`, drop: ["sf", "st"] });
-  if (f.ef || f.et) out.push({ key: "e", text: `Ends ${range(f.ef, f.et)}`, drop: ["ef", "et"] });
+  const wl = (k?: string) => WINDOWS.find(([x]) => x === k)?.[1].replace(/ \(Thu–Wed\)/, "").toLowerCase();
+  if (f.sw || f.sf || f.st) out.push({ key: "s", text: `Starts ${f.sw ? wl(f.sw) : range(f.sf, f.st)}`, drop: ["sw", "sf", "st"] });
+  if (f.ew || f.ef || f.et) out.push({ key: "e", text: `Ends ${f.ew ? wl(f.ew) : range(f.ef, f.et)}`, drop: ["ew", "ef", "et"] });
   if (f.vac) out.push({ key: "vac", text: f.vac === "missing" ? "Vaccines missing" : "Vaccines OK", drop: ["vac"] });
   if (f.forms) out.push({ key: "forms", text: f.forms === "missing" ? "Forms missing" : "Forms done", drop: ["forms"] });
   if (f.bal) out.push({ key: "bal", text: f.bal === "owed" ? "Balance owed" : "Paid in full", drop: ["bal"] });

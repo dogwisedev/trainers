@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams, tab = (TABS.some((x) => x.key === sp.get("f")) ? sp.get("f") : "now") as Tab;
   const t = sp.get("t") || "", q = (sp.get("q") || "").trim(), poc = (sp.get("p") || "").trim();
   // Exactly the list on screen: tab, trainer, POC, search and the filters
-  const [{ rows, ready }, people] = await Promise.all([dogList({ tab, q, t, poc, f: parseFilter(sp), limit: 2000 }), salesPeople().catch(() => [])]);
+  const [{ rows, ready }, people] = await Promise.all([dogList({ tab, q, t, poc, f: parseFilter(sp, todayIso()), limit: 2000 }), salesPeople().catch(() => [])]);
   const owner = new Map(people.map((o) => [o.id, o.name]));
   const head = ["Deal ID", "Dog", "Client", "Email", "Trainer", "POC", "Program", "Weeks", "Start", "End", "Status", "Before training", "Amount", "Paid", "Owed", "Payment status", "Salesperson",
     "Intake", "Week 1", "Week 2", "Week 3", "Week 4", "Week 5", "Week 6", "Handover", "Follow-up 1", "Follow-up 2", "Follow-up 3", "Cancel reason", "HubSpot"];

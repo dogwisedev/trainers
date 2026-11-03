@@ -30,6 +30,7 @@ export default {
         biscuit: { DEFAULT: v("biscuit"), wash: v("biscuit-wash") },
         warn: v("warn"),
         heart: { DEFAULT: v("heart"), wash: v("heart-wash") },
+        ok: { DEFAULT: v("ok"), wash: v("ok-wash") }, amber: { DEFAULT: v("amber"), wash: v("amber-wash") }, bad: { DEFAULT: v("bad"), wash: v("bad-wash") },
         paper: v("paper"),
         canvas: v("canvas"),
         line: v("line")
