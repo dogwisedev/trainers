@@ -26,6 +26,7 @@ import { PostponeTraining } from "@/components/PostponeTraining";
 import { MarkMove } from "@/components/BookingDecision";
 import { CONFIRM_FROM, droppedOff, pickedUp } from "@/lib/moveRules";
 import { followupState } from "@/lib/followups";
+import { FollowupTrainer } from "@/components/FollowupTrainer";
 import { ActionButton, ExtraDays } from "@/components/forms";
 import { ReportsToggle } from "@/components/ReportsToggle";
 import { StartChat } from "@/components/StartChat";
@@ -155,6 +156,8 @@ export default async function DogPageView({ params, searchParams }: { params: { 
             {b.hubspot_deal_id && b.status !== "cancelled" && (
               <section id="followups" className="panel scroll-mt-20 p-4">
                 <h2 className="mb-3 text-lead font-extrabold">Follow-up sessions</h2>
+                <FollowupTrainer bookingId={b.id} programTrainer={b.trainers?.name || "The trainer"} current={(b as { followup_trainer_id?: string | null }).followup_trainer_id || ""}
+                  trainers={((activeTrainers || []) as { id: string; name: string }[]).filter((t) => t.id !== b.trainer_id).sort((x, y) => x.name.localeCompare(y.name))} />
                 {fu && fu.sessions.some((x) => x.status !== "cancelled") && (
                   <ul className="mb-3 space-y-1.5 text-body">
                     {fu.sessions.filter((x) => x.status !== "cancelled").map((x) => (

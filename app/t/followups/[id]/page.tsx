@@ -12,8 +12,8 @@ export default async function TrainerFollowups({ params }: { params: { id: strin
   const v = await requireRole("trainer");
   if (isDemo()) return <p className="panel p-6 text-ink-soft">Not available in demo mode.</p>;
   const sb = serviceClient();
-  const { data: b } = await sb.from("bookings").select("id, trainer_id, dog_name, client_name, hubspot_deal_id").eq("id", params.id).maybeSingle();
-  if (!b || b.trainer_id !== v.trainerId) notFound();
+  const { data: b } = await sb.from("bookings").select("*").eq("id", params.id).maybeSingle();
+  if (!b || (b.trainer_id !== v.trainerId && b.followup_trainer_id !== v.trainerId)) notFound();
   const st = await followupState(b.id, sb);
   return (
     <>

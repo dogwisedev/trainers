@@ -1,27 +1,36 @@
 import Link from "next/link";
 import { Download, Plus } from "lucide-react";
 import { listTrainers, requireRole } from "@/lib/data";
-import { TABS, Tab, bookingHistory } from "@/lib/history";
-import { readinessFor } from "@/lib/pretraining";
+import { TABS, Tab } from "@/lib/history";
 import { BookingHistory } from "@/components/BookingHistory";
 import { ChatFilters } from "@/components/ChatFilters";
 import { Empty } from "@/components/ui";
 import { StandbyList } from "@/components/StandbyList";
+import { DogFilters } from "@/components/DogFilters";
+import { FILTER_KEYS, parseFilter } from "@/lib/dogFilters";
+import { dogList } from "@/lib/dogList";
+import { serverClient } from "@/lib/supabase";
+import { todayIso } from "@/lib/dates";
+
+const STATE_CODES = ["AL","AK","AZ","AR","CA","CO","CT","DE","DC","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT","VA","WA","WV","WI","WY"];
 
 // Admin: every dog (booking), past and present. In care / Upcoming / Finished / Cancelled, with search and a trainer filter.
-export default async function Dogs({ searchParams }: { searchParams: { f?: string; t?: string; q?: string; p?: string } }) {
+export default async function Dogs({ searchParams }: { searchParams: Record<string, string | undefined> }) {
   await requireRole("admin");
   const standby = searchParams.f === "standby";
   const tab = (TABS.some((x) => x.key === searchParams.f) ? searchParams.f : "now") as Tab;
   const q = (searchParams.q || "").trim(), t = searchParams.t || "", poc = (searchParams.p || "").trim();
-  const trainers = await listTrainers({ includeInactive: true });
+  const f = parseFilter(searchParams);
+  const list = standby ? null : await dogList({ tab, q, t, poc, f });
+  const trainers = list?.trainers || await listTrainers({ includeInactive: true });
+  const rows = list?.rows || [], more = list?.more || false, ready = list?.ready || new Map();
   // POC filter: the trainers whose Point of Contact is this name
-  const pocs = [...new Map(trainers.map((x) => String((x as { poc?: string | null }).poc || "").trim()).filter(Boolean).map((x) => [x.toLowerCase(), x] as const)).values()].sort();
-  const pocIds = poc ? trainers.filter((x) => String((x as { poc?: string | null }).poc || "").trim().toLowerCase() === poc.toLowerCase()).map((x) => x.id) : undefined;
-  const { rows, more } = standby ? { rows: [], more: false } : await bookingHistory({ tab, q, trainerId: t || undefined, trainerIds: pocIds, admin: true });
-  const ready = tab === "now" || tab === "upcoming" ? await readinessFor(rows.map((r) => r.id)) : new Map();
+  const pocs = [...new Map(trainers.map((x) => String(x.poc || "").trim()).filter(Boolean).map((x) => [x.toLowerCase(), x] as const)).values()].sort();
+  const { data: progRows } = await serverClient().from("bookings").select("program").not("program", "is", null).limit(3000);
+  const programs = [...new Set(((progRows || []) as { program: string }[]).map((r) => r.program.trim()).filter(Boolean))].sort();
+  const filterKeep = Object.fromEntries(FILTER_KEYS.filter((k) => searchParams[k]).map((k) => [k, searchParams[k]!]));
   const readyBadges = Object.fromEntries([...ready.entries()].map(([id, x]) => [id, { missing: x.ready.missing.length, cleared: !!x.dog.cleared }]));
-  const params = (k: Tab | "standby", pp = poc) => { const p = new URLSearchParams({ f: k }); if (t) p.set("t", t); if (q) p.set("q", q); if (pp) p.set("p", pp); return p; };
+  const params = (k: Tab | "standby", pp = poc) => { const p = new URLSearchParams({ f: k }); if (t) p.set("t", t); if (q) p.set("q", q); if (pp) p.set("p", pp); if (k !== "standby") for (const [a, b] of Object.entries(filterKeep)) p.set(a, b); return p; };
   const link = (k: Tab | "standby") => `/a/dogs?${params(k)}`;
   return (
     <>
@@ -44,6 +53,7 @@ export default async function Dogs({ searchParams }: { searchParams: { f?: strin
           {["", ...pocs].map((x) => <Link key={x || "all"} prefetch={false} href={`/a/dogs?${params(tab, x)}`} className={`rounded-full px-3 py-1 font-semibold ${poc.toLowerCase() === x.toLowerCase() ? "bg-ink text-white" : "border border-line bg-white text-ink-soft"}`}>{x || "All"}</Link>)}
         </div>
       )}
+      {!standby && <DogFilters tab={tab} keep={Object.fromEntries([["t", t], ["q", q], ["p", poc]].filter(([, v]) => v))} f={f} states={STATE_CODES} programs={programs} today={todayIso()} total={list?.total ?? rows.length} />}
       {!standby && rows.length > 0 && <p className="mb-2 text-caption text-ink-faint">I intake · W weekly · H handover · F follow-ups. Green in · amber late or asked · red missing · blue booked · outline not due · grey before the app.</p>}
       {standby ? <StandbyList q={q} /> : rows.length ? <BookingHistory rows={rows} role="admin" showTrainer={!t} ready={readyBadges} /> : <Empty title={q || t ? "No dogs match." : "Nothing here."} />}
       {!standby && more && <p className="mt-3 text-center text-small text-ink-soft">Showing the first {rows.length}. Search to narrow it down.</p>}

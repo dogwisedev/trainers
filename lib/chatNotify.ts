@@ -41,6 +41,7 @@ export async function notifyMessage(messageId: string, sb: SupabaseClient = serv
     const who = msg.sender_role === "client" ? chat.client_name || "The client" : msg.sender_role === "trainer" ? chat.trainer_name || "Your trainer" : "The Dogwise team";
     const body = `${who}: ${msg.body ? msg.body.slice(0, 160) : what}`;
     if (msg.sender_role !== "trainer") await pushToTrainer(chat.trainer_id, { title: `New message about ${about}`, body, url: `/t/chats/${chat.id}`, tag: `chat-${chat.id}` });
+    if (msg.sender_role !== "trainer") for (const x of ((chat as { extra_trainer_ids?: string[] }).extra_trainer_ids || [])) await pushToTrainer(x, { title: `New message about ${about}`, body, url: `/t/chats/${chat.id}`, tag: `chat-${chat.id}` });
     if (msg.sender_role !== "client" && chat.client_user_id) await pushToUsers([chat.client_user_id], { title: `New message about ${about}`, body, url: `/c/${chat.id}`, tag: `chat-${chat.id}` });
     if (!mailConfigured()) return true;
     // Clients are NOT emailed here. They get at most one "new updates" email a day, from the scheduled check (lib/chatOps.ts).

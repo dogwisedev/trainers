@@ -82,7 +82,7 @@ export async function buildDrafts(sb: SupabaseClient, submitDate: string, onlyTr
     svc.from("deal_money").select("deal_id, followups").overlaps("followups", Array.from({ length: 14 }, (_, i) => addDays(r.weeks[0], i)))
   ]);
   const fupDeals = (fupRows || []) as { deal_id: string; followups: string[] }[];
-  const { data: fupBookings } = fupDeals.length ? await sb.from("bookings").select("id, trainer_id, client_name, dog_name, hubspot_deal_id, start_date").in("hubspot_deal_id", fupDeals.map((d) => d.deal_id)).neq("status", "cancelled").order("start_date") : { data: [] };
+  const { data: fupBookings } = fupDeals.length ? await sb.from("bookings").select("*").in("hubspot_deal_id", fupDeals.map((d) => d.deal_id)).neq("status", "cancelled").order("start_date") : { data: [] };
   const trips = ((tripRows || []) as unknown as (TripLike & { bookings: { client_name: string; dog_name: string | null } | null })[]).map((t) => ({ ...t, client: t.bookings?.client_name || "", dog: t.bookings?.dog_name || "" }));
   const rateOf = (id: string) => { const x = (rateRows || []).find((q) => q.trainer_id === id); return x ? { ...EMPTY_RATES, ...x, report_deduction: Number(x.report_deduction ?? 100) } as Rates : EMPTY_RATES; };
   let built = 0, skipped = 0, missingRates = 0, unchanged = 0;
@@ -97,8 +97,8 @@ export async function buildDrafts(sb: SupabaseClient, submitDate: string, onlyTr
     const tr = t as { id: string; probation?: string | null; probation_release_run?: string | null; probation_release_amount?: number | null };
     // Follow-up sessions: the trainer on the deal is paid their follow-up rate for each session date in the period
     const fups = fupDeals.flatMap((d) => {
-      const b = ((fupBookings || []) as { id: string; trainer_id: string; client_name: string; dog_name: string | null; hubspot_deal_id: string }[]).find((x) => x.hubspot_deal_id === d.deal_id);
-      if (!b || b.trainer_id !== t.id) return [];
+      const b = ((fupBookings || []) as { id: string; trainer_id: string; followup_trainer_id?: string | null; client_name: string; dog_name: string | null; hubspot_deal_id: string; status?: string }[]).filter((x) => x.status !== "cancelled").find((x) => x.hubspot_deal_id === d.deal_id);
+      if (!b || (b.followup_trainer_id || b.trainer_id) !== t.id) return []; // the follow-up trainer, if there is one, is paid for the sessions
       return d.followups.filter((x) => x >= r.weeks[0] && x <= lastDay).map((x) => ({ kind: "other", booking_id: b.id, client: b.client_name, dog: b.dog_name || "", program: `Follow-up session ${x.slice(5).replace("-", "/")}`,
         amount: Number(rateOf(t.id).followup_rate ?? 60), days: null, weeks_completed: null, week_from: null, missingRate: false }));
     });

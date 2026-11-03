@@ -24,9 +24,12 @@ export type FollowupState = { bookingId: string; dog: string; trainer: string; t
 
 /** Everything about one booking's follow-ups. */
 export async function followupState(bookingId: string, sb: SupabaseClient = serviceClient()): Promise<FollowupState | null> {
-  const { data: b } = await sb.from("bookings").select("id, dog_name, trainer_id, hubspot_deal_id, status, trainers(name)").eq("id", bookingId).maybeSingle();
-  const bk = b as unknown as { id: string; dog_name: string | null; trainer_id: string; hubspot_deal_id: string | null; status: string; trainers: { name: string } | null } | null;
+  const { data: b } = await sb.from("bookings").select("*, trainers(name)").eq("id", bookingId).maybeSingle();
+  const bk = b as unknown as { id: string; dog_name: string | null; trainer_id: string; followup_trainer_id?: string | null; hubspot_deal_id: string | null; status: string; trainers: { name: string } | null } | null;
   if (!bk || bk.status === "cancelled") return null;
+  // A separate follow-up trainer (migration 046) books, runs and logs the follow-ups
+  const fuId = bk.followup_trainer_id || null;
+  const { data: fuT } = fuId ? await sb.from("trainers").select("name").eq("id", fuId).maybeSingle() : { data: null };
   const [{ data: rows, error }, { data: hand }] = await Promise.all([
     sb.from("followups").select("*").eq("booking_id", bookingId).order("n").order("created_at"),
     sb.from("reports").select("submitted_at").eq("booking_id", bookingId).eq("kind", "handover").not("submitted_at", "is", null).limit(1)
@@ -34,7 +37,7 @@ export async function followupState(bookingId: string, sb: SupabaseClient = serv
   const sessions = error ? [] : ((rows || []) as Followup[]);
   const used = new Set(sessions.filter((s) => LIVE.includes(s.status)).map((s) => s.n));
   const nextN = [1, 2, 3].find((n) => !used.has(n)) ?? null;
-  return { bookingId, dog: bk.dog_name || "your dog", trainer: bk.trainers?.name || "your trainer", trainerId: bk.trainer_id, dealId: bk.hubspot_deal_id, handedOver: !!hand?.length, sessions, nextN };
+  return { bookingId, dog: bk.dog_name || "your dog", trainer: (fuId && fuT?.name) || bk.trainers?.name || "your trainer", trainerId: fuId || bk.trainer_id, dealId: bk.hubspot_deal_id, handedOver: !!hand?.length, sessions, nextN };
 }
 
 /** The booking a client's chat is about, for follow-ups: the latest one on the deal that isn't cancelled. */

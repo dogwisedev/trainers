@@ -1,6 +1,7 @@
 import "server-only";
 import { isDemo, serverClient, serviceClient } from "./supabase";
 import { programStrip, type Strip, type StripForm } from "./programStrip";
+import { stateOf } from "./usTiles";
 import { etParts } from "./chatRules";
 import { dealKey } from "./chatTypes";
 import type { Kind, Status } from "./reports";
@@ -20,11 +21,12 @@ export type HistoryRow = {
   reports: { id: string; kind: Kind; week_number: number; status: Status }[];      // submitted and approved forms
   strip?: Strip; poc?: string; owner?: string | null; cancelReason?: string | null;   // admin only: the program at a glance
   picked_up_at?: string | null; dropped_off_at?: string | null;                     // confirmed pickup / drop-off (migration 045)
+  state?: string | null;                                                            // admin: the client's state, from the deal name
 };
 
 /** admin: also the program strip (forms, weekly reports, handover, follow-ups, payment), the trainer's POC and the salesperson.
  *  trainerIds: only these trainers (the POC filter). */
-export async function bookingHistory(o: { tab: Tab; q?: string; trainerId?: string; trainerIds?: string[]; limit?: number; admin?: boolean }): Promise<{ rows: HistoryRow[]; more: boolean }> {
+export async function bookingHistory(o: { tab: Tab; q?: string; trainerId?: string; trainerIds?: string[]; limit?: number; admin?: boolean; startFrom?: string; startTo?: string; endFrom?: string; endTo?: string }): Promise<{ rows: HistoryRow[]; more: boolean }> {
   if (isDemo()) return { rows: [], more: false };
   const sb = serverClient(), today = etParts(new Date()).date, limit = o.limit || 150;
   // Upcoming until the pickup is confirmed, In care until the drop-off is (button or form; migration 045). Before 045 is
@@ -44,7 +46,12 @@ export async function bookingHistory(o: { tab: Tab; q?: string; trainerId?: stri
     }
     return q;
   };
-  let q = build(true);
+  const dated = <T extends { gte: (c: string, v: string) => T; lte: (c: string, v: string) => T }>(x: T) => {
+    if (o.startFrom) x = x.gte("start_date", o.startFrom); if (o.startTo) x = x.lte("start_date", o.startTo);
+    if (o.endFrom) x = x.gte("end_date", o.endFrom); if (o.endTo) x = x.lte("end_date", o.endTo);
+    return x;
+  };
+  let q = dated(build(true));
   if (o.trainerId) q = q.eq("trainer_id", o.trainerId);
   if (o.trainerIds) q = o.trainerIds.length ? q.in("trainer_id", o.trainerIds) : q.eq("trainer_id", "00000000-0000-0000-0000-000000000000");
   const text = (o.q || "").replace(/[,()*%\\]/g, " ").trim().slice(0, 60);
@@ -57,7 +64,7 @@ export async function bookingHistory(o: { tab: Tab; q?: string; trainerId?: stri
   }
   let { data, error } = await q.limit(limit + 1);
   if (error && /picked_up_at|dropped_off_at|schema cache/i.test(error.message)) {
-    q = build(false);
+    q = dated(build(false));
     if (o.trainerId) q = q.eq("trainer_id", o.trainerId);
     if (o.trainerIds) q = o.trainerIds.length ? q.in("trainer_id", o.trainerIds) : q.eq("trainer_id", "00000000-0000-0000-0000-000000000000");
     if (text) { const { data: ts } = await sb.from("trainers").select("id").ilike("name", `%${text}%`); const ors = [`dog_name.ilike.%${text}%`, `client_name.ilike.%${text}%`, `client_email.ilike.%${text}%`]; if (/^\d+$/.test(text)) ors.push(`hubspot_deal_id.eq.${text}`); if (ts?.length) ors.push(`trainer_id.in.(${ts.map((t) => t.id).join(",")})`); q = q.or(ors.join(",")); }
@@ -73,19 +80,19 @@ export async function bookingHistory(o: { tab: Tab; q?: string; trainerId?: stri
   ]);
   const chatList = (chats || []) as { id: string; deal_key: string; status: string }[];
   // Admin: everything for the strip (server-only tables: read with the server key; the page checks the admin first)
-  let forms: (StripForm & { booking_id: string })[] = [], money = new Map<string, { amount: number | null; amount_paid: number | null; payment_status: string | null; owner_id: string | null }>(),
+  let forms: (StripForm & { booking_id: string })[] = [], money = new Map<string, { dealname?: string | null; amount: number | null; amount_paid: number | null; payment_status: string | null; owner_id: string | null }>(),
     fups: { booking_id: string; n: number; status: string }[] = [], poc = new Map<string, string>(), cancel = new Map<string, string | null>();
   if (o.admin) {
     const svc = serviceClient(), ids = list.map((b) => b.id), deals = [...new Set(list.map((b) => b.hubspot_deal_id).filter(Boolean))] as string[];
     const [{ data: f }, { data: m }, { data: fu }, { data: tr }, { data: cx }] = await Promise.all([
       svc.from("reports").select("booking_id, kind, week_number, status, submitted_at, due_by").in("booking_id", ids),
-      deals.length ? svc.from("deal_money").select("deal_id, amount, amount_paid, payment_status, owner_id").in("deal_id", deals) : Promise.resolve({ data: [] }),
+      deals.length ? svc.from("deal_money").select("deal_id, dealname, amount, amount_paid, payment_status, owner_id").in("deal_id", deals) : Promise.resolve({ data: [] }),
       svc.from("followups").select("booking_id, n, status").in("booking_id", ids),
       svc.from("trainers").select("id, poc"),
       o.tab === "cancelled" ? svc.from("bookings").select("id, cancel_reason").in("id", ids) : Promise.resolve({ data: [] })
     ]);
     forms = (f || []) as typeof forms;
-    money = new Map(((m || []) as { deal_id: string; amount: number | null; amount_paid: number | null; payment_status: string | null; owner_id: string | null }[]).map((x) => [x.deal_id, x]));
+    money = new Map(((m || []) as { deal_id: string; dealname: string | null; amount: number | null; amount_paid: number | null; payment_status: string | null; owner_id: string | null }[]).map((x) => [x.deal_id, x]));
     fups = (fu || []) as typeof fups;
     poc = new Map(((tr || []) as { id: string; poc: string | null }[]).map((t) => [t.id, String(t.poc || "").trim()]));
     cancel = new Map(((cx || []) as { id: string; cancel_reason: string | null }[]).map((x) => [x.id, x.cancel_reason]));
@@ -100,7 +107,7 @@ export async function bookingHistory(o: { tab: Tab; q?: string; trainerId?: stri
         const mo = b.hubspot_deal_id ? money.get(b.hubspot_deal_id) : null;
         const owed = mo && mo.amount != null && mo.amount_paid != null ? Math.max(0, Number(mo.amount) - Number(mo.amount_paid)) : null;
         row.strip = programStrip(b, forms.filter((x) => x.booking_id === b.id), fups.filter((x) => x.booking_id === b.id), mo ? { amount: mo.amount == null ? null : Number(mo.amount), paid: mo.amount_paid == null ? null : Number(mo.amount_paid), owed, status: mo.payment_status } : null);
-        row.poc = poc.get(b.trainer_id) || ""; row.owner = mo?.owner_id || null; row.cancelReason = cancel.get(b.id) ?? null;
+        row.poc = poc.get(b.trainer_id) || ""; row.owner = mo?.owner_id || null; row.cancelReason = cancel.get(b.id) ?? null; row.state = stateOf(mo?.dealname || null);
       }
       return row;
     })

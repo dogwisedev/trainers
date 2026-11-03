@@ -5,6 +5,7 @@ import { isCancelReason, POSTPONE_BY } from "@/lib/cancelReasons";
 import { cancelDeal, hubspotCancelled, setStandby } from "@/lib/standby";
 import { clearFollowupTodos, followupState, writeSessionDate, writeSessionReport } from "@/lib/followups";
 import { confirmMove } from "@/lib/pickup";
+import { setFollowupTrainer } from "@/lib/followupTrainer";
 import { auditCall, audited } from "@/lib/audit";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
@@ -586,8 +587,8 @@ export async function logFollowupAction(_: Result | null, f: FormData): Promise<
   if (miles === null) return { ok: false, message: "Enter the miles you drove (0 if none)." };
   if (notes.length < 5) return { ok: false, message: "Say briefly what you worked on." };
   const sb = serviceClient();
-  const { data: b } = await sb.from("bookings").select("id, trainer_id").eq("id", bookingId).maybeSingle();
-  if (!b || b.trainer_id !== v.trainerId) return { ok: false, message: "That dog isn't one of yours." };
+  const { data: b } = await sb.from("bookings").select("*").eq("id", bookingId).maybeSingle();
+  if (!b || (b.trainer_id !== v.trainerId && b.followup_trainer_id !== v.trainerId)) return { ok: false, message: "That dog isn't one of yours." };
   const { error } = await sb.from("trips").insert({ trainer_id: v.trainerId, booking_id: bookingId, kind: "followup", trip_date: date, miles, notes: notes.slice(0, 2000), created_by: v.name });
   if (error) return { ok: false, message: error.message };
   // The session it was: the booked one nearest the date (or the next free one, which also gets this date in HubSpot)
@@ -797,5 +798,17 @@ export async function confirmMoveAction(bookingId: string, move: "pickup" | "dro
     detail: `${v.name}: ${bk.dog_name || "the dog"} wasn't ${move === "pickup" ? "picked up" : "taken home"} on ${short(move === "pickup" ? bk.start_date : bk.end_date)}.${/^\d{4}-\d{2}-\d{2}$/.test(newDay) ? ` New day: ${short(newDay)}.` : ""} Why: ${why.trim().slice(0, 500)}. Change the dates in HubSpot, or put it on Standby.` });
   revalidatePath("/", "layout");
   return { ok: true, message: "Thanks: the office has been told and will update the dates." };
+});
+}
+
+/** Office: a different trainer for this dog's follow-up sessions (or back to the program trainer, with ""). */
+export async function setFollowupTrainerAction(bookingId: string, trainerId: string): Promise<Result> {
+  return audited("setFollowupTrainerAction", { bookingId, trainerId }, async () => {
+  if (isDemo()) return DEMO;
+  const v = await viewerOrThrow();
+  if (v.role !== "admin") return { ok: false, message: "Admins only." };
+  const r = await setFollowupTrainer(bookingId, trainerId || null, v.name);
+  revalidatePath("/", "layout");
+  return r;
 });
 }

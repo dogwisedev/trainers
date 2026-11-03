@@ -9,7 +9,10 @@ import { FollowupForm } from "@/components/FollowupForm";
 export default async function Followup({ searchParams }: { searchParams: { b?: string } }) {
   const v = await requireRole("trainer");
   const today = todayIso();
-  const { data } = isDemo() || !v.trainerId ? { data: [] } : await serviceClient().from("bookings").select("id, dog_name, client_name, end_date").eq("trainer_id", v.trainerId).neq("status", "cancelled").gte("end_date", addDays(today, -365)).lte("start_date", today).order("end_date", { ascending: false });
+  // Their own dogs, and dogs they do the follow-ups for (migration 046; before it, their own only)
+  const base = () => serviceClient().from("bookings").select("id, dog_name, client_name, end_date").neq("status", "cancelled").gte("end_date", addDays(today, -365)).lte("start_date", today).order("end_date", { ascending: false });
+  let { data, error } = isDemo() || !v.trainerId ? { data: [], error: null } : await base().or(`trainer_id.eq.${v.trainerId},followup_trainer_id.eq.${v.trainerId}`);
+  if (error && v.trainerId) ({ data } = await base().eq("trainer_id", v.trainerId));
   const dogs = ((data || []) as { id: string; dog_name: string | null; client_name: string; end_date: string }[]).map((b) => ({ id: b.id, label: `${b.dog_name || "Dog"} (${b.client_name}), finished ${short(b.end_date)}` }));
   return (
     <>

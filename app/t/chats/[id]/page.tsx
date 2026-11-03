@@ -15,7 +15,7 @@ import { bookingForChat, followupState } from "@/lib/followups";
 export default async function TrainerChat({ params }: { params: { id: string } }) {
   const v = await requireRole("trainer");
   const chat = await getChat(params.id);
-  if (!chat || chat.trainer_id !== v.trainerId) notFound();
+  if (!chat || (chat.trainer_id !== v.trainerId && !((chat as { extra_trainer_ids?: string[] }).extra_trainer_ids || []).includes(v.trainerId || ""))) notFound();
   const [{ messages, hasMore }, ready, scheduled, fu] = await Promise.all([listChatMessages(chat.id), chatReadiness(chat.deal_key, false), isDemo() ? Promise.resolve([]) : listScheduled(chat.id),
     isDemo() ? Promise.resolve(null) : bookingForChat(chat.deal_key).then((id) => (id ? followupState(id) : null)).catch(() => null)]);
   const fuAsked = fu?.sessions.find((x) => x.status === "requested");

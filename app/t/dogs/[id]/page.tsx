@@ -22,7 +22,7 @@ export default async function DogInfo({ params, searchParams }: { params: { id: 
   const sb = serviceClient();
   const { data } = await sb.from("bookings").select("*").eq("id", params.id).maybeSingle();
   const b = data as Booking | null;
-  if (!b || b.status === "cancelled" || b.trainer_id !== v.trainerId) notFound();
+  if (!b || b.status === "cancelled" || (b.trainer_id !== v.trainerId && (b as { followup_trainer_id?: string | null }).followup_trainer_id !== v.trainerId)) notFound();
   const deal = /^\d+$/.test(b.hubspot_deal_id || "") ? b.hubspot_deal_id! : null;
 
   // The deal's chat (made now if the dog has none yet; no email goes out)

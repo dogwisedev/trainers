@@ -1,7 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { getViewer, listTrainers } from "@/lib/data";
-import { TABS, type Tab, bookingHistory } from "@/lib/history";
-import { readinessFor } from "@/lib/pretraining";
+import { getViewer } from "@/lib/data";
+import { TABS, type Tab } from "@/lib/history";
+import { dogList } from "@/lib/dogList";
+import { parseFilter } from "@/lib/dogFilters";
 import { salesPeople } from "@/lib/sales";
 import { DOT_LABEL } from "@/lib/programStrip";
 import { todayIso } from "@/lib/dates";
@@ -18,10 +19,8 @@ export async function GET(req: NextRequest) {
   if (v?.role !== "admin") return NextResponse.json({ error: "Admins only" }, { status: 401 });
   const sp = req.nextUrl.searchParams, tab = (TABS.some((x) => x.key === sp.get("f")) ? sp.get("f") : "now") as Tab;
   const t = sp.get("t") || "", q = (sp.get("q") || "").trim(), poc = (sp.get("p") || "").trim();
-  const trainers = await listTrainers({ includeInactive: true });
-  const pocIds = poc ? trainers.filter((x) => String(x.poc || "").trim().toLowerCase() === poc.toLowerCase()).map((x) => x.id) : undefined;
-  const [{ rows }, people] = await Promise.all([bookingHistory({ tab, q, trainerId: t || undefined, trainerIds: pocIds, admin: true, limit: 2000 }), salesPeople().catch(() => [])]);
-  const ready = tab === "now" || tab === "upcoming" ? await readinessFor(rows.map((r) => r.id)).catch(() => new Map()) : new Map();
+  // Exactly the list on screen: tab, trainer, POC, search and the filters
+  const [{ rows, ready }, people] = await Promise.all([dogList({ tab, q, t, poc, f: parseFilter(sp), limit: 2000 }), salesPeople().catch(() => [])]);
   const owner = new Map(people.map((o) => [o.id, o.name]));
   const head = ["Deal ID", "Dog", "Client", "Email", "Trainer", "POC", "Program", "Weeks", "Start", "End", "Status", "Before training", "Amount", "Paid", "Owed", "Payment status", "Salesperson",
     "Intake", "Week 1", "Week 2", "Week 3", "Week 4", "Week 5", "Week 6", "Handover", "Follow-up 1", "Follow-up 2", "Follow-up 3", "Cancel reason", "HubSpot"];
