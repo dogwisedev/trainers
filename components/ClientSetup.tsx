@@ -2,22 +2,20 @@
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { AppSetup } from "@/components/AppSetup";
+import { visitCount } from "@/lib/visits";
 
-/** Clients: "Get the app on your phone" waits its turn. Never while the Before training pop-up is open, and on the
- *  first visit not while there's still something to do before training (that comes first). From the second visit it shows. */
+/** Clients: "Get the app on your phone" waits its turn: never on the first visit, never on a visit that already had
+ *  the Before training pop-up. From the second visit it shows. */
 export function ClientSetup() {
   const path = usePathname();
   const [quiet, setQuiet] = useState(true);
   useEffect(() => {
-    let visits = 2;
-    try {
-      if (!sessionStorage.getItem("dw-visit")) { sessionStorage.setItem("dw-visit", "1"); localStorage.setItem("dw-visits", String(Number(localStorage.getItem("dw-visits") || 0) + 1)); }
-      visits = Number(localStorage.getItem("dw-visits") || 1);
-    } catch { /* private mode: just show it */ }
+    const visits = visitCount();
+    // One prompt per visit, and none on the first: they've only just arrived
     const update = () => {
+      let prompted = false; try { prompted = sessionStorage.getItem("dw-prompted") === "1"; } catch { /* fine */ }
       const popup = !!document.querySelector("[data-before-training-open]");
-      const todo = !!document.querySelector("[data-before-training]");
-      setQuiet(popup || (visits <= 1 && todo));
+      setQuiet(visits <= 1 || popup || prompted);
     };
     update();
     window.addEventListener("dw-popup", update);

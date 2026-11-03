@@ -10,12 +10,21 @@ import { ReopenChat } from "@/components/ChatActions";
 import { ClipboardList, CreditCard, MessagesSquare } from "lucide-react";
 import { BeforeTrainingPopup } from "@/components/BeforeTrainingPopup";
 import { chatReadiness } from "@/lib/pretraining";
+import { serviceClient } from "@/lib/supabase";
+import { daysBetween, todayIso } from "@/lib/dates";
+
+/** Days until this dog's training starts (negative once started), or null. */
+async function daysToStart(dealKey: string): Promise<number | null> {
+  if (isDemo() || !/^\d+$/.test(dealKey)) return null;
+  const { data } = await serviceClient().from("bookings").select("start_date").eq("hubspot_deal_id", dealKey).neq("status", "cancelled").order("start_date").limit(1).maybeSingle();
+  return data?.start_date ? daysBetween(todayIso(), data.start_date) : null;
+}
 
 export default async function ClientChat({ params }: { params: { id: string } }) {
   const v = await requireRole("client");
   const chat = await getChat(params.id);
   if (!chat || chat.client_user_id !== v.userId) notFound();
-  const [{ messages, hasMore }, ready] = await Promise.all([listChatMessages(chat.id), chat.status === "open" ? chatReadiness(chat.deal_key, true) : Promise.resolve(null)]);
+  const [{ messages, hasMore }, ready, startsInDays] = await Promise.all([listChatMessages(chat.id), chat.status === "open" ? chatReadiness(chat.deal_key, true) : Promise.resolve(null), daysToStart(chat.deal_key)]);
   return (
     <>
       {/* The dog, the trainer, and where to go next */}
@@ -32,7 +41,7 @@ export default async function ClientChat({ params }: { params: { id: string } })
           <Link prefetch={false} href="/c" className="flex flex-1 items-center justify-center gap-2 border-l border-line px-3 py-3 hover:bg-paper/60"><MessagesSquare size={16} />All chats</Link>
         </nav>
       </section>
-      {ready && (ready.left > 0 || ready.balanceLink) && <BeforeTrainingPopup href={`/c/${chat.id}/profile`} left={ready.left} balanceLink={ready.balanceLink} summary={ready.summary} dog={chat.title || "your dog"} />}
+      {ready && (ready.left > 0 || ready.balanceLink) && <BeforeTrainingPopup href={`/c/${chat.id}/profile`} left={ready.left} balanceLink={ready.balanceLink} summary={ready.summary} dog={chat.title || "your dog"} startsInDays={startsInDays} />}
       {ready && (ready.left > 0 || ready.balanceLink) && (
         <div data-before-training className="panel mb-4 divide-y divide-line overflow-hidden border-biscuit/60">
           {ready.left > 0 && (

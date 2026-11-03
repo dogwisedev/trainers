@@ -2,12 +2,28 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { ClipboardList, CreditCard } from "lucide-react";
+import { visitCount } from "@/lib/visits";
 
-/** Client: pops up every time the chat opens while something is still missing before training. "Later" closes it until the next visit. */
-export function BeforeTrainingPopup({ href, left, balanceLink, dog, summary }: { href: string; left: number; balanceLink: string; dog: string; summary?: string }) {
+/**
+ * Client: a reminder of what's still needed before training. Let people settle in first: never on their first visit
+ * (unless training starts within 3 days), at most once a day after that, and only after a short pause so the chat
+ * loads and they can look around. The card at the top of the chat always shows the same thing, without interrupting.
+ */
+export function BeforeTrainingPopup({ href, left, balanceLink, dog, summary, startsInDays }: { href: string; left: number; balanceLink: string; dog: string; summary?: string; startsInDays?: number | null }) {
   const [open, setOpen] = useState(false);
   const first = useRef<HTMLAnchorElement>(null);
-  useEffect(() => { setOpen(true); }, []);
+  useEffect(() => {
+    let lastShown = "";
+    const visits = visitCount(), today = new Date().toISOString().slice(0, 10), key = `dw-btp:${href}`;
+    try { lastShown = localStorage.getItem(key) || ""; } catch { /* private mode */ }
+    const urgent = startsInDays != null && startsInDays <= 3;
+    if (lastShown === today || (visits <= 1 && !urgent)) return;
+    const t = setTimeout(() => {
+      setOpen(true);
+      try { localStorage.setItem(key, today); sessionStorage.setItem("dw-prompted", "1"); } catch { /* fine */ }
+    }, urgent ? 4000 : 8000);
+    return () => clearTimeout(t);
+  }, [href, startsInDays]);
   useEffect(() => { if (open) first.current?.focus(); window.dispatchEvent(new Event("dw-popup")); }, [open]);
   if (!open) return null;
   return (
