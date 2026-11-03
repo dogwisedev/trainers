@@ -6,6 +6,7 @@ import { TodoRow } from "@/components/ReportBits";
 import { QuietChatButton } from "@/components/QuietChatButton";
 import { TodoTypes } from "@/components/TodoTypes";
 import { DealDecision } from "@/components/DealDecision";
+import { BookingDecision } from "@/components/BookingDecision";
 import { TodoDone } from "@/components/TodoDone";
 import { IconTile } from "@/components/ui";
 
@@ -97,6 +98,7 @@ function Item({ i, canQuiet = false }: { i: TodoItem; canQuiet?: boolean }) {
           {canQuiet && i.quietChatId && <QuietChatButton chatId={i.quietChatId} quiet={false} />}
           {i.incidentId && !i.deal && <span className="ml-auto"><TodoDone id={i.incidentId} label={i.doneLabel} /></span>}
           {i.deal && <DealDecision dealId={i.deal} bookHref={`/a/bookings/new?deal=${i.deal}`} />}
+          {i.booking && <BookingDecision bookingId={i.booking.id} move={i.booking.move} dog={i.booking.dog} trainer={i.booking.trainer} hasDeal={i.booking.hasDeal} />}
         </div>
       </div>
     </li>

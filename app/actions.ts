@@ -4,6 +4,7 @@ import { clientPlace, zipIn } from "@/lib/mileageCheck";
 import { isCancelReason, POSTPONE_BY } from "@/lib/cancelReasons";
 import { cancelDeal, hubspotCancelled, setStandby } from "@/lib/standby";
 import { clearFollowupTodos, followupState, writeSessionDate, writeSessionReport } from "@/lib/followups";
+import { confirmMove } from "@/lib/pickup";
 import { auditCall, audited } from "@/lib/audit";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
@@ -777,5 +778,24 @@ export async function postponeTrainingAction(id: string, by: string, note: strin
   const sentNote = notifySummary(await notifyBookings(sb, [id], "cancelled"));
   revalidatePath("/", "layout");
   return { ok: true, message: `Postponed and on standby${remindOn ? ` (back on To do ${short(remindOn)})` : ""}.${sentNote}` };
+});
+}
+
+/** "Picked up" / "Dropped home" (trainer of the dog, or the office), or "Not yet" with the new day and why (the office is told). */
+export async function confirmMoveAction(bookingId: string, move: "pickup" | "dropoff", done: boolean, newDay = "", why = ""): Promise<Result> {
+  return audited("confirmMoveAction", { bookingId, move, done, newDay, why }, async () => {
+  if (isDemo()) return DEMO;
+  const v = await viewerOrThrow();
+  const sb = serviceClient();
+  const { data: b } = await sb.from("bookings").select("id, trainer_id, dog_name, client_name, start_date, end_date, hubspot_deal_id, trainers(name)").eq("id", bookingId).maybeSingle();
+  const bk = b as unknown as { id: string; trainer_id: string; dog_name: string | null; client_name: string; start_date: string; end_date: string; hubspot_deal_id: string | null; trainers: { name: string } | null } | null;
+  if (!bk || !(v.role === "admin" || (v.role === "trainer" && v.trainerId === bk.trainer_id))) return { ok: false, message: "You can't change this." };
+  if (done) { const r = await confirmMove(bookingId, move, v.role === "admin" ? `${v.name} (office)` : v.name, sb); revalidatePath("/", "layout"); return r; }
+  if (!why.trim()) return { ok: false, message: "Say briefly what happened." };
+  await raiseIncident({ kind: move === "pickup" ? "pickup_unconfirmed" : "dropoff_unconfirmed", office: true, ref: `${move}:${bookingId}`, bookingId,
+    title: `${bk.dog_name || "Dog"} (${bk.client_name}), ${bk.trainers?.name || "trainer"}`,
+    detail: `${v.name}: ${bk.dog_name || "the dog"} wasn't ${move === "pickup" ? "picked up" : "taken home"} on ${short(move === "pickup" ? bk.start_date : bk.end_date)}.${/^\d{4}-\d{2}-\d{2}$/.test(newDay) ? ` New day: ${short(newDay)}.` : ""} Why: ${why.trim().slice(0, 500)}. Change the dates in HubSpot, or put it on Standby.` });
+  revalidatePath("/", "layout");
+  return { ok: true, message: "Thanks: the office has been told and will update the dates." };
 });
 }

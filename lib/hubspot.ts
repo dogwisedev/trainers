@@ -315,6 +315,20 @@ export async function closedWonWithStatus(status: string, properties: string[]):
   return out;
 }
 
+/** For each deal, each property's change history, newest first: { value, timestamp, sourceType, sourceId, sourceLabel }. */
+export type PropChange = { value: string; timestamp: string; sourceType?: string; sourceId?: string; sourceLabel?: string; updatedByUserId?: number };
+export async function readDealHistory(ids: string[], properties: string[]): Promise<Map<string, Record<string, PropChange[]>>> {
+  const out = new Map<string, Record<string, PropChange[]>>();
+  const uniq = [...new Set(ids.filter(Boolean))];
+  for (let i = 0; i < uniq.length; i += 50) {
+    const res = await hs<{ results?: { id: string; propertiesWithHistory?: Record<string, PropChange[]> }[] }>("/crm/v3/objects/deals/batch/read", {
+      method: "POST", body: JSON.stringify({ inputs: uniq.slice(i, i + 50).map((id) => ({ id })), properties, propertiesWithHistory: properties })
+    });
+    for (const r of res.results || []) out.set(String(r.id), r.propertiesWithHistory || {});
+  }
+  return out;
+}
+
 // ── Client form links ──
 /** A contact's deals, newest first (by close date, else created). */
 export async function contactDeals(contactId: string, properties: string[]): Promise<{ id: string; properties: DealProps }[]> {

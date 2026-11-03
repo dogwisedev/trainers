@@ -16,6 +16,7 @@ import { sendDailyDigest } from "./digest";
 import { QUIET_KINDS } from "./quietChats";
 import { releaseScheduled } from "./scheduled";
 import { followupChecks } from "./followups";
+import { moveChecks } from "./pickup";
 import { autoInviteClients } from "./autoInvite";
 import { postSystemMessage } from "./chat";
 import { etParts } from "./chatRules";
@@ -49,6 +50,8 @@ export async function runChatChecks(now = new Date()) {
   const released = await releaseScheduled(now).catch((e) => ({ posted: 0, errors: [(e as Error).message] }));
   // Follow-ups: the one-time "book your follow-up" message after a handover, and To do when one is stuck
   await followupChecks(now).catch(() => null);
+  // Pickups and drop-offs: the 5 PM check, and the office told the morning after if nobody confirmed
+  await moveChecks(now).catch(() => null);
   const autoClose = (process.env.CHAT_AUTO_CLOSE || "").trim().toLowerCase() !== "off";
   const sb = serviceClient();
   const { data: chatRows } = await sb.from("chats").select("*").eq("status", "open");

@@ -10,6 +10,7 @@ const repLabel = (r: HistoryRow["reports"][number]) => (r.kind === "intake" ? "I
 /** A list of bookings with links to the chat, the Dog profile and the forms. Admin and trainer versions. */
 export function BookingHistory({ rows, role, showTrainer = true, ready = {} }: { rows: HistoryRow[]; role: "admin" | "trainer"; showTrainer?: boolean; ready?: Record<string, { missing: number; cleared: boolean }> }) {
   const base = role === "admin" ? "/a" : "/t";
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date());
   return (
     <ul className="panel divide-y divide-line">
       {rows.map((b) => {
@@ -24,6 +25,8 @@ export function BookingHistory({ rows, role, showTrainer = true, ready = {} }: {
               <div className="flex items-center gap-1.5">
                 {ready[b.id] && <Pill tone={ready[b.id].missing ? "heart" : "mint"}>{ready[b.id].missing ? `${ready[b.id].missing} missing` : ready[b.id].cleared ? "OK to start" : "Ready"}</Pill>}
                 {b.status === "cancelled" && <Pill tone="heart">Cancelled</Pill>}
+                {b.status !== "cancelled" && "picked_up_at" in b && !b.picked_up_at && b.start_date >= "2026-11-01" && b.start_date < today && <Pill tone="heart">Pickup not confirmed</Pill>}
+                {b.status !== "cancelled" && "dropped_off_at" in b && !!b.picked_up_at && !b.dropped_off_at && b.end_date >= "2026-11-01" && b.end_date < today && <Pill tone="heart">Drop-off not confirmed</Pill>}
               </div>
             </div>
             {role === "admin" && b.strip && <ProgramStrip s={b.strip} />}

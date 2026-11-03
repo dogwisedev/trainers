@@ -13,6 +13,7 @@ import type { Booking } from "@/lib/types";
 import { Info } from "lucide-react";
 import { contactFrom } from "@/lib/contactLinks";
 import { TodayVisits, type Visit } from "@/components/TodayVisits";
+import { CONFIRM_FROM } from "@/lib/moveRules";
 
 export default async function TrainerHome() {
   const v = await requireRole("trainer");
@@ -41,18 +42,22 @@ export default async function TrainerHome() {
   };
 
   // Today's pickups and drop-offs, with the client's address from their forms (one row per client, all their dogs)
-  const visitsRaw = bookings.filter((b) => b.status !== "cancelled" && (b.start_date === today || b.end_date === today));
+  // Today's pickups and drop-offs, plus any earlier one still not confirmed (they stay here until the trainer taps or the form is in)
+  const pick = (b: Booking) => b.status !== "cancelled" && (b.start_date === today || (b.start_date < today && b.start_date >= CONFIRM_FROM && !(b as { picked_up_at?: string | null }).picked_up_at));
+  const home = (b: Booking) => b.status !== "cancelled" && (b.end_date === today || (b.end_date < today && b.end_date >= CONFIRM_FROM && !!(b as { picked_up_at?: string | null }).picked_up_at && !(b as { dropped_off_at?: string | null }).dropped_off_at));
+  const visitsRaw = bookings.filter((b) => pick(b) || home(b));
   const visitDeals = [...new Set(visitsRaw.map((b) => b.hubspot_deal_id).filter((x): x is string => !!x && /^\d+$/.test(x)))];
   const { data: contacts } = visitDeals.length && !isDemo() ? await serviceClient().from("pretraining_deals").select("deal_id, contact").in("deal_id", visitDeals) : { data: [] };
   const contactOf = new Map(((contacts || []) as { deal_id: string; contact: Record<string, unknown> | null }[]).map((r) => [r.deal_id, r.contact]));
   const grouped = new Map<string, Visit>();
-  for (const b of visitsRaw) {
-    const kind = b.start_date === today ? "pickup" : "home";
+  for (const b of visitsRaw) for (const kind of ([pick(b) ? "pickup" : null, home(b) ? "home" : null].filter(Boolean) as Visit["kind"][])) {
     const k = `${kind}:${b.hubspot_deal_id || b.id}`;
     const c = contactFrom(b.hubspot_deal_id ? contactOf.get(b.hubspot_deal_id) : null, b.client_name);
+    const done = kind === "pickup" ? (b as { picked_up_at?: string | null }).picked_up_at : (b as { dropped_off_at?: string | null }).dropped_off_at;
     const x = grouped.get(k);
-    if (x) { x.dogs = `${x.dogs} & ${b.dog_name || "Dog"}`; continue; }
-    grouped.set(k, { key: k, kind, dogs: b.dog_name || "Dog", bookingId: b.id, client: c.name || b.client_name, address: c.address, phone: c.phone });
+    if (x) { x.dogs = `${x.dogs} & ${b.dog_name || "Dog"}`; x.bookingIds.push(b.id); x.confirmed = x.confirmed && !!done; continue; }
+    grouped.set(k, { key: k, kind, dogs: b.dog_name || "Dog", bookingId: b.id, bookingIds: [b.id], client: c.name || b.client_name, address: c.address, phone: c.phone,
+      day: kind === "pickup" ? b.start_date : b.end_date, today, confirmed: !!done, canConfirm: (kind === "pickup" ? b.start_date : b.end_date) >= CONFIRM_FROM });
   }
   const visits = [...grouped.values()].sort((a, b) => (a.kind === b.kind ? 0 : a.kind === "pickup" ? -1 : 1));
   const infoLink = (b: Booking) => <Link prefetch={false} href={`/t/dogs/${b.id}`} className="btn-ghost h-10 min-h-0 shrink-0 px-3 text-body"><Info size={16} />Info</Link>;

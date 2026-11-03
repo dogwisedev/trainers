@@ -24,6 +24,7 @@ export type TodoItem = {
   dogHref?: string; hubspot?: string; incidentId?: string; doneLabel?: string;
   quietChatId?: string; // a chat alert that Quiet chat would silence (finishing on Signal)
   deal?: string;        // a Closed Won deal to decide on: the row offers Book now / Standby / Cancelled instead of Done
+  booking?: { id: string; move: "pickup" | "dropoff" | null; dog: string; trainer: string; hasDeal: boolean }; // a booked dog that didn't start / finish as planned: Mark / Postpone / Cancel
   poc?: string;         // the trainer's Point of Contact (from the trainer's profile), for the POC filter; none = not tied to a trainer
 };
 /** late: forms past their deadline. beforeApp: handover reports due before the app took over the forms (still needed for the certificate). */
@@ -102,7 +103,11 @@ async function buildTodoUncached(): Promise<TodoData> {
             primary: deal ? { label: "Fix in HubSpot", href: deal, external: true } : undefined, doneLabel: "Keep dog name" });
           break;
         }
-        add({ group: "week", tone: "biscuit", text: `Check ${dog}'s HubSpot deal`, primary: deal ? { label: "HubSpot deal", href: deal, external: true } : dogHref ? { label: "Open dog", href: dogHref } : undefined }); break;
+        // No start date on the deal usually means it's moved or stalled: offer Postpone (Standby) and Cancel right here
+        { const noStart = /no program start date/i.test(i.detail || "");
+          add({ group: noStart ? "now" : "week", tone: "biscuit", text: noStart ? `${dog}'s deal has no start date: postponed?` : `Check ${dog}'s HubSpot deal`, primary: deal ? { label: "HubSpot deal", href: deal, external: true } : dogHref ? { label: "Open dog", href: dogHref } : undefined,
+            booking: noStart && bookingId && i.booking ? { id: bookingId, move: null, dog, trainer, hasDeal: !!i.booking.hubspot_deal_id } : undefined }); }
+        break;
       case "not_ready": add({ group: startsSoon ? "now" : "week", tone: "heart", detail: (i.detail || "").replace(/^.*?isn't ready:\s*/, "Missing: ").replace(/\.$/, "") || undefined, text: `${dog} starts ${i.booking ? short(i.booking.start_date) : "soon"} and isn't ready`, primary: bookingId ? { label: "See what's missing", href: dogPage(bookingId, "before") } : chat }); break;
       case "trainer_report": add({ group: "now", tone: "heart", text: `${trainer} reported an incident with ${dog}`, primary: bookingId ? { label: "Read the report", href: dogPage(bookingId, undefined, "incident-reports") } : chat }); break;
       case "standby_reminder": {
@@ -116,6 +121,12 @@ async function buildTodoUncached(): Promise<TodoData> {
         add({ group: "now", tone: "biscuit", text: again ? "Cancelled in the app, still Closed Won in HubSpot" : "Closed Won in HubSpot, not booked yet",
           detail: (i.detail || "").replace(/: (Closed Won|cancelled in the app).*$/, "") || undefined,
           hubspot: hubspotDeal(dealId), deal: /^\d+$/.test(dealId) ? dealId : undefined });
+        break;
+      }
+      case "pickup_unconfirmed": case "dropoff_unconfirmed": {
+        const move = i.kind === "pickup_unconfirmed" ? "pickup" : "dropoff";
+        add({ group: "now", tone: "heart", icon: "dog", text: move === "pickup" ? `${dog}'s pickup isn't confirmed` : `${dog}'s drop-off isn't confirmed`, detail: i.detail || undefined, primary: dogHref ? { label: "Dog", href: dogHref } : undefined,
+          booking: bookingId ? { id: bookingId, move, dog, trainer, hasDeal: !!i.booking?.hubspot_deal_id } : undefined });
         break;
       }
       case "followup_request": add({ group: "now", tone: "biscuit", icon: "chat", text: `${client} asked for a follow-up session for ${dog}, not confirmed yet`, detail: i.detail || undefined, primary: dogHref ? { label: "Open dog", href: dogPage(bookingId!, undefined, "followups") } : chat }); break;

@@ -19,6 +19,7 @@ export type HistoryRow = {
   chat: { id: string; status: string } | null;                                     // the dog's chat (open one first, else the latest)
   reports: { id: string; kind: Kind; week_number: number; status: Status }[];      // submitted and approved forms
   strip?: Strip; poc?: string; owner?: string | null; cancelReason?: string | null;   // admin only: the program at a glance
+  picked_up_at?: string | null; dropped_off_at?: string | null;                     // confirmed pickup / drop-off (migration 045)
 };
 
 /** admin: also the program strip (forms, weekly reports, handover, follow-ups, payment), the trainer's POC and the salesperson.
@@ -26,14 +27,24 @@ export type HistoryRow = {
 export async function bookingHistory(o: { tab: Tab; q?: string; trainerId?: string; trainerIds?: string[]; limit?: number; admin?: boolean }): Promise<{ rows: HistoryRow[]; more: boolean }> {
   if (isDemo()) return { rows: [], more: false };
   const sb = serverClient(), today = etParts(new Date()).date, limit = o.limit || 150;
-  let q = sb.from("bookings").select("id, dog_name, client_name, client_email, start_date, end_date, status, program, weeks, extra_days, rehab, trainer_id, hubspot_deal_id, trainers(name)");
-  if (o.tab === "cancelled") q = q.eq("status", "cancelled").order("start_date", { ascending: false });
-  else {
+  // Upcoming until the pickup is confirmed, In care until the drop-off is (button or form; migration 045). Before 045 is
+  // run, the old date rule (tried second if the columns aren't there).
+  const build = (confirmed: boolean) => {
+    let q = sb.from("bookings").select(confirmed ? "id, dog_name, client_name, client_email, start_date, end_date, status, program, weeks, extra_days, rehab, trainer_id, hubspot_deal_id, picked_up_at, dropped_off_at, trainers(name)" : "id, dog_name, client_name, client_email, start_date, end_date, status, program, weeks, extra_days, rehab, trainer_id, hubspot_deal_id, trainers(name)");
+    if (o.tab === "cancelled") return q.eq("status", "cancelled").order("start_date", { ascending: false });
     q = q.neq("status", "cancelled");
-    if (o.tab === "now") q = q.lte("start_date", today).gte("end_date", today).order("end_date");
-    if (o.tab === "upcoming") q = q.gt("start_date", today).order("start_date");
-    if (o.tab === "finished") q = q.lt("end_date", today).order("end_date", { ascending: false });
-  }
+    if (confirmed) {
+      if (o.tab === "upcoming") q = q.is("picked_up_at", null).order("start_date");
+      if (o.tab === "now") q = q.not("picked_up_at", "is", null).is("dropped_off_at", null).order("end_date");
+      if (o.tab === "finished") q = q.not("dropped_off_at", "is", null).order("end_date", { ascending: false });
+    } else {
+      if (o.tab === "now") q = q.lte("start_date", today).gte("end_date", today).order("end_date");
+      if (o.tab === "upcoming") q = q.gt("start_date", today).order("start_date");
+      if (o.tab === "finished") q = q.lt("end_date", today).order("end_date", { ascending: false });
+    }
+    return q;
+  };
+  let q = build(true);
   if (o.trainerId) q = q.eq("trainer_id", o.trainerId);
   if (o.trainerIds) q = o.trainerIds.length ? q.in("trainer_id", o.trainerIds) : q.eq("trainer_id", "00000000-0000-0000-0000-000000000000");
   const text = (o.q || "").replace(/[,()*%\\]/g, " ").trim().slice(0, 60);
@@ -44,7 +55,14 @@ export async function bookingHistory(o: { tab: Tab; q?: string; trainerId?: stri
     if (ts?.length) ors.push(`trainer_id.in.(${ts.map((t) => t.id).join(",")})`);
     q = q.or(ors.join(","));
   }
-  const { data, error } = await q.limit(limit + 1);
+  let { data, error } = await q.limit(limit + 1);
+  if (error && /picked_up_at|dropped_off_at|schema cache/i.test(error.message)) {
+    q = build(false);
+    if (o.trainerId) q = q.eq("trainer_id", o.trainerId);
+    if (o.trainerIds) q = o.trainerIds.length ? q.in("trainer_id", o.trainerIds) : q.eq("trainer_id", "00000000-0000-0000-0000-000000000000");
+    if (text) { const { data: ts } = await sb.from("trainers").select("id").ilike("name", `%${text}%`); const ors = [`dog_name.ilike.%${text}%`, `client_name.ilike.%${text}%`, `client_email.ilike.%${text}%`]; if (/^\d+$/.test(text)) ors.push(`hubspot_deal_id.eq.${text}`); if (ts?.length) ors.push(`trainer_id.in.(${ts.map((t) => t.id).join(",")})`); q = q.or(ors.join(",")); }
+    ({ data, error } = await q.limit(limit + 1));
+  }
   if (error) throw new Error(error.message);
   const list = (data || []).slice(0, limit) as unknown as Omit<HistoryRow, "chat" | "reports">[];
   if (!list.length) return { rows: [], more: false };

@@ -1,4 +1,5 @@
 "use server";
+import { confirmMove } from "@/lib/pickup";
 import { audited } from "@/lib/audit";
 import { pushToAdmins } from "@/lib/push";
 import { revalidatePath } from "next/cache";
@@ -79,6 +80,8 @@ export async function submitReportAction(id: string, answers: Answers, media: Me
     const pickup = b.report.kind === "intake" ? await pickupMedia(b.booking, s(a.pickupDate) || b.booking.start_date) : null;
     const { error } = await serverClient().from("reports").update({ answers: a, media: m, status: "submitted", submitted_at: new Date().toISOString(), review_note: null }).eq("id", id);
     if (error) return { ok: false, message: error.message };
+    // The intake form confirms the pickup, the handover report the drop-off (if the trainer hadn't tapped the button yet)
+    if (b.report.kind === "intake" || b.report.kind === "handover") await confirmMove(b.booking.id, b.report.kind === "intake" ? "pickup" : "dropoff", b.report.kind === "intake" ? "Intake form" : "Handover report").catch(() => null);
     const dog = s(a.dogName), flags = healthFlags(b.report.kind, a);
     const label = `${dog || "Dog"} (${s(a.clientName) || b.booking.client_name}), ${b.trainer.name}`;
     let mediaNote = "";

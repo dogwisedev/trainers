@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { pickedUp } from "@/lib/moveRules";
 import { isDemo, serviceClient } from "@/lib/supabase";
 import { notFound } from "next/navigation";
 import { CalendarPlus, Mail, MapPin, MessageCircle, Phone } from "lucide-react";
@@ -99,7 +100,7 @@ export default async function TrainerDetail({ params, searchParams }: { params: 
                   <div><p className="font-semibold">{b.dog_name || "Dog"} <span className="font-normal text-ink-soft">with {b.client_name}</span></p><p className="text-body text-ink-soft">{range(b.start_date, b.end_date)}, {b.program || `${b.weeks}-week`}{b.extra_days ? ` + ${b.extra_days} day${b.extra_days > 1 ? "s" : ""}` : ""}{b.rehab ? ", rehab" : ""}</p></div>
                   <div className="flex flex-wrap items-center gap-2">
                     {!b.notified_at && <Pill tone="heart">Trainer not emailed</Pill>}
-                    <Pill tone={b.start_date <= today ? "biscuit" : b.status === "pending" ? "line" : "mint"}>{b.start_date <= today ? "In care" : b.status === "pending" ? "Pending" : "Upcoming"}</Pill>
+                    {(() => { const p = pickedUp(b as Parameters<typeof pickedUp>[0]); const late = !p && b.start_date < today; return <Pill tone={late ? "heart" : p ? "biscuit" : b.status === "pending" ? "line" : "mint"}>{late ? "Pickup not confirmed" : p ? "In care" : b.status === "pending" ? "Pending" : "Upcoming"}</Pill>; })()}
                     <span className="btn-ghost h-9 min-h-0 px-3 text-small">Open</span>
                   </div>
                 </Link>

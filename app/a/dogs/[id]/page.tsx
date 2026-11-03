@@ -23,6 +23,8 @@ import { PROGRAMS, programFor } from "@/lib/programs";
 import { emailTrainerAboutBooking } from "@/app/actions";
 import { CancelTraining } from "@/components/CancelTraining";
 import { PostponeTraining } from "@/components/PostponeTraining";
+import { MarkMove } from "@/components/BookingDecision";
+import { CONFIRM_FROM, droppedOff, pickedUp } from "@/lib/moveRules";
 import { followupState } from "@/lib/followups";
 import { ActionButton, ExtraDays } from "@/components/forms";
 import { ReportsToggle } from "@/components/ReportsToggle";
@@ -68,8 +70,12 @@ export default async function DogPageView({ params, searchParams }: { params: { 
   const r = ready.get(b.id);
   const missing = r?.ready.missing.length ?? null;
   const toReview = ((reps || []) as { status: Status }[]).filter((x) => x.status === "submitted").length;
-  const status = b.status === "cancelled" ? { label: "Cancelled", tone: "heart" as const } : b.end_date < today ? { label: "Finished", tone: "line" as const }
-    : b.start_date <= today ? { label: "In care", tone: "biscuit" as const } : { label: `Starts in ${daysBetween(today, b.start_date)} day${daysBetween(today, b.start_date) === 1 ? "" : "s"}`, tone: "mint" as const };
+  // Follows the confirmed pickup / drop-off (button or form), not the dates
+  const isPicked = pickedUp(b as Parameters<typeof pickedUp>[0]), isHome = droppedOff(b as Parameters<typeof droppedOff>[0]);
+  const status = b.status === "cancelled" ? { label: "Cancelled", tone: "heart" as const } : isHome ? { label: "Finished", tone: "line" as const }
+    : isPicked ? (b.end_date < today ? { label: "Drop-off not confirmed", tone: "heart" as const } : { label: "In care", tone: "biscuit" as const })
+    : b.start_date < today ? { label: "Pickup not confirmed", tone: "heart" as const }
+    : b.start_date === today ? { label: "Pickup today", tone: "mint" as const } : { label: `Starts in ${daysBetween(today, b.start_date)} day${daysBetween(today, b.start_date) === 1 ? "" : "s"}`, tone: "mint" as const };
   const badge = (t: Tab) => t === "before" && missing ? missing : t === "forms" && toReview ? toReview : 0;
 
   return (
@@ -172,6 +178,8 @@ export default async function DogPageView({ params, searchParams }: { params: { 
                 <ActionButton className="btn-ghost" action={emailTrainerAboutBooking.bind(null, b.id)}>{b.notified_at ? "Email the trainer again" : "Email the trainer"}</ActionButton>
                 {!chat && <StartChat bookingId={b.id} />}
                 {b.status !== "cancelled" && b.end_date > today && <ChangeTrainer bookingId={b.id} dog={b.dog_name || "the dog"} current={b.trainers?.name || "the trainer"} start={b.start_date} end={b.end_date} today={today} trainers={((activeTrainers || []) as { id: string; name: string }[]).filter((t) => t.id !== b.trainer_id)} />}
+                {b.status !== "cancelled" && !(b as { picked_up_at?: string | null }).picked_up_at && b.start_date >= CONFIRM_FROM && <MarkMove bookingId={b.id} move="pickup" />}
+                {b.status !== "cancelled" && !!(b as { picked_up_at?: string | null }).picked_up_at && !(b as { dropped_off_at?: string | null }).dropped_off_at && b.end_date >= CONFIRM_FROM && <MarkMove bookingId={b.id} move="dropoff" />}
                 {b.status !== "cancelled" && b.hubspot_deal_id && <PostponeTraining bookingId={b.id} dog={b.dog_name || "the dog"} />}
                 {b.status !== "cancelled" && <CancelTraining bookingId={b.id} dog={b.dog_name || "the dog"} trainer={b.trainers?.name || "The trainer"} />}
               </div>
