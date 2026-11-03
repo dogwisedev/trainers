@@ -18,7 +18,7 @@ import { auditSystem } from "./audit";
 const WEEKLY = [1, 2, 3, 4, 5, 6].map((n) => (n === 1 ? "has_weekly_report__1_been_received_" : `has_weekly_report__${n}_been_received_`));
 const FIELDS = ["pick_up_confirmation", "trainer_intake_form", ...WEEKLY, "has_handover_report_been_received_", "handover_reports", "drop_off_confirmation",
   "start_follow_up_management", "ongoing", "needs_attention_status", "client_status", "point_of_contact",
-  "items", "group_created", "is_client_in_the_group_", "signal_group_link", "enrol_in_after_sale_follow_up"];
+  "items", "group_created", "is_client_in_the_group_", "signal_group_link"];
 const site = () => (process.env.NEXT_PUBLIC_SITE_URL || "https://trainers-seven.vercel.app").replace(/\/$/, "");
 const STATUS_ORDER = ["Not started", "Ongoing", "Completed with Handover Report", "Completed with Follow up"];
 const NEVER_TOUCH = /^(cancelled|refunded|after graduation support)$/i;
@@ -128,8 +128,9 @@ export async function syncProgramStatus(sb: SupabaseClient = serviceClient(), no
     // Items: what came with the dog, from the trainer's intake form (two dogs: "Rex: …; Bella: …")
     const itemLines = forms.map((b) => ({ dog: (b as { dog_name?: string | null }).dog_name || "Dog", v: String(reports.find((r) => r.booking_id === b.id && r.kind === "intake" && r.submitted_at)?.items || "").trim() })).filter((x) => x.v);
     if (itemLines.length && defs.has("items")) want.items = (itemLines.length > 1 ? itemLines.map((x) => `${x.dog}: ${x.v}`).join(" | ") : itemLines[0].v).slice(0, 2000);
-    // After-sale follow-up starts once the handover is in (never over a Stop someone set)
-    if (want.start_follow_up_management || /^(yes|true)$/i.test(String(cur.start_follow_up_management || ""))) { if (!/^stop$/i.test(String(cur.enrol_in_after_sale_follow_up || "").trim()) && /^(yes|sent w\/ delay)$/i.test(String(defs.get("has_handover_report_been_received_")?.options.find((o) => o.value === (want.has_handover_report_been_received_ ?? cur.has_handover_report_been_received_))?.label || cur.has_handover_report_been_received_ || ""))) put("enrol_in_after_sale_follow_up", "Start"); }
+    // "Enrol in After Sale Follow Up" is never written: in HubSpot, Start begins the pre-training Onboarding Checklist
+    // ("Welcome to Dogwise, let's get everything ready"), so setting it at the handover would send that to a client whose
+    // dog just came home. Start Follow Up Management (above) is what starts the follow-ups.
     // In care (picked up, not yet home): Ongoing (All good / Warning / Needs attention) and Needs Attention Status
     if (isPicked && !isDropped) {
       const chatId = chatOfDeal.get(dealId), mine = open.filter((i) => group.some((b) => b.id === i.booking_id) || (chatId && i.chat_id === chatId));
