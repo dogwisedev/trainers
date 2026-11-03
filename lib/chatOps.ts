@@ -15,6 +15,7 @@ import { catchUpBookings } from "./bookingCatchup";
 import { sendDailyDigest } from "./digest";
 import { QUIET_KINDS } from "./quietChats";
 import { releaseScheduled } from "./scheduled";
+import { followupChecks } from "./followups";
 import { autoInviteClients } from "./autoInvite";
 import { postSystemMessage } from "./chat";
 import { etParts } from "./chatRules";
@@ -46,6 +47,8 @@ type Incident = { id: string; chat_id: string; kind: IncidentKind; status: strin
 export async function runChatChecks(now = new Date()) {
   // Scheduled messages whose time has come go out first, so this same run can see them as posts
   const released = await releaseScheduled(now).catch((e) => ({ posted: 0, errors: [(e as Error).message] }));
+  // Follow-ups: the one-time "book your follow-up" message after a handover, and To do when one is stuck
+  await followupChecks(now).catch(() => null);
   const autoClose = (process.env.CHAT_AUTO_CLOSE || "").trim().toLowerCase() !== "off";
   const sb = serviceClient();
   const { data: chatRows } = await sb.from("chats").select("*").eq("status", "open");

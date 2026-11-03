@@ -22,6 +22,8 @@ import { dealTraining } from "@/lib/training";
 import { PROGRAMS, programFor } from "@/lib/programs";
 import { emailTrainerAboutBooking } from "@/app/actions";
 import { CancelTraining } from "@/components/CancelTraining";
+import { PostponeTraining } from "@/components/PostponeTraining";
+import { followupState } from "@/lib/followups";
 import { ActionButton, ExtraDays } from "@/components/forms";
 import { ReportsToggle } from "@/components/ReportsToggle";
 import { StartChat } from "@/components/StartChat";
@@ -51,6 +53,7 @@ export default async function DogPageView({ params, searchParams }: { params: { 
   const { data: chatRows } = await sb.from("chats").select("*").eq("deal_key", key).order("created_at", { ascending: false });
   const chat = (((chatRows || []) as ChatRow[]).find((c) => c.status === "open") || (chatRows || [])[0] || null) as ChatRow | null;
   const { data: activeTrainers } = await sb.from("trainers").select("id, name").eq("active", true).order("name");
+  const fu = isDemo() ? null : await followupState(b.id).catch(() => null);
   const [{ data: siblings }, { data: reps }, { data: incs }, ready, { data: ireports }, { data: trips }, { data: money }, { data: rate }] = await Promise.all([
     b.hubspot_deal_id ? sb.from("bookings").select("id, dog_name, status").eq("hubspot_deal_id", b.hubspot_deal_id).neq("id", b.id) : Promise.resolve({ data: [] }),
     sb.from("reports").select("id, kind, week_number, status").eq("booking_id", b.id),
@@ -144,8 +147,20 @@ export default async function DogPageView({ params, searchParams }: { params: { 
               </section>
             )}
             {b.hubspot_deal_id && b.status !== "cancelled" && (
-              <section className="panel p-4">
+              <section id="followups" className="panel scroll-mt-20 p-4">
                 <h2 className="mb-3 text-lead font-extrabold">Follow-up sessions</h2>
+                {fu && fu.sessions.some((x) => x.status !== "cancelled") && (
+                  <ul className="mb-3 space-y-1.5 text-body">
+                    {fu.sessions.filter((x) => x.status !== "cancelled").map((x) => (
+                      <li key={x.id} className="flex flex-wrap items-baseline gap-x-2"><b>Session {x.n}</b>
+                        <span className={x.status === "done" ? "text-fern" : x.status === "missed" ? "text-heart" : x.status === "requested" ? "text-warn" : "text-ink-soft"}>
+                          {x.status === "requested" ? `the client asked (${x.options.map((o) => `${o.day.slice(5).replace("-", "/")} ${o.part.toLowerCase()}`).join(", ")}): waiting for the trainer`
+                            : x.status === "confirmed" ? `booked ${x.at ? new Date(x.at).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "America/New_York" }) + " ET" : ""}`
+                            : x.status === "done" ? `done${x.duration_min ? `, ${x.duration_min} min` : ""}${x.comments ? `: ${x.comments.slice(0, 90)}` : ""}` : `didn't happen${x.comments ? `: ${x.comments.slice(0, 90)}` : ""}`}
+                        </span></li>
+                    ))}
+                  </ul>
+                )}
                 <FollowupDates bookingId={b.id} dates={m?.followups || []} rate={Number((rate as { followup_rate?: number } | null)?.followup_rate ?? 60)} />
               </section>
             )}
@@ -157,6 +172,7 @@ export default async function DogPageView({ params, searchParams }: { params: { 
                 <ActionButton className="btn-ghost" action={emailTrainerAboutBooking.bind(null, b.id)}>{b.notified_at ? "Email the trainer again" : "Email the trainer"}</ActionButton>
                 {!chat && <StartChat bookingId={b.id} />}
                 {b.status !== "cancelled" && b.end_date > today && <ChangeTrainer bookingId={b.id} dog={b.dog_name || "the dog"} current={b.trainers?.name || "the trainer"} start={b.start_date} end={b.end_date} today={today} trainers={((activeTrainers || []) as { id: string; name: string }[]).filter((t) => t.id !== b.trainer_id)} />}
+                {b.status !== "cancelled" && b.hubspot_deal_id && <PostponeTraining bookingId={b.id} dog={b.dog_name || "the dog"} />}
                 {b.status !== "cancelled" && <CancelTraining bookingId={b.id} dog={b.dog_name || "the dog"} trainer={b.trainers?.name || "The trainer"} />}
               </div>
               <p className="text-small text-ink-soft">{b.notified_at ? `Trainer emailed ${new Date(b.notified_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}.` : "The trainer hasn't been emailed about this booking yet."}</p>

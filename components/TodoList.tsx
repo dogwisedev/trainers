@@ -5,6 +5,7 @@ import type { Todo } from "@/lib/reports";
 import { TodoRow } from "@/components/ReportBits";
 import { QuietChatButton } from "@/components/QuietChatButton";
 import { TodoTypes } from "@/components/TodoTypes";
+import { DealDecision } from "@/components/DealDecision";
 import { TodoDone } from "@/components/TodoDone";
 import { IconTile } from "@/components/ui";
 
@@ -94,7 +95,8 @@ function Item({ i, canQuiet = false }: { i: TodoItem; canQuiet?: boolean }) {
           {i.dogHref && i.primary?.href !== i.dogHref && <Link prefetch={false} href={i.dogHref} className="btn-ghost h-9 min-h-0 px-3 text-small"><PawPrint size={14} />Dog</Link>}
           {i.hubspot && !i.primary?.external && <a href={i.hubspot} target="_blank" rel="noopener" className="btn-ghost h-9 min-h-0 px-3 text-small">HubSpot<ExternalLink size={13} /></a>}
           {canQuiet && i.quietChatId && <QuietChatButton chatId={i.quietChatId} quiet={false} />}
-          {i.incidentId && <span className="ml-auto"><TodoDone id={i.incidentId} label={i.doneLabel} /></span>}
+          {i.incidentId && !i.deal && <span className="ml-auto"><TodoDone id={i.incidentId} label={i.doneLabel} /></span>}
+          {i.deal && <DealDecision dealId={i.deal} bookHref={`/a/bookings/new?deal=${i.deal}`} />}
         </div>
       </div>
     </li>

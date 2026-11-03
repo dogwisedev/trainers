@@ -4,6 +4,8 @@ import { getViewer } from "@/lib/data";
 import { syncHubspotDates } from "@/lib/hubspotSync";
 import { syncPretraining } from "@/lib/pretraining";
 import { checkUnbookedDeals } from "@/lib/unbookedDeals";
+import { standbyReminders } from "@/lib/standby";
+import { syncProgramStatus } from "@/lib/programSync";
 import { writeFormLinks } from "@/lib/clientForms";
 import { cronRan } from "@/lib/cronHealth";
 
@@ -28,8 +30,11 @@ export async function GET(req: Request) {
   // Sales and payments now have their own job (/api/sales/sync, and "Refresh from HubSpot" on the Sales page)
   // Closed Won deals (since Oct 11) with no booking in the app: a To do item each, cleared once booked
   const unbooked = dry ? null : await checkUnbookedDeals().catch((e) => ({ errors: [(e as Error).message] }));
+  // Standby reminders due today: a To do each. Program progress from the app onto the HubSpot deals.
+  const standby = dry ? null : await standbyReminders().catch((e) => ({ raised: 0, errors: [(e as Error).message] }));
+  const program = dry ? null : await syncProgramStatus().catch((e) => ({ written: 0, errors: [(e as Error).message] }));
   // Each new HubSpot contact gets its personal before-training link (dogwise_forms_link)
   const formLinks = dry ? null : await writeFormLinks().catch((e) => ({ written: 0, errors: [(e as Error).message] }));
   if (cron) await cronRan("hubspot", !result.errors.length, [...result.errors, ...(unbooked?.errors || [])].slice(0, 3).join("; ") || null);
-  return NextResponse.json({ ...result, pretraining, unbooked, formLinks });
+  return NextResponse.json({ ...result, pretraining, unbooked, standby, program, formLinks });
 }

@@ -1,7 +1,9 @@
 "use server";
 import { availability } from "@/lib/availability";
 import { clientPlace, zipIn } from "@/lib/mileageCheck";
-import { isCancelReason } from "@/lib/cancelReasons";
+import { isCancelReason, POSTPONE_BY } from "@/lib/cancelReasons";
+import { cancelDeal, hubspotCancelled, setStandby } from "@/lib/standby";
+import { clearFollowupTodos, followupState, writeSessionDate, writeSessionReport } from "@/lib/followups";
 import { auditCall, audited } from "@/lib/audit";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
@@ -503,7 +505,10 @@ export async function cancelTrainingAction(id: string, reason: string, note: str
     link: b.hubspot_deal_id ? `https://app.hubspot.com/contacts/21869370/record/0-3/${b.hubspot_deal_id}` : `${site}/a/trainers/${b.trainer_id}`
   });
   const sentNote = notifySummary(await notifyBookings(sb, [id], "cancelled"));
-  return { ok: true, message: `Training cancelled.${sentNote}${unsaved}` };
+  // HubSpot: Client Status = Cancelled, with HubSpot's Cancellation Reason and the note as Cancellation Info
+  let hsNote = "";
+  if (b.hubspot_deal_id) { try { await hubspotCancelled(b.hubspot_deal_id, why, more); hsNote = " HubSpot updated."; } catch (e) { hsNote = ` HubSpot wasn't updated (${(e as Error).message}): set Client Status to Cancelled there.`; } }
+  return { ok: true, message: `Training cancelled.${sentNote}${unsaved}${hsNote}` };
 });
 }
 
@@ -571,6 +576,9 @@ export async function logFollowupAction(_: Result | null, f: FormData): Promise<
   const v = await viewerOrThrow();
   if (v.role !== "trainer" || !v.trainerId) return { ok: false, message: "Only trainers can log follow-up sessions." };
   const bookingId = String(f.get("booking_id") || ""), date = String(f.get("date") || ""), notes = String(f.get("notes") || "").trim();
+  const happened = String(f.get("happened") || "yes") !== "no", minutesRaw = String(f.get("minutes") || "").trim();
+  const minutes = minutesRaw ? Math.round(Number(minutesRaw)) : null;
+  if (happened && (minutes == null || !Number.isFinite(minutes) || minutes < 5 || minutes > 600)) return { ok: false, message: "How long was the session, in minutes?" };
   const miles = validMiles(f.get("miles"));
   if (!bookingId) return { ok: false, message: "Pick the dog." };
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date > todayIso()) return { ok: false, message: "Pick the date of the session (today or earlier)." };
@@ -580,8 +588,26 @@ export async function logFollowupAction(_: Result | null, f: FormData): Promise<
   const { data: b } = await sb.from("bookings").select("id, trainer_id").eq("id", bookingId).maybeSingle();
   if (!b || b.trainer_id !== v.trainerId) return { ok: false, message: "That dog isn't one of yours." };
   const { error } = await sb.from("trips").insert({ trainer_id: v.trainerId, booking_id: bookingId, kind: "followup", trip_date: date, miles, notes: notes.slice(0, 2000), created_by: v.name });
+  if (error) return { ok: false, message: error.message };
+  // The session it was: the booked one nearest the date (or the next free one, which also gets this date in HubSpot)
+  let hsNote = "";
+  try {
+    const st = await followupState(bookingId, sb);
+    if (st) {
+      const booked = st.sessions.filter((x) => x.status === "confirmed" || x.status === "requested").sort((a, z) => Math.abs(Date.parse(a.at || `${date}T15:00:00Z`) - Date.parse(date)) - Math.abs(Date.parse(z.at || `${date}T15:00:00Z`) - Date.parse(date)))[0];
+      const n = booked?.n ?? st.nextN;
+      if (n) {
+        const fields = { status: happened ? "done" : "missed", completed: happened, duration_min: happened ? minutes : null, comments: notes.slice(0, 2000), reported_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+        if (booked) await sb.from("followups").update({ ...fields, at: booked.at || `${date}T15:00:00Z` }).eq("id", booked.id);
+        else { await sb.from("followups").insert({ booking_id: bookingId, n, requested_by: "trainer", at: `${date}T15:00:00Z`, ...fields }); if (happened) await writeSessionDate(st.dealId, n, date, sb); }
+        if (booked) await clearFollowupTodos(booked.id, sb);
+        await writeSessionReport(st.dealId, n, happened, happened ? minutes : null, notes);
+        hsNote = ` Session ${n} recorded in HubSpot.`;
+      }
+    }
+  } catch (e) { hsNote = ` (HubSpot wasn't updated: ${(e as Error).message})`; }
   revalidatePath("/", "layout");
-  return error ? { ok: false, message: error.message } : { ok: true, message: `Saved: ${miles} miles on ${date}. It's added to your next payslip.` };
+  return { ok: true, message: `Saved: ${miles} miles on ${date}. It's added to your next payslip.${hsNote}` };
 });
 }
 
@@ -692,4 +718,64 @@ export async function nearestTrainersAction(zip: string) {
     opening: t.soon3 === thisWeek ? (t.freeNow ? `Now (${t.freeNow} free)` : "Now") : t.soon3 ? short(t.soon3) : t.soon2 ? `${short(t.soon2)} (2 weeks)` : t.awayNow ? "Away" : "Full",
     open: !!(t.soon3 || t.soon2), programs: t.programs || ""
   })) };
+}
+
+/** Closed Won deal (or one on Standby): park it. A note, and a day to come back to it, or none (it stays on the Standby list). */
+export async function standbyDealAction(dealId: string, note: string, remindOn: string | null): Promise<Result> {
+  return audited("standbyDealAction", { dealId, note, remindOn }, async () => {
+  if (isDemo()) return DEMO;
+  const v = await viewerOrThrow();
+  if (v.role !== "admin") return { ok: false, message: "Admins only." };
+  if (!/^\d+$/.test(dealId)) return { ok: false, message: "That isn't a HubSpot deal." };
+  if (!note.trim()) return { ok: false, message: "Add a note: why is it on standby?" };
+  if (remindOn && (!/^\d{4}-\d{2}-\d{2}$/.test(remindOn) || remindOn < todayIso())) return { ok: false, message: "Pick a reminder day from today on." };
+  try { await setStandby({ dealId, note: note.trim().slice(0, 1000), remindOn: remindOn || null, by: v.name, source: "deal" }); }
+  catch (e) { return { ok: false, message: (e as Error).message }; }
+  revalidatePath("/a"); revalidatePath("/a/dogs");
+  return { ok: true, message: `On standby${remindOn ? `: back on To do on ${short(remindOn)}` : ", on the Standby list"}. HubSpot updated.` };
+});
+}
+
+/** Closed Won deal that won't happen: Client Status = Cancelled in HubSpot, with HubSpot's reason. */
+export async function cancelDealAction(dealId: string, reason: string, note: string): Promise<Result> {
+  return audited("cancelDealAction", { dealId, reason, note }, async () => {
+  if (isDemo()) return DEMO;
+  const v = await viewerOrThrow();
+  if (v.role !== "admin") return { ok: false, message: "Admins only." };
+  if (!/^\d+$/.test(dealId)) return { ok: false, message: "That isn't a HubSpot deal." };
+  if (!isCancelReason(reason)) return { ok: false, message: "Pick why it was cancelled." };
+  if (reason === "Other" && !note.trim()) return { ok: false, message: "Say why it was cancelled." };
+  try { await cancelDeal({ dealId, reason, note: note.trim(), by: v.name }); }
+  catch (e) { return { ok: false, message: `HubSpot wasn't updated: ${(e as Error).message}` }; }
+  revalidatePath("/a"); revalidatePath("/a/dogs");
+  return { ok: true, message: "Marked Cancelled in HubSpot." };
+});
+}
+
+/** Postpone a booked training: the booking is freed (the trainer is told), the deal goes on Standby with a note and an optional reminder. */
+export async function postponeTrainingAction(id: string, by: string, note: string, remindOn: string | null): Promise<Result> {
+  return audited("postponeTrainingAction", { id, by, note, remindOn }, async () => {
+  if (isDemo()) return DEMO;
+  const v = await viewerOrThrow();
+  if (v.role !== "admin") return { ok: false, message: "Admins only." };
+  if (!(POSTPONE_BY as readonly string[]).includes(by)) return { ok: false, message: "Who asked to postpone?" };
+  if (!note.trim()) return { ok: false, message: "Add a note: what's the plan?" };
+  if (remindOn && (!/^\d{4}-\d{2}-\d{2}$/.test(remindOn) || remindOn < todayIso())) return { ok: false, message: "Pick a reminder day from today on." };
+  const sb = serverClient();
+  const { data: b } = await sb.from("bookings").select("status, hubspot_deal_id, dog_name, client_name, start_date, end_date, trainer_id, trainers(name)").eq("id", id).maybeSingle();
+  const bk = b as unknown as { status: string; hubspot_deal_id: string | null; dog_name: string | null; client_name: string; start_date: string; end_date: string; trainer_id: string; trainers: { name: string } | null } | null;
+  if (!bk) return { ok: false, message: "Booking not found." };
+  if (bk.status === "cancelled") return { ok: false, message: "It's already cancelled." };
+  if (!bk.hubspot_deal_id) return { ok: false, message: "This booking has no HubSpot deal to keep on standby. Cancel it instead." };
+  let { error } = await sb.from("bookings").update({ status: "cancelled", cancel_reason: "Postponed", cancel_note: `${by}. ${note.trim()}`.slice(0, 1000), cancelled_at: new Date().toISOString(), cancelled_by: v.name }).eq("id", id);
+  if (error && /cancel_|column|schema cache/i.test(error.message)) ({ error } = await sb.from("bookings").update({ status: "cancelled" }).eq("id", id));
+  if (error) return { ok: false, message: error.message };
+  try { await setStandby({ dealId: bk.hubspot_deal_id, note: `${by}: ${note.trim()}`, remindOn: remindOn || null, by: v.name, source: "postponed", bookingId: id, postponedBy: by }); }
+  catch (e) { return { ok: false, message: `The training was freed, but standby wasn't saved: ${(e as Error).message}` }; }
+  await raiseIncident({ kind: "booking_cancelled", office: true, ref: `booking:${id}`, bookingId: id, title: `${bk.dog_name || "Dog"} (${bk.client_name}), ${bk.trainers?.name || "trainer"}`,
+    detail: `${v.name} postponed ${bk.dog_name || "the dog"}'s training (${short(bk.start_date)} to ${short(bk.end_date)}). ${by}: ${note.trim()}. On standby${remindOn ? `, reminder ${short(remindOn)}` : ""}.` });
+  const sentNote = notifySummary(await notifyBookings(sb, [id], "cancelled"));
+  revalidatePath("/", "layout");
+  return { ok: true, message: `Postponed and on standby${remindOn ? ` (back on To do ${short(remindOn)})` : ""}.${sentNote}` };
+});
 }

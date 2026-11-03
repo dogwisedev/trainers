@@ -10,8 +10,20 @@ import { ReopenChat } from "@/components/ChatActions";
 import { ClipboardList, CreditCard, MessagesSquare } from "lucide-react";
 import { BeforeTrainingPopup } from "@/components/BeforeTrainingPopup";
 import { chatReadiness } from "@/lib/pretraining";
+import { bookingForChat, followupState } from "@/lib/followups";
+import { FollowupRequest, type FollowupCard } from "@/components/FollowupRequest";
 import { serviceClient } from "@/lib/supabase";
 import { daysBetween, todayIso } from "@/lib/dates";
+
+/** The follow-up card: only once the handover report is in (then "Book your follow-up", what's requested, or what's booked). */
+async function followupCard(dealKey: string): Promise<FollowupCard | null> {
+  if (isDemo()) return null;
+  const bookingId = await bookingForChat(dealKey).catch(() => null);
+  const st = bookingId ? await followupState(bookingId).catch(() => null) : null;
+  if (!st || !st.handedOver) return null;
+  const req = st.sessions.find((x) => x.status === "requested"), up = st.sessions.filter((x) => x.status === "confirmed" && x.at && Date.parse(x.at) > Date.now() - 3 * 3600e3).sort((a, z) => (a.at || "").localeCompare(z.at || ""))[0];
+  return { n: st.nextN, dog: st.dog, trainer: st.trainer, requested: req?.n ?? null, upcoming: up ? { n: up.n, at: up.at! } : null, done: st.sessions.filter((x) => x.status === "done").length };
+}
 
 /** Days until this dog's training starts (negative once started), or null. */
 async function daysToStart(dealKey: string): Promise<number | null> {
@@ -24,7 +36,7 @@ export default async function ClientChat({ params }: { params: { id: string } })
   const v = await requireRole("client");
   const chat = await getChat(params.id);
   if (!chat || chat.client_user_id !== v.userId) notFound();
-  const [{ messages, hasMore }, ready, startsInDays] = await Promise.all([listChatMessages(chat.id), chat.status === "open" ? chatReadiness(chat.deal_key, true) : Promise.resolve(null), daysToStart(chat.deal_key)]);
+  const [{ messages, hasMore }, ready, startsInDays, followup] = await Promise.all([listChatMessages(chat.id), chat.status === "open" ? chatReadiness(chat.deal_key, true) : Promise.resolve(null), daysToStart(chat.deal_key), chat.status === "open" ? followupCard(chat.deal_key) : Promise.resolve(null)]);
   return (
     <>
       {/* The dog, the trainer, and where to go next */}
@@ -41,6 +53,7 @@ export default async function ClientChat({ params }: { params: { id: string } })
           <Link prefetch={false} href="/c" className="flex flex-1 items-center justify-center gap-2 border-l border-line px-3 py-3 hover:bg-paper/60"><MessagesSquare size={16} />All chats</Link>
         </nav>
       </section>
+      {followup && <FollowupRequest chatId={chat.id} card={followup} />}
       {ready && (ready.left > 0 || ready.balanceLink) && <BeforeTrainingPopup href={`/c/${chat.id}/profile`} left={ready.left} balanceLink={ready.balanceLink} summary={ready.summary} dog={chat.title || "your dog"} startsInDays={startsInDays} />}
       {ready && (ready.left > 0 || ready.balanceLink) && (
         <div data-before-training className="panel mb-4 divide-y divide-line overflow-hidden border-biscuit/60">

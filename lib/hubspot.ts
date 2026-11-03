@@ -297,6 +297,24 @@ export async function closedWonBetween(from: string, to: string, maxPages = 5): 
 /** Epoch ms for a date's Eastern midnight, for callers outside this file. */
 export const etMidnight = (date: string) => etMidnightMs(date);
 
+/** Closed Won deals with a given Client Status (e.g. "Standby"), any date, up to 500. */
+export async function closedWonWithStatus(status: string, properties: string[]): Promise<{ id: string; properties: DealProps }[]> {
+  const out: { id: string; properties: DealProps }[] = [];
+  let after: string | undefined;
+  for (let page = 0; page < 5; page++) {
+    const res = await hs<SearchPage>("/crm/v3/objects/deals/search", {
+      method: "POST", body: JSON.stringify({
+        filterGroups: [{ filters: [{ propertyName: "client_status", operator: "EQ", value: status }, { propertyName: "hs_is_closed_won", operator: "EQ", value: "true" }] }],
+        properties, sorts: [{ propertyName: "closedate", direction: "DESCENDING" }], limit: 100, ...(after ? { after } : {})
+      })
+    });
+    out.push(...(res.results || []).map((r) => ({ id: String(r.id), properties: r.properties || {} })));
+    after = res.paging?.next?.after;
+    if (!after) break;
+  }
+  return out;
+}
+
 // ── Client form links ──
 /** A contact's deals, newest first (by close date, else created). */
 export async function contactDeals(contactId: string, properties: string[]): Promise<{ id: string; properties: DealProps }[]> {

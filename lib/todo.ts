@@ -23,6 +23,7 @@ export type TodoItem = {
   primary?: { label: string; href: string; external?: boolean };
   dogHref?: string; hubspot?: string; incidentId?: string; doneLabel?: string;
   quietChatId?: string; // a chat alert that Quiet chat would silence (finishing on Signal)
+  deal?: string;        // a Closed Won deal to decide on: the row offers Book now / Standby / Cancelled instead of Done
   poc?: string;         // the trainer's Point of Contact (from the trainer's profile), for the POC filter; none = not tied to a trainer
 };
 /** late: forms past their deadline. beforeApp: handover reports due before the app took over the forms (still needed for the certificate). */
@@ -104,12 +105,21 @@ async function buildTodoUncached(): Promise<TodoData> {
         add({ group: "week", tone: "biscuit", text: `Check ${dog}'s HubSpot deal`, primary: deal ? { label: "HubSpot deal", href: deal, external: true } : dogHref ? { label: "Open dog", href: dogHref } : undefined }); break;
       case "not_ready": add({ group: startsSoon ? "now" : "week", tone: "heart", detail: (i.detail || "").replace(/^.*?isn't ready:\s*/, "Missing: ").replace(/\.$/, "") || undefined, text: `${dog} starts ${i.booking ? short(i.booking.start_date) : "soon"} and isn't ready`, primary: bookingId ? { label: "See what's missing", href: dogPage(bookingId, "before") } : chat }); break;
       case "trainer_report": add({ group: "now", tone: "heart", text: `${trainer} reported an incident with ${dog}`, primary: bookingId ? { label: "Read the report", href: dogPage(bookingId, undefined, "incident-reports") } : chat }); break;
-      case "deal_not_booked": {
-        const dealId = (i.ref || "").replace(/^deal:/, "");
-        add({ group: "now", tone: "biscuit", text: "Closed Won in HubSpot, not booked yet", detail: (i.detail || "").replace(/: Closed Won.*$/, "") || undefined,
-          hubspot: hubspotDeal(dealId), primary: /^\d+$/.test(dealId) ? { label: "Book now", href: `/a/bookings/new?deal=${dealId}` } : undefined, doneLabel: "Not a booking" });
+      case "standby_reminder": {
+        const dealId = (i.ref || "").replace(/^standby:/, "");
+        add({ group: "now", tone: "biscuit", text: "Standby: time to check", detail: i.detail || undefined, hubspot: hubspotDeal(dealId), deal: /^\d+$/.test(dealId) ? dealId : undefined });
         break;
       }
+      case "deal_not_booked": {
+        const dealId = (i.ref || "").replace(/^deal:/, "");
+        const again = /cancelled in the app/i.test(i.detail || "");
+        add({ group: "now", tone: "biscuit", text: again ? "Cancelled in the app, still Closed Won in HubSpot" : "Closed Won in HubSpot, not booked yet",
+          detail: (i.detail || "").replace(/: (Closed Won|cancelled in the app).*$/, "") || undefined,
+          hubspot: hubspotDeal(dealId), deal: /^\d+$/.test(dealId) ? dealId : undefined });
+        break;
+      }
+      case "followup_request": add({ group: "now", tone: "biscuit", icon: "chat", text: `${client} asked for a follow-up session for ${dog}, not confirmed yet`, detail: i.detail || undefined, primary: dogHref ? { label: "Open dog", href: dogPage(bookingId!, undefined, "followups") } : chat }); break;
+      case "followup_report": add({ group: "week", tone: "line", icon: "form", text: `${trainer} hasn't logged ${dog}'s follow-up session`, detail: i.detail || undefined, primary: dogHref ? { label: "Open dog", href: dogPage(bookingId!, undefined, "followups") } : chat }); break;
       case "check_vaccines": add({ group: "now", tone: "biscuit", text: `${dog}'s vaccine records came in`, primary: bookingId ? { label: "Check vaccines", href: dogPage(bookingId, "before", "vaccines") } : chat }); break;
       default: add({ group: NOW_KINDS.includes(i.kind) ? "now" : "week", tone: "biscuit", text: `${INCIDENT_LABEL[i.kind] || i.kind}: ${dog}`, primary: chat || (dogHref ? { label: "Open dog", href: dogHref } : undefined) });
     }
