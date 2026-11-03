@@ -23,6 +23,7 @@ import { registerNotifyUrl, sweepNotifications } from "./chatNotify";
 import { watchDirectEdits } from "./directEdits";
 import { runTrainingSends } from "./training";
 import { auditSystem } from "./audit";
+import { welcomeLink } from "./trainerSignin";
 
 const URGENT_CHAT: IncidentKind[] = ["client_waiting", "client_pileup"];
 
@@ -49,7 +50,7 @@ export async function runChatChecks(now = new Date()) {
   const sb = serviceClient();
   const { data: chatRows } = await sb.from("chats").select("*").eq("status", "open");
   const chats = (chatRows || []) as ChatRow[];
-  const out = { chats: chats.length, opened: 0, cleared: 0, realerted: 0, digests: 0, invited: 0, notified: 0, noticed: 0, autoClosed: 0, training: 0, scheduled: released.posted, errors: [...released.errors.map((x) => `scheduled: ${x}`)] as string[] };
+  const out = { chats: chats.length, opened: 0, cleared: 0, realerted: 0, digests: 0, invited: 0, notified: 0, noticed: 0, autoClosed: 0, training: 0, reminded: 0, scheduled: released.posted, errors: [...released.errors.map((x) => `scheduled: ${x}`)] as string[] };
   try { out.cleared += await clearFormIncidents(sb); } catch (e) { out.errors.push(`forms: ${(e as Error).message}`); }
   try { const c = await catchUpBookings(sb); out.errors.push(...c.errors.map((x) => `booking email: ${x}`)); } catch (e) { out.errors.push(`booking email: ${(e as Error).message}`); }
   try { if (await sendDailyDigest(sb)) out.digests++; } catch (e) { out.errors.push(`daily summary: ${(e as Error).message}`); }
@@ -183,16 +184,40 @@ export async function runChatChecks(now = new Date()) {
       try {
         const link = `${site()}/c/${c.id}`, stop = `${site()}/api/chat/mute?c=${c.id}&t=${muteToken(c.id)}`, first = (c.client_name || "").split(" ")[0] || "there";
         const waitingFor = await whatsWaiting(sb, c, read?.last_read_at || null);
+        const go = welcomeLink(c.client_email!, `/c/${c.id}`, 14), neverIn = !read; // a fresh 14-day one-click link (the same kind as the invite's); never opened = the button uses it
         await sendMail({
           to: c.client_email!, subject: `New updates for ${c.title || "your dog"}`,
-          text: `Hi ${first}, ${waitingFor} in your Dogwise chat: ${link}\n\nTo stop these emails: ${stop}`,
-          html: `<div style="background:#f4f5f8;padding:24px 12px;font-family:Arial,sans-serif"><div style="max-width:520px;margin:0 auto;background:#fff;border:1px solid #E7E3F3;border-radius:16px;padding:24px"><img src="cid:dogwise-logo" width="130" alt="Dogwise Academy" style="display:block;margin-bottom:14px"><p style="font-size:16px;font-weight:bold;color:#281870;margin:0 0 8px">New updates for ${esc(c.title || "your dog")}</p><p style="font-size:15px;color:#333;line-height:1.5;margin:0 0 18px">Hi ${esc(first)}, ${esc(waitingFor)}.</p><a href="${link}" style="background:#281870;color:#fff;padding:11px 20px;border-radius:9px;text-decoration:none;font-weight:bold;display:inline-block">Open the chat</a><p style="font-size:12px;color:#8796AD;margin:20px 0 0">We email you at most once a day. <a href="${stop}" style="color:#8796AD">Stop these emails</a></p></div></div>`,
+          text: `Hi ${first}, ${waitingFor} in your Dogwise chat: ${link}\n\nNot signed in yet? Click here and you're straight in: ${go}\n\nTo stop these emails: ${stop}`,
+          html: `<div style="background:#f4f5f8;padding:24px 12px;font-family:Arial,sans-serif"><div style="max-width:520px;margin:0 auto;background:#fff;border:1px solid #E7E3F3;border-radius:16px;padding:24px"><img src="cid:dogwise-logo" width="130" alt="Dogwise Academy" style="display:block;margin-bottom:14px"><p style="font-size:16px;font-weight:bold;color:#281870;margin:0 0 8px">New updates for ${esc(c.title || "your dog")}</p><p style="font-size:15px;color:#333;line-height:1.5;margin:0 0 18px">Hi ${esc(first)}, ${esc(waitingFor)}.</p><a href="${neverIn ? go : link}" style="background:#281870;color:#fff;padding:11px 20px;border-radius:9px;text-decoration:none;font-weight:bold;display:inline-block">Open the chat</a><p style="font-size:14px;color:#333;margin:14px 0 0">Not signed in yet? <a href="${go}" style="color:#281870;font-weight:bold">Click here</a> and you're straight in, no password needed.</p><p style="font-size:12px;color:#8796AD;margin:20px 0 0">We email you at most once a day. <a href="${stop}" style="color:#8796AD">Stop these emails</a></p></div></div>`,
           attachments: [logo]
         });
         await sb.from("chats").update({ notified_client_at: now.toISOString() }).eq("id", c.id);
         await auditSystem("Emailed a client about new chat updates", `${c.title || "Dog"} (${c.client_name || "client"}): "${waitingFor}", emailed to ${c.client_email}.`, { link: `/a/chats/${c.id}` });
         out.digests++;
       } catch (e) { out.errors.push(`digest ${c.id}: ${(e as Error).message}`); }
+    }
+  }
+  // "Your chat is ready": once, 2+ days after the invite, to a client who has never opened their chat (daytime only)
+  if (process.env.CHAT_CLIENT_EMAILS !== "off" && mailConfigured() && etParts(now).hour >= RULES.clientDigestFromHour && etParts(now).hour < RULES.clientDigestToHour) {
+    const due = chats.filter((c) => c.status === "open" && c.client_user_id && c.client_email && c.invited_at && c.client_emails !== false && !c.quiet_at
+      && !(c as { join_reminded_at?: string | null }).join_reminded_at && now.getTime() - ms(c.invited_at) >= 48 * 3600000);
+    if (due.length) {
+      const { data: opened } = await sb.from("chat_reads").select("chat_id, user_id").in("chat_id", due.map((c) => c.id));
+      for (const c of due.filter((c) => !(opened || []).some((r: { chat_id: string; user_id: string }) => r.chat_id === c.id && r.user_id === c.client_user_id)).slice(0, 25)) {
+        try {
+          const { error: claim } = await sb.from("chats").update({ join_reminded_at: now.toISOString() }).eq("id", c.id).is("join_reminded_at", null);
+          if (claim) { if (/join_reminded_at|schema cache/i.test(claim.message)) break; continue; } // before migration 042: no reminders
+          const go = welcomeLink(c.client_email!, `/c/${c.id}`, 14), first = (c.client_name || "").split(" ")[0] || "there", dog = c.title || "your dog";
+          await sendMail({
+            to: c.client_email!, subject: `${dog}'s chat is ready for you`,
+            text: `Hi ${first}, ${dog}'s trainer posts updates, photos and videos in your Dogwise chat. Click here and you're straight in, no password needed: ${go}`,
+            html: `<div style="background:#f4f5f8;padding:24px 12px;font-family:Arial,sans-serif"><div style="max-width:520px;margin:0 auto;background:#fff;border:1px solid #E7E3F3;border-radius:16px;padding:24px"><img src="cid:dogwise-logo" width="130" alt="Dogwise Academy" style="display:block;margin-bottom:14px"><p style="font-size:16px;font-weight:bold;color:#281870;margin:0 0 8px">${esc(dog)}'s chat is ready for you</p><p style="font-size:15px;color:#333;line-height:1.5;margin:0 0 18px">Hi ${esc(first)}, this is where ${esc(dog)}'s trainer posts updates, photos and videos, and where you can ask anything. Tap the button and you're straight in: no password needed.</p><a href="${go}" style="background:#281870;color:#fff;padding:13px 22px;border-radius:9px;text-decoration:none;font-weight:bold;font-size:16px;display:inline-block">Open ${esc(dog)}'s chat</a><p style="font-size:12px;color:#8796AD;margin:20px 0 0">This link works for 14 days.</p></div></div>`,
+            attachments: [logo]
+          });
+          await auditSystem("Reminded a client to open their chat", `${dog} (${c.client_name || "client"}): emailed ${c.client_email}, 2 days after the invite, chat never opened.`, { link: `/a/chats/${c.id}` });
+          out.reminded = (out.reminded || 0) + 1;
+        } catch (e) { out.errors.push(`join reminder ${c.id}: ${(e as Error).message}`); }
+      }
     }
   }
   return out;

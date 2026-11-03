@@ -77,6 +77,9 @@ Asks why (`lib/cancelReasons.ts`, saved on the booking: migration 040) and says 
 ## Chat list order
 Groups stay as they are; inside each group the newest message is first. "By dates" (`?o=dates`) puts the soonest drop-off / start first instead. The trainer's list is still by dates.
 
+## Client emails: getting people in
+The invite (once, when the chat opens) has a 30-day one-click button and a simple password. The daily "New updates" email (at most once a day, 9 AM–8 PM ET, only with something unread for 90+ minutes) says "Not signed in yet? Click here": a fresh 14-day one-click link, which is also the main button for clients who have never opened the chat. Two days after the invite, a client who still hasn't opened the chat gets one "[dog]'s chat is ready for you" email with the same kind of link (migration 042, `chats.join_reminded_at`, so it's sent once). Both respect "stop these emails" and Quiet chats.
+
 ## Deleting a chat message
 Under each message: **Delete** (trainers on their own messages, the office on any). It removes the message for everyone (open chats drop it live) and moves its photos, videos and files to the Drive trash, so the folder link stops showing them too. Logged as "Deleted a chat message". Before a trainer or the office sends a document (anything that isn't a photo or video), the app asks whether it's meant for the client.
 
