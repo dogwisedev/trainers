@@ -17,7 +17,9 @@ import { auditSystem } from "./audit";
 
 const WEEKLY = [1, 2, 3, 4, 5, 6].map((n) => (n === 1 ? "has_weekly_report__1_been_received_" : `has_weekly_report__${n}_been_received_`));
 const FIELDS = ["pick_up_confirmation", "trainer_intake_form", ...WEEKLY, "has_handover_report_been_received_", "handover_reports", "drop_off_confirmation",
-  "start_follow_up_management", "ongoing", "needs_attention_status", "client_status", "point_of_contact"];
+  "start_follow_up_management", "ongoing", "needs_attention_status", "client_status", "point_of_contact",
+  "items", "group_created", "is_client_in_the_group_", "signal_group_link", "enrol_in_after_sale_follow_up"];
+const site = () => (process.env.NEXT_PUBLIC_SITE_URL || "https://trainers-seven.vercel.app").replace(/\/$/, "");
 const STATUS_ORDER = ["Not started", "Ongoing", "Completed with Handover Report", "Completed with Follow up"];
 const NEVER_TOUCH = /^(cancelled|refunded|after graduation support)$/i;
 
@@ -26,7 +28,7 @@ type B = { id: string; trainer_id: string; hubspot_deal_id: string; start_date: 
 const asDay = (v: unknown) => { const s = String(v ?? "").trim(); if (!s) return ""; if (/^\d{10,}$/.test(s)) return new Date(Number(s)).toISOString().slice(0, 10); return s.slice(0, 10); };
 /** The app's own writes since the progress sync started: only these are ever undone. */
 const APP_SINCE = "2026-11-02T00:00:00Z";
-type R = { booking_id: string; kind: string; week_number: number; status: string; submitted_at: string | null; due_by: string | null };
+type R = { booking_id: string; kind: string; week_number: number; status: string; submitted_at: string | null; due_by: string | null; items?: string | null };
 type Received = "Yes" | "Sent w/ delay" | "No" | "N/A" | null; // null = not due yet, or nothing to say
 
 /** One form for one booking: received on time, late, missing past its deadline, not needed, or not due yet. */
@@ -49,7 +51,7 @@ export async function syncProgramStatus(sb: SupabaseClient = serviceClient(), no
   const out = { deals: 0, written: 0, reverted: 0, fields: {} as Record<string, number>, errors: [] as string[] };
   if (!hubspotConfigured()) return out;
   const today = todayIso();
-  let bq = sb.from("bookings").select("*").neq("status", "cancelled").not("hubspot_deal_id", "is", null).lte("start_date", addDays(today, 14)).gte("end_date", addDays(today, -30));
+  let bq = sb.from("bookings").select("*").neq("status", "cancelled").not("hubspot_deal_id", "is", null).lte("start_date", addDays(today, 60)).gte("end_date", addDays(today, -30));
   if (only?.length) bq = bq.in("hubspot_deal_id", only);
   const { data: bks, error } = await bq.limit(400);
   if (error) { out.errors.push(error.message); return out; }
@@ -57,9 +59,9 @@ export async function syncProgramStatus(sb: SupabaseClient = serviceClient(), no
   if (!bookings.length) return out;
   const ids = bookings.map((b) => b.id), dealIds = [...new Set(bookings.map((b) => b.hubspot_deal_id))];
   const [{ data: reps }, { data: incs }, { data: chats }, { data: trs }, current, defs] = await Promise.all([
-    sb.from("reports").select("booking_id, kind, week_number, status, submitted_at, due_by").in("booking_id", ids),
+    sb.from("reports").select("booking_id, kind, week_number, status, submitted_at, due_by, items:answers->>items").in("booking_id", ids),
     sb.from("chat_incidents").select("kind, booking_id, chat_id").neq("status", "resolved"),
-    sb.from("chats").select("id, deal_key").in("deal_key", dealIds),
+    sb.from("chats").select("id, deal_key, client_user_id, status").in("deal_key", dealIds),
     sb.from("trainers").select("id, poc"),
     readDeals(dealIds, FIELDS),
     propDefs("deals")
@@ -71,7 +73,11 @@ export async function syncProgramStatus(sb: SupabaseClient = serviceClient(), no
   const suspects = dealIds.filter((id) => { const g = bookings.filter((b) => b.hubspot_deal_id === id), c = current.get(id) || {}; return !picked(g) && (/^ongoing$/i.test(String(c.client_status || "").trim()) || !!c.ongoing); });
   const history = suspects.length ? await readDealHistory(suspects, ["client_status", "ongoing"]).catch(() => new Map()) : new Map();
   const appWrote = (h: { value: string; timestamp: string; sourceType?: string }[] | undefined) => !!h?.length && h[0].sourceType === "INTEGRATION" && h[0].timestamp >= APP_SINCE;
-  const chatOfDeal = new Map(((chats || []) as { id: string; deal_key: string }[]).map((c) => [c.deal_key, c.id]));
+  const chatRows = (chats || []) as { id: string; deal_key: string; client_user_id: string | null; status: string }[];
+  const chatOfDeal = new Map(chatRows.map((c) => [c.deal_key, c.id]));
+  // Has the client opened their chat? (the app's "group")
+  const { data: reads } = chatRows.length ? await sb.from("chat_reads").select("chat_id, user_id").in("chat_id", chatRows.map((c) => c.id)) : { data: [] };
+  const opened = new Set(((reads || []) as { chat_id: string; user_id: string }[]).filter((r) => chatRows.some((c) => c.id === r.chat_id && c.client_user_id === r.user_id)).map((r) => r.chat_id));
   const pocOf = new Map(((trs || []) as { id: string; poc: string | null }[]).map((t) => [t.id, String(t.poc || "").trim()]));
 
   for (const dealId of dealIds) {
@@ -112,6 +118,18 @@ export async function syncProgramStatus(sb: SupabaseClient = serviceClient(), no
       }
     }
     if (isDropped) put("drop_off_confirmation", "Yes");
+    // The app chat stands in for the Signal group: Group Created, Is Client in the group?, and the chat's link in "Signal Group link"
+    const chat = chatRows.find((c) => c.deal_key === dealId);
+    if (chat) {
+      put("group_created", "Yes");
+      if (!/doesn.?t have the app/i.test(String(cur.is_client_in_the_group_ || ""))) put("is_client_in_the_group_", opened.has(chat.id) ? "Yes" : "No");
+      if (defs.has("signal_group_link")) want.signal_group_link = `${site()}/a/chats/${chat.id}`;
+    }
+    // Items: what came with the dog, from the trainer's intake form (two dogs: "Rex: …; Bella: …")
+    const itemLines = forms.map((b) => ({ dog: (b as { dog_name?: string | null }).dog_name || "Dog", v: String(reports.find((r) => r.booking_id === b.id && r.kind === "intake" && r.submitted_at)?.items || "").trim() })).filter((x) => x.v);
+    if (itemLines.length && defs.has("items")) want.items = (itemLines.length > 1 ? itemLines.map((x) => `${x.dog}: ${x.v}`).join(" | ") : itemLines[0].v).slice(0, 2000);
+    // After-sale follow-up starts once the handover is in (never over a Stop someone set)
+    if (want.start_follow_up_management || /^(yes|true)$/i.test(String(cur.start_follow_up_management || ""))) { if (!/^stop$/i.test(String(cur.enrol_in_after_sale_follow_up || "").trim()) && /^(yes|sent w\/ delay)$/i.test(String(defs.get("has_handover_report_been_received_")?.options.find((o) => o.value === (want.has_handover_report_been_received_ ?? cur.has_handover_report_been_received_))?.label || cur.has_handover_report_been_received_ || ""))) put("enrol_in_after_sale_follow_up", "Start"); }
     // In care (picked up, not yet home): Ongoing (All good / Warning / Needs attention) and Needs Attention Status
     if (isPicked && !isDropped) {
       const chatId = chatOfDeal.get(dealId), mine = open.filter((i) => group.some((b) => b.id === i.booking_id) || (chatId && i.chat_id === chatId));

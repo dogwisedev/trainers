@@ -330,6 +330,7 @@ async function raiseVaccineCheck(dog: { booking: BookingRow; name: string }, cha
  * Client manager answers are in (an option with a number, e.g. "Client manager 2", is that dog; without one, every dog).
  * A single Yes / tick: set once both forms are complete for every dog. Also fills pre_training_missing if that property exists.
  */
+const GOALS_KEY = "what_are_the_most_important_things_you_would_like_to_change_about_your_dog_s_behaviours_";
 export async function writeDealChecklist(dealId: string, deal: DealProps, defs: Map<string, PropDef>, p: Pick<Profile, "dogs">) {
   const props: Record<string, string> = {};
   const formsDef = defs.get("forms");
@@ -345,6 +346,16 @@ export async function writeDealChecklist(dealId: string, deal: DealProps, defs: 
       if (yes) props.forms = yes;
     }
   }
+  // The client's answers onto the deal, so nobody copies them by hand: Main goal notes, Food, Medication. The app's answers
+  // win; a box is only left alone while the client hasn't answered. Two or more dogs: "Rex: …; Bella: …".
+  const many = p.dogs.length > 1, val = (v: unknown) => (Array.isArray(v) ? v.join(";") : str(v)).trim();
+  const perDog = (f: (a: Answers) => string) => { const xs = p.dogs.map((d) => ({ n: d.name, v: f(d.answers || {}) })).filter((x) => x.v); return !xs.length ? "" : many ? xs.map((x) => `${x.n}: ${x.v}`).join(" | ") : xs[0].v; };
+  const fill: Record<string, string> = {
+    main_goal_notes: perDog((a) => val(a[GOALS_KEY]).split(/\s*[;,]\s*/).filter(Boolean).join(";")),
+    food: perDog((a) => val(a.company)),
+    medication: perDog((a) => { const on = val(a.is_your_dog_on_any_medication__).toLowerCase(); return on === "no" || on === "false" ? "No" : on ? val(a.if_so__please_list_the_medication_) || "Yes" : ""; })
+  };
+  for (const [k, v] of Object.entries(fill)) if (defs.has(k) && v && v !== str(deal[k])) props[k] = v.slice(0, 2000);
   if (defs.has("pre_training_missing")) {
     const text = p.dogs.flatMap((d) => d.ready.missing.filter((i) => i.who === "client").map((i) => (p.dogs.length > 1 ? `${i.label} (${d.name})` : i.label))).join("; ");
     if (text !== str(deal.pre_training_missing)) props.pre_training_missing = text;

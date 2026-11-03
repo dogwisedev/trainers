@@ -139,7 +139,7 @@ export const VACCINE_FILE_PROP = "please_upload_a_copy_of_your_dog_s_vaccination
 export const CONTACT_PROPS = [...QUESTIONS.map((q) => q.key), VACCINE_FILE_PROP, "firstname", "lastname", "email", "dogwise_forms_link"];
 /** Deal properties the app reads. */
 export const DOG_NAME_PROPS = ["k9___dog_name", "dog_2_name", "dog_3_name", "dog_4_name"];
-export const DEAL_PROPS = [...DOG_NAME_PROPS, "type_of_program_sold", "how_many_dogs_need_training_", "remaining_balance_link", "payment_status", "vaccines_in_order_", "missing_vaccines", "forms", "pre_training_missing", "dealname"];
+export const DEAL_PROPS = [...DOG_NAME_PROPS, "type_of_program_sold", "how_many_dogs_need_training_", "remaining_balance_link", "payment_status", "vaccines_in_order_", "missing_vaccines", "forms", "pre_training_missing", "dealname", "main_goal_notes", "food", "medication"];
 export const VACCINES = ["DHLPP", "Bordetella", "Rabies"] as const;
 /** The balance link only counts while something is owed: once payment_status is Paid (or refunded / cancelled) it's ignored. */
 export const balanceOwed = (deal: Record<string, string | null | undefined>) => {
@@ -165,8 +165,8 @@ export type VaccineFile = { id: string; name: string; at: string; by: string; so
 export type VaccineState = { status?: "ok" | "missing" | "review"; missing?: string[]; files?: VaccineFile[]; reviewedBy?: string; reviewedAt?: string; note?: string };
 /** Where a dog's vaccines stand. The deal's "Vaccines in order? = Yes" (ticked in HubSpot) covers every dog on the deal. */
 export function vaccineStatus(v: VaccineState, dealSaysYes: boolean, hasFile: boolean, dealMissing: string[] = []): { ok: boolean; label: string; missing: string[]; toCheck: boolean } {
+  if (v.status === "ok" || (dealSaysYes && v.status !== "missing")) return { ok: true, label: "Approved", missing: [], toCheck: false }; // approved in the app, or in HubSpot
   if (v.status === "review") return { ok: false, label: "Records sent, waiting for the team to check", missing: [], toCheck: true };
-  if (v.status === "ok" || (!v.status && dealSaysYes)) return { ok: true, label: "Approved", missing: [], toCheck: false };
   const miss = v.status === "missing" ? v.missing || [] : dealMissing; // checked in the app, or in HubSpot ("Missing vaccines" on the deal)
   if (v.status === "missing" || miss.length) return { ok: false, label: `Missing: ${miss.join(", ") || "records"}`, missing: miss, toCheck: false };
   if (hasFile) return { ok: false, label: "Records sent, waiting for the team to check", missing: [], toCheck: true };
@@ -204,7 +204,7 @@ export function checklist(o: {
   if (o.dogsMismatch) items.push({ key: "dogs", label: "Number of dogs", done: false, detail: o.dogsMismatch, who: "admin" });
   const missing = items.filter((i) => !i.done);
   const both = { ...o.dog, ...o.client };
-  const intakeDone = !missingIn(INTAKE_QS(), both).length, managerDone = !missingIn(MANAGER_QS(), o.dog).length;
+  const intakeDone = !mustMissingIn(INTAKE_QS(), both).length, managerDone = !mustMissingIn(MANAGER_QS(), o.dog).length;
   const optional = SECTIONS.reduce((k, x) => k + optionalMissingIn(x.questions, x.scope === "client" ? o.client : o.dog).length, 0);
   return { items, missing, optional, formsDone: intakeDone && managerDone, intakeDone, managerDone, ready: !missing.length };
 }
