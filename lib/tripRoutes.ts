@@ -17,8 +17,12 @@ import { GeoFeature, Place, ROAD_FACTOR, clientPlace, googleUrl, haversine, mile
 // Runs with the 20-minute forms job (a few bookings at a time) and from "Check routes now" on a payslip.
 
 const BASE = "https://api.maps.freeroute.org";
-const key = () => process.env.FREEROUTE_API_KEY || "";
-export const freerouteOn = () => !!key();
+// Two keys, for headroom (1,000 requests a day each): FREEROUTE_API_KEY first; when FreeRoute refuses it (out of
+// requests, or the key is wrong or revoked) the app switches to FREEROUTE_API_KEY_2 for the rest of the day (Eastern).
+const keys = () => [process.env.FREEROUTE_API_KEY, process.env.FREEROUTE_API_KEY_2].map((k) => (k || "").trim()).filter(Boolean);
+const spentUntil = new Map<string, number>(); // key → when to try it again
+const etMidnight = () => { const now = new Date(), et = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" })); const next = new Date(et); next.setHours(24, 0, 0, 0); return now.getTime() + (next.getTime() - et.getTime()); };
+export const freerouteOn = () => keys().length > 0;
 const M_PER_MI = 1609.344;
 const GAP_MS = 1100; // FreeRoute allows 60 requests a minute
 const RETRY_ESTIMATE_H = 6;
@@ -33,13 +37,21 @@ export type RouteRow = {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function call(path: string, init: RequestInit = {}, ms = 15000): Promise<unknown> {
-  const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), ms);
-  try {
-    const r = await fetch(`${BASE}${path}`, { ...init, signal: ctl.signal, headers: { "X-API-Key": key(), ...(init.body ? { "Content-Type": "application/json" } : {}) }, cache: "no-store" });
-    if (!r.ok) throw new Error(`FreeRoute ${r.status}`);
-    return await r.json();
-  } catch (e) { throw new Error((e as Error).name === "AbortError" ? "FreeRoute didn't answer in time" : (e as Error).message); }
-  finally { clearTimeout(t); }
+  const now = Date.now(), usable = keys().filter((k) => (spentUntil.get(k) || 0) <= now);
+  if (!usable.length) throw new Error("FreeRoute: both keys are used up for today");
+  let last = "";
+  for (const k of usable) {
+    const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), ms);
+    try {
+      const r = await fetch(`${BASE}${path}`, { ...init, signal: ctl.signal, headers: { "X-API-Key": k, ...(init.body ? { "Content-Type": "application/json" } : {}) }, cache: "no-store" });
+      // Out of requests (429) or the key refused (401/403): park this key until midnight Eastern and try the next one
+      if (r.status === 429 || r.status === 401 || r.status === 403) { spentUntil.set(k, etMidnight()); last = `FreeRoute ${r.status}`; continue; }
+      if (!r.ok) throw new Error(`FreeRoute ${r.status}`);
+      return await r.json();
+    } catch (e) { throw new Error((e as Error).name === "AbortError" ? "FreeRoute didn't answer in time" : (e as Error).message); }
+    finally { clearTimeout(t); }
+  }
+  throw new Error(`${last}: both keys refused for today`);
 }
 
 /** An address, only if FreeRoute finds it in the right ZIP (or state). */
