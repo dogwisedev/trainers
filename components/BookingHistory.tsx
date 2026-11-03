@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { HistoryRow } from "@/lib/history";
 import { short } from "@/lib/dates";
 import { Pill } from "@/components/ui";
+import { ProgramStrip } from "@/components/ProgramStrip";
 
 const range = (a: string, b: string) => `${short(a)} to ${short(b)}`;
 const repLabel = (r: HistoryRow["reports"][number]) => (r.kind === "intake" ? "Intake" : r.kind === "handover" ? "Handover" : `Week ${r.week_number}`);
@@ -25,6 +26,8 @@ export function BookingHistory({ rows, role, showTrainer = true, ready = {} }: {
                 {b.status === "cancelled" && <Pill tone="heart">Cancelled</Pill>}
               </div>
             </div>
+            {role === "admin" && b.strip && <ProgramStrip s={b.strip} />}
+            {role === "admin" && (b.poc || b.cancelReason) && <p className="mt-1 text-caption text-ink-faint">{[b.poc && `POC ${b.poc}`, b.cancelReason && `Cancelled: ${b.cancelReason}`].filter(Boolean).join(" · ")}</p>}
             <div className="mt-2 flex flex-wrap items-center gap-1.5 text-small">
               {role === "admin" && <Link prefetch={false} href={`/a/dogs/${b.id}`} className="btn-ink h-8 min-h-0 px-2.5 text-small">Open</Link>}
               {role === "trainer" && chatOk && <Link prefetch={false} href={`${base}/chats/${b.chat!.id}`} className="btn-ghost h-8 min-h-0 px-2.5 text-small">Chat{b.chat!.status === "closed" ? " (closed)" : ""}</Link>}
