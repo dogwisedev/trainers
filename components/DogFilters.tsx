@@ -87,23 +87,23 @@ export function DogFilters(props: Props) {
       )}
       {open === "filters" && (
         <Sheet title="Filters" onClose={() => setOpen("")} footer={<><button type="button" onClick={() => go(toQuery(tab, q, conds))} className="btn-ink flex-1">Show dogs</button><button type="button" onClick={() => setConds([])} className="btn-ghost">Clear</button></>}>
-          {conds.length === 0 && <p className="text-body text-ink-soft">No filters: every dog in this tab. Add one below.</p>}
+          {conds.length === 0 && <p className="text-small text-ink-soft">No filters: every dog in this tab. Add one below.</p>}
           <ul className="space-y-2">
             {conds.map((c, i) => {
               const fd = fieldOf(c.key), set = (patch: Partial<Cond>) => setConds((cur) => cur.map((x, j) => (j === i ? { ...x, ...patch } : x)));
               return (
-                <li key={c.key} className="rounded-xl border border-line p-3">
+                <li key={c.key} className="rounded-xl border border-line px-3 py-2.5">
                   <div className="flex items-center gap-2">
-                    <span className="w-28 shrink-0 text-small font-semibold sm:w-40">{fd.label}</span>
-                    <select value={c.v} onChange={(e) => set({ v: e.target.value })} className="field h-10 min-w-0 flex-1">
+                    <span className="w-28 shrink-0 text-small font-semibold sm:w-36">{fd.label}</span>
+                    <select value={c.v} onChange={(e) => set({ v: e.target.value })} className="field-sm min-w-0 flex-1">
                       {(fd.kind === "date" ? DATE_OPTS : fd.options || []).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                     </select>
                     <button type="button" onClick={() => setConds((cur) => cur.filter((_, j) => j !== i))} className="grid h-10 w-10 shrink-0 place-items-center rounded-full hover:bg-paper" aria-label={`Remove ${fd.label}`}><X size={16} /></button>
                   </div>
                   {fd.kind === "date" && (c.v === "on" || c.v === "between") && (
                     <div className="mt-2 grid grid-cols-2 gap-2">
-                      <input type="date" value={c.from || ""} onChange={(e) => set({ from: e.target.value })} className="field h-10" aria-label="From" />
-                      {c.v === "between" && <input type="date" value={c.to || ""} min={c.from} onChange={(e) => set({ to: e.target.value })} className="field h-10" aria-label="To" />}
+                      <input type="date" value={c.from || ""} onChange={(e) => set({ from: e.target.value })} className="field-sm" aria-label="From" />
+                      {c.v === "between" && <input type="date" value={c.to || ""} min={c.from} onChange={(e) => set({ to: e.target.value })} className="field-sm" aria-label="To" />}
                     </div>
                   )}
                 </li>
@@ -111,9 +111,9 @@ export function DogFilters(props: Props) {
             })}
           </ul>
           {fields.some((fd) => !conds.some((c) => c.key === fd.key)) && (
-            <label className="mt-3 flex items-center gap-2 rounded-xl border border-dashed border-line px-3 py-2">
-              <Plus size={16} className="text-ink-soft" />
-              <select value="" onChange={(e) => { const fd = fieldOf(e.target.value); if (fd) setConds((cur) => [...cur, { key: fd.key, v: fd.kind === "date" ? "weekend" : fd.options?.[0]?.[0] || "" }]); }} className="h-9 min-w-0 flex-1 bg-transparent text-body font-semibold focus:outline-none" aria-label="Add filter">
+            <label className="mt-2 flex items-center gap-2 rounded-xl border border-dashed border-line px-3 py-1.5">
+              <Plus size={15} className="text-ink-soft" />
+              <select value="" onChange={(e) => { const fd = fieldOf(e.target.value); if (fd) setConds((cur) => [...cur, { key: fd.key, v: fd.kind === "date" ? "weekend" : fd.options?.[0]?.[0] || "" }]); }} className="h-9 min-w-0 flex-1 bg-transparent text-input font-semibold text-ink focus:outline-none md:text-small" aria-label="Add filter">
                 <option value="">Add filter…</option>
                 {fields.filter((fd) => !conds.some((c) => c.key === fd.key)).map((fd) => <option key={fd.key} value={fd.key}>{fd.label}</option>)}
               </select>
@@ -139,7 +139,7 @@ function ViewsMenu({ views, editable, here, onOpen, onClose }: { views: View[]; 
       <ul className="max-h-[50vh] overflow-y-auto">
         {views.map((v) => (
           <li key={v.id} className="flex items-center gap-1">
-            <button type="button" onClick={() => onOpen(v.query)} className={`min-w-0 flex-1 truncate rounded-xl px-3 py-2.5 text-left text-body ${same(v.query, here) ? "bg-paper font-bold" : "hover:bg-paper"}`}>{v.name}</button>
+            <button type="button" onClick={() => onOpen(v.query)} className={`min-w-0 flex-1 truncate rounded-xl px-3 py-2 text-left text-small ${same(v.query, here) ? "bg-paper font-bold" : "hover:bg-paper"}`}>{v.name}</button>
             {editable && v.mine && <button type="button" disabled={pending} onClick={() => { if (window.confirm(`Remove the view "${v.name}" for everyone?`)) start(async () => { await deleteDogViewAction(v.id); router.refresh(); }); }} className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-ink-faint hover:bg-paper hover:text-bad" aria-label={`Remove ${v.name}`}><Trash2 size={15} /></button>}
           </li>
         ))}
@@ -147,7 +147,7 @@ function ViewsMenu({ views, editable, here, onOpen, onClose }: { views: View[]; 
       </ul>
       {editable ? (
         <form className="mt-2 flex gap-2 border-t border-line px-1 pt-2" onSubmit={(e) => { e.preventDefault(); start(async () => { const r = await saveDogViewAction(name, here); setMsg(r.message); if (r.ok) { setName(""); router.refresh(); } }); }}>
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Save what's on screen as…" className="field h-10 min-w-0 flex-1" maxLength={60} />
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Save what's on screen as…" className="field-sm min-w-0 flex-1" maxLength={60} />
           <button type="submit" disabled={pending || !name.trim()} className="btn-ink h-10 min-h-0 shrink-0 px-3">Save</button>
         </form>
       ) : <p className="mt-2 border-t border-line px-3 pt-2 text-caption text-ink-faint">Saving and removing views needs migration 047.</p>}

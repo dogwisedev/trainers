@@ -26,6 +26,8 @@
   --ok: 74 222 128; --ok-wash: 20 54 36; --amber: 251 191 36; --amber-wash: 66 48 12; --bad: 252 129 129; --bad-wash: 72 24 28;
   --ink-bg: 98 71 214; --fern-bg: 116 87 232; --heart-bg: 176 88 50; --lav-bg: 124 98 240; --mint-bg: 58 47 122; --lav-deep-bg: 110 79 224; --mint-deep-bg: 72 52 160; --biscuit-bg: 110 90 56;
 }
+select option, select optgroup { background-color: rgb(var(--surface)); color: rgb(var(--ink)); }
+[data-theme="dark"] select { color-scheme: dark; }
 html, body { overflow-x: clip; background: rgb(var(--canvas)); color: rgb(var(--ink)); -webkit-tap-highlight-color: transparent; }
 body { font-feature-settings: "ss01"; font-variation-settings: "wdth" 96; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; }
 h1, h2, h3 { font-variation-settings: "wdth" 78; letter-spacing: -0.02em; text-wrap: balance; }
@@ -35,6 +37,8 @@ p { text-wrap: pretty; }
 
 @layer components {
   .field { @apply block w-full rounded-xl border border-line bg-white px-3.5 py-3 text-input text-ink placeholder:text-ink-faint focus:border-lav focus:outline-none focus:ring-4 focus:ring-lav/15 md:text-body; }
+  /* A compact field for filter rows: 16px on phones (so iOS doesn't zoom on tap), smaller from md, no tall padding */
+  .field-sm { @apply block h-10 w-full rounded-lg border border-line bg-white px-2.5 py-0 text-input leading-none text-ink focus:border-lav focus:outline-none focus:ring-4 focus:ring-lav/15 md:text-small; }
   .label { @apply mb-1.5 block text-small font-semibold text-ink-soft; }
   .btn { @apply inline-flex min-h-[44px] select-none items-center justify-center gap-2 rounded-xl px-4 text-body font-semibold transition-colors active:scale-[.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lav focus-visible:ring-offset-2 disabled:opacity-50; }
   .btn-ink { @apply btn bg-ink text-white shadow-[0_1px_0_rgba(255,255,255,.12)_inset,0_2px_6px_-2px_rgba(40,24,112,.45)] hover:bg-fern; }
