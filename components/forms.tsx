@@ -1,5 +1,6 @@
 "use client";
 import { NearestTrainers } from "@/components/NearestTrainers";
+import { PROGRAMS } from "@/lib/programs";
 import { useEffect, useState, useTransition } from "react";
 import { useFormState, useFormStatus } from "react-dom";
 import { Trash2 } from "lucide-react";
@@ -143,6 +144,27 @@ export function TrainerForm({ t, admin }: { t: Partial<Trainer>; admin: boolean 
     <form action={act} className="space-y-4">
       {t.id && <input type="hidden" name="id" value={t.id} />}
       {admin && group("Dogwise details", ADMIN)}
+      {admin && t.id && (
+        <fieldset className="panel p-4 md:p-5">
+          <legend className="sr-only">Booking rules</legend>
+          <h3 className="text-lead font-bold">Booking rules</h3>
+          <p className="mb-4 mt-1 text-small text-ink-soft">For Assign or Ask (OPS 08). Pedro sets the status. Programs: what they&apos;ve declared they take; none ticked = all.</p>
+          <F label="Status">
+            <select name="status_board" defaultValue={(t as { status_board?: string }).status_board || "active"} className="field">
+              <option value="active">Active: book and tell them</option>
+              <option value="watch">Watch: check with them first, by call</option>
+              <option value="hold">Hold: not matched at all</option>
+            </select>
+          </F>
+          <input type="hidden" name="program_types_present" value="1" />
+          <p className="label mt-4">Programs they take</p>
+          <div className="mt-1 grid gap-1.5 sm:grid-cols-2">
+            {PROGRAMS.map((p) => (
+              <label key={p} className="flex items-center gap-2 text-body"><input type="checkbox" name="program_types" value={p} defaultChecked={((t as { program_types?: string[] }).program_types || []).includes(p)} />{p}</label>
+            ))}
+          </div>
+        </fieldset>
+      )}
       {group("Contact", CONTACT)}
       {group("Vets and emergencies", CARE)}
       {group("About", ABOUT)}
@@ -154,9 +176,10 @@ export function TrainerForm({ t, admin }: { t: Partial<Trainer>; admin: boolean 
 
 export type TrainerOption = { id: string; name: string; place: string; free: number; opening3: string | null };
 /** Book a dog. Starts from the HubSpot deal (required): paste its link and the client, email, dogs and dates fill in. */
-export function BookingForm({ trainers, defaultTrainer, defaultStart, defaultDeal }: { trainers: TrainerOption[]; defaultTrainer?: string; defaultStart?: string; defaultDeal?: string }) {
+export function BookingForm({ trainers, defaultTrainer, defaultStart, defaultDeal, defaultLaneOk }: { trainers: TrainerOption[]; defaultTrainer?: string; defaultStart?: string; defaultDeal?: string; defaultLaneOk?: string }) {
   const [r, act] = useFormState(saveBooking, null);
   const [tid, setTid] = useState(defaultTrainer || "");
+  const [laneOk, setLaneOk] = useState<"" | "offer">(defaultLaneOk === "offer" ? "offer" : "");
   const [dealInput, setDealInput] = useState(defaultDeal || "");
   const [deal, setDeal] = useState<NonNullable<DealPrefill["deal"]> | null>(null);
   const [look, setLook] = useState<{ busy: boolean; msg: string; ok: boolean }>({ busy: false, msg: "", ok: true });
@@ -208,9 +231,13 @@ export function BookingForm({ trainers, defaultTrainer, defaultStart, defaultDea
         )}
       </div>
 
-      {deal?.zip && <NearestTrainers zip={deal.zip} picked={tid} onPick={setTid} />}
+      {deal?.zip && <NearestTrainers ctx={{ dealId: deal.id, zip: deal.zip, start: start || deal.start, end: start && start !== deal.start ? null : deal.end, program: deal.program || null, dogs: Math.max(1, deal.dogs.length), dogNames: deal.dogs, client: deal.client, soldOn: deal.soldOn || null }}
+        picked={tid} onPick={(id, ok) => { setTid(id); setLaneOk(ok); }} />}
+      <input type="hidden" name="lane_ok" value={laneOk} />
+      {deal?.zip && <input type="hidden" name="deal_zip" value={deal.zip} />}
+      {laneOk === "offer" && tid && <p className="rounded-xl bg-amber-wash px-3 py-2 text-small font-semibold text-amber">Booking as checked: the trainer said yes.</p>}
       <F label="Trainer">
-        <select name="trainer_id" required value={tid} onChange={(e) => setTid(e.target.value)} className="field">
+        <select name="trainer_id" required value={tid} onChange={(e) => { setTid(e.target.value); setLaneOk(""); }} className="field">
           <option value="">Choose a trainer</option>
           {trainers.map((t) => <option key={t.id} value={t.id}>{t.name}, {t.place}</option>)}
         </select>

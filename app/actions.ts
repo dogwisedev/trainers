@@ -6,6 +6,8 @@ import { cancelDeal, hubspotCancelled, setStandby } from "@/lib/standby";
 import { clearFollowupTodos, followupState, writeSessionDate, writeSessionReport } from "@/lib/followups";
 import { confirmMove } from "@/lib/pickup";
 import { setFollowupTrainer } from "@/lib/followupTrainer";
+import { readDealForBooking } from "@/lib/dealRead";
+import { answerAsk, createAsk, laneGate, lanesForDeal, type DealCtx } from "@/lib/laneData";
 import { auditCall, audited } from "@/lib/audit";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
@@ -31,7 +33,7 @@ import type { Booking, TimeOff, Trainer } from "@/lib/types";
 import { inviteWithBooking } from "@/lib/autoInvite";
 import { clearUnbooked } from "@/lib/unbookedDeals";
 import { ensureReport } from "@/lib/reportData";
-import { PROGRAM_SOLD } from "@/lib/programs";
+import { PROGRAMS, PROGRAM_SOLD } from "@/lib/programs";
 
 export type Result = { ok: boolean; message: string };
 const DEMO: Result = { ok: false, message: "Demo mode: connect Supabase to save changes." };
@@ -141,6 +143,9 @@ export async function saveTrainer(_: Result | null, f: FormData): Promise<Result
     for (const k of ADMIN_FIELDS) if (f.has(k)) row[k] = str(f, k);
     for (const k of ["capacity", "monthly_capacity", "range_miles", "lat", "lon"]) if (f.has(k)) row[k] = num(f, k);
     if (!row.name) return { ok: false, message: "Name is required." };
+    // Booking rules (048): status (Active / Watch / Hold) and the programs they take
+    if (["active", "watch", "hold"].includes(str(f, "status_board") || "")) row.status_board = str(f, "status_board");
+    if (f.has("program_types_present")) row.program_types = f.getAll("program_types").map((x) => String(x)).filter((x) => (PROGRAMS as readonly string[]).includes(x));
   }
   const sb = serverClient();
   if (!id) {
@@ -149,7 +154,8 @@ export async function saveTrainer(_: Result | null, f: FormData): Promise<Result
     redirect(`/a/trainers/${data.id}`);
   }
   const { data: before } = await sb.from("trainers").select("email").eq("id", id).maybeSingle();
-  const { error } = await sb.from("trainers").update(row).eq("id", id);
+  let { error } = await sb.from("trainers").update(row).eq("id", id);
+  if (error && /status_board|program_types/i.test(error.message)) { delete row.status_board; delete row.program_types; ({ error } = await sb.from("trainers").update(row).eq("id", id)); } // before migration 048
   if (error) return { ok: false, message: error.message };
   revalidatePath("/", "layout");
   // Email changed by an admin: move the trainer's login to the new email too (same password, nothing for them to do)
@@ -247,7 +253,7 @@ export async function deleteTimeOff(id: string): Promise<Result> {
 // ── Booking a dog from the app (same rules as the HubSpot extension) ─────
 export type DealPrefill = {
   ok: boolean; message: string;
-  deal?: { id: string; name: string; client: string; email: string; zip?: string; dogs: string[]; start: string | null; end: string | null; weeks: number | null; extra: number; stage: string; closedWon: boolean; program?: string;
+  deal?: { soldOn?: string | null; id: string; name: string; client: string; email: string; zip?: string; dogs: string[]; start: string | null; end: string | null; weeks: number | null; extra: number; stage: string; closedWon: boolean; program?: string;
     booked: { id: string; dog: string; trainer: string; dates: string }[] };
 };
 const DEAL_DOGS = ["k9___dog_name", "dog_2_name", "dog_3_name", "dog_4_name"];
@@ -259,30 +265,7 @@ export async function dealPrefillAction(input: string): Promise<DealPrefill> {
   if (v.role !== "admin") return { ok: false, message: "Admins only." };
   const id = cleanDealId(input);
   if (!id || !/^\d+$/.test(id)) return { ok: false, message: "Paste the deal's link from HubSpot (or its number)." };
-  const sb = serviceClient();
-  const { data: existing } = await sb.from("bookings").select("id, dog_name, start_date, end_date, trainers(name)").eq("hubspot_deal_id", id).neq("status", "cancelled");
-  const booked = ((existing || []) as unknown as { id: string; dog_name: string | null; start_date: string; end_date: string; trainers: { name: string } | null }[])
-    .map((b) => ({ id: b.id, dog: b.dog_name || "Dog", trainer: b.trainers?.name || "no trainer", dates: `${short(b.start_date)} to ${short(b.end_date)}` }));
-  if (!hubspotConfigured()) return { ok: true, message: "HubSpot isn't connected, so fill in the rest by hand.", deal: { id, name: `Deal ${id}`, client: "", email: "", dogs: [], start: null, end: null, weeks: null, extra: 0, stage: "", closedWon: true, booked, program: "" } };
-  try {
-    const props = await dealDateProps();
-    const deals = await readDeals([id], ["dealname", "hs_is_closed_won", "dealstage", "type_of_program_sold", props.start.name, ...(props.end ? [props.end.name] : []), ...DEAL_DOGS]);
-    const d = deals.get(id);
-    if (!d) return { ok: false, message: `HubSpot has no deal ${id}. Check the link.` };
-    const contactIds = (await dealContacts([id])).get(id) || [];
-    const contacts = [...(await readContacts(contactIds, ["firstname", "lastname", "email", "zip", "address", "if_no_please_provide_the_full_pickup_address", "is_the_pickup_address_the_same_as_the_address_provided_above"])).values()];
-    const c = contacts.find((x) => x.email) || contacts[0] || {};
-    const start = hsDate(d[props.start.name]), end = props.end ? hsDate(d[props.end.name]) : null;
-    let weeks: number | null = null, extra = 0;
-    if (start && end && end > start) { const days = daysBetween(start, end); weeks = Math.min(12, Math.max(1, Math.floor(days / 7))); extra = Math.min(13, Math.max(0, days - weeks * 7)); }
-    return { ok: true, message: "", deal: {
-      id, name: d.dealname || `Deal ${id}`, client: [c.firstname, c.lastname].filter(Boolean).join(" ").trim(), email: String(c.email || "").trim().toLowerCase(),
-      // Where the trainer drives to: the pickup address's ZIP if it's different, else the client's ZIP, else the one in the deal name
-      zip: (clientPlace(c as Record<string, unknown>)?.zip || zipIn(d.dealname) || "").slice(0, 5),
-      dogs: DEAL_DOGS.map((k) => String(d[k] || "").trim()).filter(Boolean), start, end, weeks, extra,
-      stage: await stageLabel(d.dealstage), closedWon: d.hs_is_closed_won === "true", booked, program: PROGRAM_SOLD[String(d.type_of_program_sold || "").trim()] || ""
-    } };
-  } catch (e) { return { ok: false, message: `Couldn't read the deal from HubSpot: ${(e as Error).message}` }; }
+  return readDealForBooking(id);
 }
 
 /** Book one or more dogs from one HubSpot deal. The deal is required (bookings without one miss date sync, alerts, Sales and balance links).
@@ -316,8 +299,13 @@ export async function saveBooking(_: Result | null, f: FormData): Promise<Result
     rehab: f.get("rehab") === "on" || /rehab|\bRR\b/i.test(str(f, "program") || "")
   }));
 
-  // A free kennel every week (counting the dogs in this booking too)
-  if (f.get("force") !== "on") {
+  // Assign or Ask (OPS 08): probation or out of range need Pedro's OK; a bonus dog, short notice or Watch need "they said yes"
+  const gate = await laneGate({ dealId, trainerId, zip: str(f, "deal_zip"), start, end: rows[0].end_date, program: str(f, "program"), dogs: rows.length, laneOk: str(f, "lane_ok") });
+  if (!gate.ok) return { ok: false, message: gate.message };
+  const laneCols = gate.lane ? { lane: gate.lane, lane_reasons: gate.reasons || null } : {};
+
+  // A free kennel every week (counting the dogs in this booking too). A bonus dog the trainer said yes to is allowed over.
+  if (f.get("force") !== "on" && str(f, "lane_ok") !== "offer") {
     const to = rows[0].end_date;
     const [bk, off] = await Promise.all([
       sb.from("bookings").select("*").eq("trainer_id", trainerId).neq("status", "cancelled").lte("start_date", to).gte("end_date", start),
@@ -332,7 +320,8 @@ export async function saveBooking(_: Result | null, f: FormData): Promise<Result
     }
   }
 
-  const { data: saved, error } = await sb.from("bookings").insert(rows).select("id, trainer_id, client_name, client_email, dog_name, hubspot_deal_id, start_date, end_date");
+  let { data: saved, error } = await sb.from("bookings").insert(rows.map((r) => ({ ...r, ...laneCols }))).select("id, trainer_id, client_name, client_email, dog_name, hubspot_deal_id, start_date, end_date");
+  if (error && /lane/i.test(error.message)) ({ data: saved, error } = await sb.from("bookings").insert(rows).select("id, trainer_id, client_name, client_email, dog_name, hubspot_deal_id, start_date, end_date")); // before migration 048
   if (error || !saved?.length) return { ok: false, message: error?.message || "Couldn't save the booking." };
   if (datesFromHubspot()) await syncHubspotDates({ mode: "quiet", dealIds: [dealId] }).catch(() => null); // the deal's real dates, before emailing
   const ids = saved.map((x) => x.id);
@@ -706,20 +695,51 @@ export async function linkDealAction(bookingId: string, input: string): Promise<
 });
 }
 
-/** Booking page: the 5 closest trainers to a deal's client (by their ZIP), with straight and driving miles and openings. */
-export async function nearestTrainersAction(zip: string) {
+/** Booking page: the closest trainers for this deal, each with its lane (Assign / Check first / Ask Pedro) and the Preferred star. */
+export async function nearestTrainersAction(ctx: DealCtx) {
   if (isDemo()) return { ok: false as const, message: "Demo mode." };
   const v = await viewerOrThrow();
   if (v.role !== "admin") return { ok: false as const, message: "Admins only." };
-  if (!/^\d{5}$/.test(zip)) return { ok: false as const, message: "No ZIP on this deal." };
-  const r = await availability({ zip, limit: 5, routes: true });
-  if (!r.ok) return { ok: false as const, message: r.error };
-  const thisWeek = r.weeks[0];
-  return { ok: true as const, place: [r.origin?.city, r.origin?.state].filter(Boolean).join(", "), trainers: r.trainers.map((t) => ({
-    id: t.id, name: t.name, place: [t.city, t.state].filter(Boolean).join(", "), straight: t.distance, route: t.routeMiles, range: t.range, inRange: t.inRange,
-    opening: t.soon3 === thisWeek ? (t.freeNow ? `Now (${t.freeNow} free)` : "Now") : t.soon3 ? short(t.soon3) : t.soon2 ? `${short(t.soon2)} (2 weeks)` : t.awayNow ? "Away" : "Full",
-    open: !!(t.soon3 || t.soon2), programs: t.programs || ""
-  })) };
+  return lanesForDeal(ctx);
+}
+
+/** "Check with them for me" (offer, for the POC) or "Ask Pedro": a To do with the deal's details. */
+export async function askAction(kind: "offer" | "pedro", ctx: DealCtx, trainerId: string, note = ""): Promise<Result> {
+  return audited("askAction", { kind, dealId: ctx.dealId, trainerId, note }, async () => {
+  if (isDemo()) return DEMO;
+  const v = await viewerOrThrow();
+  if (v.role !== "admin") return { ok: false, message: "Admins only." };
+  if (!ctx.dealId) return { ok: false, message: "Load the HubSpot deal first." };
+  const lanes = await lanesForDeal(ctx, { limit: 9 });
+  const row = lanes.ok ? lanes.rows.find((r) => r.id === trainerId) : null;
+  const r = await createAsk({ kind, dealId: ctx.dealId, trainerId, ctx, reasons: row?.reasons || [], hours: row?.hours ?? (kind === "offer" ? 24 : null), note: note.trim().slice(0, 500), by: v.name });
+  revalidatePath("/a");
+  return { ok: r.ok, message: r.message };
+});
+}
+
+/** Answer an ask from To do: Yes (book it) / No (re-match) / No one else fits (→ Pedro) / Approve (Pedro) / Someone else. */
+export async function answerAskAction(id: string, answer: "yes" | "no" | "approved" | "elsewhere" | "nobody"): Promise<Result & { href?: string }> {
+  return audited("answerAskAction", { id, answer }, async () => {
+  if (isDemo()) return DEMO;
+  const v = await viewerOrThrow();
+  if (v.role !== "admin") return { ok: false, message: "Admins only." };
+  const r = await answerAsk(id, answer, v.name);
+  if (!r.ok) return { ok: false, message: r.message };
+  const a = r.ask;
+  if (answer === "nobody") {
+    const d = await readDealForBooking(a.deal_id);
+    const ctx: DealCtx = { dealId: a.deal_id, zip: d.deal?.zip, start: d.deal?.start || null, end: d.deal?.end || null, program: d.deal?.program, dogs: d.deal?.dogs.length || 1, dogNames: d.deal?.dogs, client: d.deal?.client };
+    const x = await createAsk({ kind: "pedro", dealId: a.deal_id, trainerId: a.trainer_id, ctx, reasons: [{ code: "capacity", text: "No one else fits" }], hours: null, note: "The trainer said no or didn't reply, and no one else is in the Assign lane.", by: v.name, escalatedFrom: a.id });
+    revalidatePath("/a");
+    return { ok: x.ok, message: x.ok ? "Sent to Pedro." : x.message };
+  }
+  revalidatePath("/a");
+  const book = `/a/bookings/new?deal=${a.deal_id}&trainer=${a.trainer_id}${answer === "yes" ? "&ok=offer" : ""}`;
+  return answer === "yes" || answer === "approved"
+    ? { ok: true, message: answer === "yes" ? "Great: book it now." : "Approved: Book now is unlocked for this trainer.", href: book }
+    : { ok: true, message: "Logged. Pick someone else." , href: `/a/bookings/new?deal=${a.deal_id}` };
+});
 }
 
 /** Closed Won deal (or one on Standby): park it. A note, and a day to come back to it, or none (it stays on the Standby list). */

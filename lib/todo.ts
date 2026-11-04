@@ -24,7 +24,8 @@ export type TodoItem = {
   dogHref?: string; hubspot?: string; incidentId?: string; doneLabel?: string;
   quietChatId?: string; // a chat alert that Quiet chat would silence (finishing on Signal)
   deal?: string;        // a Closed Won deal to decide on: the row offers Book now / Standby / Cancelled instead of Done
-  booking?: { id: string; move: "pickup" | "dropoff" | null; dog: string; trainer: string; hasDeal: boolean }; // a booked dog that didn't start / finish as planned: Mark / Postpone / Cancel
+  booking?: { id: string; move: "pickup" | "dropoff" | null; dog: string; trainer: string; hasDeal: boolean };
+  ask?: { id: string; kind: "offer" | "pedro"; expired: boolean; trainer: string; dealId: string }; // Assign or Ask: check with the trainer / Ask Pedro // a booked dog that didn't start / finish as planned: Mark / Postpone / Cancel
   poc?: string;         // the trainer's Point of Contact (from the trainer's profile), for the POC filter; none = not tied to a trainer
 };
 /** late: forms past their deadline. beforeApp: handover reports due before the app took over the forms (still needed for the certificate). */
@@ -64,6 +65,9 @@ async function buildTodoUncached(): Promise<TodoData> {
   // Point of Contact per trainer (free text on the trainer's profile): the To do POC filter
   const tPoc = new Map(((trainers || []) as { id: string; poc: string | null }[]).map((t) => [t.id, String(t.poc || "").replace(/\s+/g, " ").trim()]));
   const pocOf = (trainerId: string | null | undefined) => (trainerId && tPoc.get(trainerId)) || undefined;
+  const askIds = ((incs || []) as { ref: string | null }[]).map((i) => (i.ref || "").match(/^ask(?:-expired)?:(.+)$/)?.[1]).filter(Boolean) as string[];
+  const { data: askRows } = askIds.length ? await serviceClient().from("booking_asks").select("id, kind, trainer_id, deal_id").in("id", askIds) : { data: [] };
+  const askOf = new Map(((askRows || []) as { id: string; kind: "offer" | "pedro"; trainer_id: string; deal_id: string }[]).map((a) => [a.id, a]));
   const bookingOfKey = (key: string) => bookings.find((b) => dealKey(b) === key);
   const items: TodoItem[] = [];
 
@@ -121,6 +125,15 @@ async function buildTodoUncached(): Promise<TodoData> {
         add({ group: "now", tone: "biscuit", text: again ? "Cancelled in the app, still Closed Won in HubSpot" : "Closed Won in HubSpot, not booked yet",
           detail: (i.detail || "").replace(/: (Closed Won|cancelled in the app).*$/, "") || undefined,
           hubspot: hubspotDeal(dealId), deal: /^\d+$/.test(dealId) ? dealId : undefined });
+        break;
+      }
+      case "trainer_offer": case "ask_pedro": {
+        const m = (i.ref || "").match(/^ask(-expired)?:(.+)$/), a = m ? askOf.get(m[2]) : undefined, expired = !!m?.[1];
+        const who = a ? tName.get(a.trainer_id) || "the trainer" : "";
+        add({ group: "now", tone: "biscuit", icon: i.kind === "ask_pedro" ? "people" : "message",
+          text: i.kind === "ask_pedro" ? (a ? `Ask Pedro: can ${who} take it?` : "For Pedro: a trainer silent on two offers") : expired ? `No reply from ${who}: re-match` : `Check with ${who} before booking`,
+          detail: i.detail || undefined, poc: a ? pocOf(a.trainer_id) : undefined, hubspot: a ? hubspotDeal(a.deal_id) : undefined,
+          ask: a ? { id: a.id, kind: a.kind, expired, trainer: who, dealId: a.deal_id } : undefined });
         break;
       }
       case "pickup_unconfirmed": case "dropoff_unconfirmed": {

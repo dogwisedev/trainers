@@ -11,6 +11,7 @@ import { cleanDealId } from "@/lib/dealId";
 import { auditCall } from "@/lib/audit";
 import { inviteWithBooking } from "@/lib/autoInvite";
 import { clearUnbooked } from "@/lib/unbookedDeals";
+import { laneGate } from "@/lib/laneData";
 
 // Book a Closed Won HubSpot deal into a trainer's calendar (used by the Sales extension).
 // POST /api/bookings   header x-api-key: BOOKING_KEY
@@ -80,8 +81,17 @@ export async function POST(req: Request) {
     };
   });
 
-  // Room every week, counting the dogs in this same request too
-  if (!b.force) {
+  // Assign or Ask (OPS 08): Pedro's OK for probation / out of range; "they said yes" (lane_ok: "offer") for a bonus dog,
+  // short notice or Watch. 409 with code "ask_pedro" / "check_first" tells the extension which button to show.
+  let laneCols: Record<string, string> = {};
+  if (dealId) {
+    const gate = await laneGate({ dealId, trainerId, zip: /^\d{5}$/.test(String(b.zip || "")) ? String(b.zip) : null, start: rows[0].start_date, end: rows[0].end_date, program: rows[0].program, dogs: rows.length, laneOk: b.lane_ok ? String(b.lane_ok) : null });
+    if (!gate.ok) return bad(409, { code: gate.lane === "pedro" ? "ask_pedro" : gate.lane === "offer" ? "check_first" : "not_eligible", message: gate.message });
+    if (gate.lane) laneCols = { lane: gate.lane, lane_reasons: gate.reasons };
+  }
+
+  // Room every week, counting the dogs in this same request too (a bonus dog the trainer said yes to is allowed over)
+  if (!b.force && b.lane_ok !== "offer") {
     const from = rows.reduce((m, r) => (r.start_date < m ? r.start_date : m), rows[0].start_date);
     const to = rows.reduce((m, r) => (r.end_date > m ? r.end_date : m), rows[0].end_date);
     const [bk, off] = await Promise.all([
@@ -101,7 +111,8 @@ export async function POST(req: Request) {
     }
   }
 
-  const { data: inserted, error } = await sb.from("bookings").insert(rows).select("*");
+  let { data: inserted, error } = await sb.from("bookings").insert(rows.map((r) => ({ ...r, ...laneCols }))).select("*");
+  if (error && /lane/i.test(error.message)) ({ data: inserted, error } = await sb.from("bookings").insert(rows).select("*")); // before migration 048
   if (error) return bad(500, { message: error.message });
   let created = inserted;
   // HubSpot is the source of truth for dates: take the deal's real dates now, before the trainer is emailed
