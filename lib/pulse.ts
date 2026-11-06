@@ -56,6 +56,8 @@ export type Snapshot = {
   bookings: SBooking[]; trainers: { id: string; name: string; cap: number; active: boolean; state: string }[]; chats: SChat[];
   postDays: Record<string, string[]>; runs: Record<string, SRun[]>; lastStaff: Record<string, string>;
   incidents: SInc[]; reports: { t: string; d: string; ok: boolean }[]; timeOff: { t: string; start: string; end: string; blocked: number | null }[]; // blocked = kennels blocked (null = all)
+  /** The reminder ladder (migration 049): each reminder the app sent a trainer (s 1, 2) or handed to the office (s 3). nudgeFrom = the first day it ran. */
+  nudges?: { t: string; d: string; s: number }[]; nudgeFrom?: string | null;
   dealMoney: { amount: number; day: string; owner: string }[]; actions: SAct[]; hs: null | {
     created: SDeal[]; createdTotals: Record<string, { now: number; ly: number }>; won: SDeal[]; wonLY: SDeal[]; lost: SDeal[];
     monthLY: { label: string; n: number; amount: number; toDate: number; toDateAmount: number }; nextMonthLY: { label: string; n: number; amount: number };
@@ -101,6 +103,9 @@ export async function buildAppPart(sb: SupabaseClient = serviceClient()): Promis
     all<{ who: string | null; action: string; detail: string | null; at: string }>((a, b) => sb.from("audit_log").select("who, action, detail, at").in("action", ["Marked a to-do Done", "Approved a form", "Sent a form back", "Took a to-do"]).gte("at", `${from}T00:00:00Z`).order("at").range(a, b)).catch(() => [])
   ]);
   const reads = await all<{ chat_id: string; user_id: string }>((a, b) => sb.from("chat_reads").select("chat_id, user_id").order("chat_id").range(a, b));
+  // Reminders the app sent (none before migration 049: then chasing is graded on alerts, as before)
+  const nudgeRows = await all<{ trainer_id: string | null; sent_at: string; step: number | null }>((a, b) => sb.from("nudges").select("trainer_id, sent_at, step").not("step", "is", null).gte("sent_at", `${from}T00:00:00Z`).order("sent_at").range(a, b)).catch(() => []);
+  const firstNudge = await sb.from("nudges").select("sent_at").not("step", "is", null).order("sent_at").limit(1).then((r) => (r.data?.[0] as { sent_at: string } | undefined)?.sent_at || null, () => null);
   let points = bks.length + trs.length + chats.length + msgs.length + incs.length + reps.length + offs.length + dm.length + reads.length + acts.length;
 
   // Chats, and what each one's messages add up to
@@ -129,6 +134,7 @@ export async function buildAppPart(sb: SupabaseClient = serviceClient()): Promis
     reports: reps.filter((r) => r.submitted_at && r.due_by && dayET(r.due_by) >= FORMS_CUTOVER).map((r) => ({ t: r.trainer_id, d: dayET(r.submitted_at!), ok: r.submitted_at! <= r.due_by! })),
     timeOff: offs.map((o) => ({ t: o.trainer_id, start: o.start_date, end: o.end_date, blocked: o.slots_blocked })),
     dealMoney: dm.map((d) => ({ amount: Number(d.amount || 0), day: d.closed_on, owner: d.owner_id || "" })),
+    nudges: nudgeRows.filter((n) => n.trainer_id && n.step).map((n) => ({ t: n.trainer_id!, d: dayET(n.sent_at), s: n.step! })), nudgeFrom: firstNudge ? dayET(firstNudge) : null,
     actions: acts.map((x) => ({ who: personFrom(x.who), raw: clean(x.who).replace(/\s*\(.*\)$/, "") || "Someone", a: x.action === "Approved a form" ? "approved" as const : x.action === "Sent a form back" ? "sentback" as const : x.action === "Took a to-do" ? "took" as const : "done" as const, t: Date.parse(x.at), kind: x.action === "Marked a to-do Done" ? (clean(x.detail).split(": ")[1] || "") : "" }))
   };
 }
@@ -223,13 +229,13 @@ export type Tile = { key: string; label: string; value: string; sub: string; del
 export type Card = { tone: "heart" | "biscuit" | "mint"; title: string; evidence: string; href?: string; action?: string; more?: { label: string; items: string[] } };
 export type TrainerRow = {
   id: string; name: string; dogs: number; appDogs: number; careDays: number; postDays: number; updateRate: number | null; replyMedian: number | null; replyN: number;
-  formsOnTime: number | null; formsN: number; alerts: number; utilisation: number | null; daysOff: number; offNote: string; cap: number; rank: number | null; baseUtilisation: number | null;
+  formsOnTime: number | null; formsN: number; alerts: number; reminders: number; utilisation: number | null; daysOff: number; offNote: string; cap: number; rank: number | null; baseUtilisation: number | null;
   score: number | null; baseline: number | null; confidence: "ok" | "low" | "none"; unusual: boolean; summary: string;
 };
 export type Move = { id: string; kind: "pickup" | "dropoff"; date: string; dog: string; client: string; trainer: string };
 export type OfficeView = {
   joined: number; chats: number; silent24: { dog: string; client: string; trainer: string; hours: number; href: string }[];
-  waitingClients: { client: string; dog: string; n: number; href: string }[]; slowTrainers: { name: string; alerts: number; href: string }[]; alertBar: number;
+  waitingClients: { client: string; dog: string; n: number; href: string }[]; slowTrainers: { name: string; alerts: number; reminders: number; href: string }[]; alertBar: number;
   newBookings: { name: string; n: number }[]; dateChanges: number; overbooked: number; moves: Move[];
   cancellations: { dog: string; client: string; trainer: string; reason: string; when: string }[];
   lateForms: { name: string; n: number }[]; balances: { text: string; href?: string }[]; incidents: { title: string; when: string; detail: string }[];
@@ -266,15 +272,17 @@ function period(s: Snapshot, from: string, to: string) {
   const chatOf = (b: SBooking) => chatByDeal.get(b.deal || "") || chatByDeal.get(b.id) || null;
   const inCare = live.filter((b) => b.start <= to && b.end > from);
   let careDays = 0, postCount = 0;
-  type PT = { dogs: Set<string>; care: number; post: number; replies: number[]; formsOk: number; formsN: number; alerts: number };
+  type PT = { dogs: Set<string>; care: number; post: number; replies: number[]; formsOk: number; formsN: number; alerts: number; reminders: number; careAfter: number; alertsAfter: number };
   const perTrainer = new Map<string, PT>();
-  const t = (id: string): PT => { if (!perTrainer.has(id)) perTrainer.set(id, { dogs: new Set(), care: 0, post: 0, replies: [], formsOk: 0, formsN: 0, alerts: 0 }); return perTrainer.get(id)!; };
+  const t = (id: string): PT => { if (!perTrainer.has(id)) perTrainer.set(id, { dogs: new Set(), care: 0, post: 0, replies: [], formsOk: 0, formsN: 0, alerts: 0, reminders: 0, careAfter: 0, alertsAfter: 0 }); return perTrainer.get(id)!; };
+  const nf = s.nudgeFrom || null; // from this day the app reminds trainers itself: chasing = its reminders + times the office stepped in
   for (const b of inCare) {
     const c = chatOf(b); if (!c || c.quiet) continue;
     const days = careDaysIn(b, from, to, s.today), posted = new Set(s.postDays[c.id] || []);
     const hit = days.filter((d) => posted.has(d)).length;
     careDays += days.length; postCount += hit;
     const x = t(b.t); x.dogs.add(b.id); x.care += days.length; x.post += hit;
+    if (nf) x.careAfter += days.filter((d) => d >= nf).length;
   }
   const replies: number[] = [], team: number[] = [];
   for (const c of s.chats) {
@@ -284,8 +292,10 @@ function period(s: Snapshot, from: string, to: string) {
   let formsOk = 0, formsN = 0;
   for (const r of s.reports) { if (r.d < from || r.d > to) continue; formsN++; if (r.ok) formsOk++; const x = t(r.t); x.formsN++; if (r.ok) x.formsOk++; }
   const inc = s.incidents.filter((i) => i.d >= from && i.d <= to && !(i.c && chatById.get(i.c)?.quiet));
-  const waiting = inc.filter((i) => i.k === "client_waiting" || i.k === "client_pileup").length, silent = inc.filter((i) => i.k === "trainer_silent").length;
-  for (const i of inc) { const c = i.c ? chatById.get(i.c) : null; if (c?.t && ["client_waiting", "client_pileup", "trainer_silent"].includes(i.k)) t(c.t).alerts++; }
+  // Days with no update = dog-days without a post (no longer the "trainer silent" alerts, which now come only after 2 reminders)
+  const waiting = inc.filter((i) => i.k === "client_waiting" || i.k === "client_pileup").length, silent = careDays - postCount;
+  for (const i of inc) { const c = i.c ? chatById.get(i.c) : null; if (c?.t && ["client_waiting", "client_pileup", "trainer_silent"].includes(i.k)) { const x = t(c.t); x.alerts++; if (nf && i.d >= nf) x.alertsAfter++; } }
+  for (const n of s.nudges || []) if (n.d >= from && n.d <= to && n.s < 3) t(n.t).reminders++;
   const started = live.filter((b) => b.start >= from && b.start <= to).length;
   const cancelled = s.bookings.filter((b) => b.cancelledOn && b.cancelledOn >= from && b.cancelledOn <= to).length;
   const sold = s.dealMoney.filter((d) => d.day >= from && d.day <= to);
@@ -293,26 +303,30 @@ function period(s: Snapshot, from: string, to: string) {
     formsOk, formsN, waiting, silent, started, cancelled, sales: sold.length, revenue: sold.reduce((n, d) => n + d.amount, 0), perTrainer, inc, chatOf, chatById, live };
 }
 
-/** A trainer's score for a period: updates 40, replies 25, forms 20, alerts 15; parts with no data drop out. */
-function scoreOf(x: { care: number; post: number; replies: number[]; formsOk: number; formsN: number; alerts: number }, groupRate: number): number | null {
+/** A trainer's score for a period: updates 40, replies 25, forms 20, chasing 15; parts with no data drop out.
+ *  Chasing, once the app reminds trainers itself: its reminders, plus 3 for each time the office had to step in, per 7 dog-days
+ *  (none = 100, about one a week = 85, one every day = 0). Before that: 15 off per alert, as it was. */
+function scoreOf(x: { care: number; post: number; replies: number[]; formsOk: number; formsN: number; alerts: number; reminders?: number; careAfter?: number; alertsAfter?: number }, groupRate: number): number | null {
   if (!x.care) return null; // no dog-days in an app chat: nothing to score (a form alone isn't a score)
   const parts: [number, number][] = [];
   parts.push([shrink((x.post / x.care) * 100, x.care, groupRate * 100, 7), 40]);
   const m = median(x.replies); if (m != null) parts.push([Math.max(0, Math.min(100, 100 - ((m - 15) / 345) * 100)), 25]);
   if (x.formsN) parts.push([shrink((x.formsOk / x.formsN) * 100, x.formsN, 80, 3), 20]);
-  if (x.care) parts.push([Math.max(0, 100 - x.alerts * 15), 15]);
+  if (x.careAfter) parts.push([Math.max(0, Math.round(100 - (((x.reminders || 0) + 3 * (x.alertsAfter || 0)) / x.careAfter) * 7 * 15)), 15]);
+  else if (x.care) parts.push([Math.max(0, 100 - x.alerts * 15), 15]);
   if (!parts.length) return null;
   const w = parts.reduce((n, [, k]) => n + k, 0);
   return Math.round(parts.reduce((n, [v, k]) => n + v * k, 0) / w);
 }
-function summaryOf(t: { updateRate: number | null; replyMedian: number | null; replyN: number; formsOnTime: number | null; formsN: number; alerts: number; careDays: number; dogs: number; daysOff: number; utilisation: number | null }): string {
+function summaryOf(t: { updateRate: number | null; replyMedian: number | null; replyN: number; formsOnTime: number | null; formsN: number; alerts: number; reminders?: number; careDays: number; dogs: number; daysOff: number; utilisation: number | null }): string {
   if (!t.careDays && !t.formsN && !t.replyN) return t.dogs ? "Dogs in care, but their chats are on Signal or not open yet." : "No dogs in this range.";
   const bits: string[] = [];
   if (t.updateRate != null) bits.push(t.updateRate >= 80 ? "posts almost every day" : t.updateRate >= 50 ? "posts most days" : t.updateRate >= 20 ? "posts some days" : "rarely posts in the app");
   if (t.replyMedian != null) bits.push(t.replyMedian <= 30 ? "replies within half an hour" : t.replyMedian <= 120 ? "replies within a couple of hours" : t.replyMedian <= 360 ? "replies within the day" : "slow to reply");
   else if (t.careDays) bits.push("no client questions to answer");
   if (t.formsN) bits.push(t.formsOnTime === 100 ? "forms on time" : (t.formsOnTime ?? 0) >= 70 ? "most forms on time" : "forms often late");
-  if (t.alerts) bits.push(`${t.alerts} alert${t.alerts > 1 ? "s" : ""}`);
+  if (t.reminders) bits.push(`needed ${t.reminders} reminder${t.reminders > 1 ? "s" : ""}`);
+  if (t.alerts) bits.push(`${t.alerts} handed to the office`);
   if (t.utilisation != null && t.utilisation >= 90) bits.push("kennels full");
   if (t.daysOff >= 7) bits.push(`${t.daysOff} days off`);
   const s = bits.join(", "); return s.charAt(0).toUpperCase() + s.slice(1) + ".";
@@ -364,7 +378,7 @@ export async function pulse(q: { r?: string; from?: string; to?: string; v?: str
     const score = scoreOf(x, groupRate), baseline = b ? scoreOf(b, baseRate) : null;
     const row: TrainerRow = { id, name: tr?.name || tName(id), dogs: dogsAll.size, appDogs: x.dogs.size, careDays: x.care, postDays: x.post, updateRate: x.care ? Math.round((x.post / x.care) * 100) : null,
       replyMedian: median(x.replies), replyN: x.replies.length, formsOnTime: x.formsN ? Math.round((x.formsOk / x.formsN) * 100) : null, formsN: x.formsN, alerts: x.alerts,
-      utilisation: cap ? Math.min(100, Math.round((allCare / (cap * range.days)) * 100)) : null, daysOff, offNote, cap, rank: null, baseUtilisation: cap ? Math.min(100, Math.round((baseCare / (cap * SPAN)) * 100)) : null,
+      reminders: (x as { reminders?: number }).reminders || 0, utilisation: cap ? Math.min(100, Math.round((allCare / (cap * range.days)) * 100)) : null, daysOff, offNote, cap, rank: null, baseUtilisation: cap ? Math.min(100, Math.round((baseCare / (cap * SPAN)) * 100)) : null,
       score, baseline, confidence: score == null ? "none" : x.care < 14 || (x.replies.length < 5 && x.care < 21) ? "low" : "ok", unusual: score != null && baseline != null && b!.care >= 21 && Math.abs(score - baseline) >= 20, summary: "" };
     row.summary = summaryOf(row);
     return row;
@@ -380,7 +394,8 @@ export async function pulse(q: { r?: string; from?: string; to?: string; v?: str
     const wait = new Map<string, number>(); for (const i of now.inc) if ((i.k === "client_waiting" || i.k === "client_pileup") && i.c) wait.set(i.c, (wait.get(i.c) || 0) + 1);
     const waitingClients = [...wait.entries()].filter(([, n]) => n >= 2).map(([id, n]) => { const c = chatById.get(id); return { client: c?.client || "Client", dog: c?.title || "", n, href: `/a/chats/${id}` }; }).sort((a, b) => b.n - a.n);
     const bar = Math.max(5, Math.round(range.days / 2)); // "repeated": alerts on half the days or more
-    const slowTrainers = trainers.filter((t) => t.alerts >= bar).map((t) => ({ name: t.name, alerts: t.alerts, href: `/a/trainers/${t.id}` })).sort((a, b) => b.alerts - a.alerts);
+    // Needed the most chasing: reminders from the app, and times the office stepped in (worth 3 reminders)
+    const slowTrainers = trainers.filter((t) => t.reminders + 3 * t.alerts >= bar).map((t) => ({ name: t.name, alerts: t.alerts, reminders: t.reminders, href: `/a/trainers/${t.id}` })).sort((a, b) => (b.reminders + 3 * b.alerts) - (a.reminders + 3 * a.alerts));
     const nb = new Map<string, number>(); for (const b of snap.bookings.filter((b) => b.created >= range.from && b.created <= range.to)) nb.set(b.t, (nb.get(b.t) || 0) + 1);
     // Pickups and drop-offs always look forward: today and the next 14 days, soonest first, whatever range is picked
     const mFrom = snap.today, mTo = addDays(snap.today, 13);

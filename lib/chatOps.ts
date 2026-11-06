@@ -27,6 +27,7 @@ import { watchDirectEdits } from "./directEdits";
 import { runTrainingSends } from "./training";
 import { auditSystem } from "./audit";
 import { welcomeLink } from "./trainerSignin";
+import { nudgesOn, runNudges } from "./nudges";
 
 const URGENT_CHAT: IncidentKind[] = ["client_waiting", "client_pileup"];
 
@@ -59,7 +60,7 @@ export async function runChatChecks(now = new Date()) {
   const sb = serviceClient();
   const { data: chatRows } = await sb.from("chats").select("*").eq("status", "open");
   const chats = (chatRows || []) as ChatRow[];
-  const out = { chats: chats.length, opened: 0, cleared: 0, realerted: 0, digests: 0, invited: 0, notified: 0, noticed: 0, autoClosed: 0, training: 0, reminded: 0, scheduled: released.posted, errors: [...released.errors.map((x) => `scheduled: ${x}`)] as string[] };
+  const out = { chats: chats.length, opened: 0, cleared: 0, realerted: 0, digests: 0, invited: 0, notified: 0, noticed: 0, autoClosed: 0, training: 0, reminded: 0, nudges: { reminded: 0, toOffice: 0, closed: 0 }, scheduled: released.posted, errors: [...released.errors.map((x) => `scheduled: ${x}`)] as string[] };
   try { out.cleared += await clearFormIncidents(sb); } catch (e) { out.errors.push(`forms: ${(e as Error).message}`); }
   try { const c = await catchUpBookings(sb); out.errors.push(...c.errors.map((x) => `booking email: ${x}`)); } catch (e) { out.errors.push(`booking email: ${(e as Error).message}`); }
   try { if (await sendDailyDigest(sb)) out.digests++; } catch (e) { out.errors.push(`daily summary: ${(e as Error).message}`); }
@@ -111,9 +112,12 @@ export async function runChatChecks(now = new Date()) {
         await auditSystem("Moved a chat to the dog's new trainer", `${c.title || "Dog"} (${c.client_name || "client"}): from ${c.trainer_name || "the previous trainer"} to ${name || "the new trainer"}, who has the dog from today.`, { link: `/a/chats/${c.id}` });
         c.trainer_id = carers[0]; c.trainer_name = name;
       }
-      const lastReply = ms(c.last_trainer_at) > ms(c.last_admin_at) ? c.last_trainer_at : c.last_admin_at;
+      // A person's reply: the trainer, or someone in the office (migration 049). The app's automatic posts don't answer a client.
+      const lastReply = c.last_reply_at !== undefined ? c.last_reply_at : ms(c.last_trainer_at) > ms(c.last_admin_at) ? c.last_trainer_at : c.last_admin_at;
       const want = new Map<IncidentKind, string>();
-      if (trainerSilent(now, bs, c.last_trainer_at)) want.set("trainer_silent", `No update from ${c.trainer_name || "the trainer"} today`);
+      // A missed update now goes to the trainer first (lib/nudges.ts: 6 PM reminders), and to To do only after 2 missed days.
+      // With the reminders switched off (NUDGES=off), the old rule: on To do every evening a dog has no post.
+      if (!nudgesOn() && trainerSilent(now, bs, c.last_trainer_at)) want.set("trainer_silent", `No update from ${c.trainer_name || "the trainer"} today`);
       const waiting = clientWaiting(now, c.last_client_at, lastReply);
       if (waiting !== null) want.set("client_waiting", `${c.client_name || "The client"} has been waiting ${waiting} waking hours for a reply`);
       if (c.last_client_at && ms(c.last_client_at) > ms(lastReply)) {
@@ -154,7 +158,8 @@ export async function runChatChecks(now = new Date()) {
       for (const i of live.filter((x) => x.chat_id === c.id)) {
         const opened = ms(i.opened_at);
         const done = i.kind === "trainer_silent" ? ms(c.last_trainer_at) > opened
-          : i.kind === "client_waiting" || i.kind === "client_pileup" || i.kind === "reopened" ? Math.max(ms(c.last_trainer_at), ms(c.last_admin_at)) > opened
+          : i.kind === "client_waiting" || i.kind === "client_pileup" ? ms(lastReply) > opened
+          : i.kind === "reopened" ? Math.max(ms(c.last_trainer_at), ms(c.last_admin_at)) > opened
           : i.kind === "ready_to_close" ? autoClose || ms(c.last_message_at) > opened : false;
         if (!done && c.quiet_at && QUIET_KINDS.includes(i.kind)) { await sb.from("chat_incidents").update({ status: "resolved", resolved_at: now.toISOString(), resolved_by: "automatic", resolved_note: "Quiet chat", auto_resolved: true }).eq("id", i.id); out.cleared++; continue; }
         if (done) { await sb.from("chat_incidents").update({ status: "resolved", resolved_at: now.toISOString(), resolved_by: "automatic", auto_resolved: true }).eq("id", i.id); out.cleared++; }
@@ -181,6 +186,10 @@ export async function runChatChecks(now = new Date()) {
       for (const i of stale) { await sb.from("chat_incidents").update({ last_alert_at: now.toISOString() }).eq("id", i.id); out.realerted++; }
     } catch (e) { out.errors.push(`alert: ${(e as Error).message}`); }
   }
+
+  // The reminder ladder (lib/nudges.ts): the trainer is reminded first; the office gets it after 2 ignored reminders
+  try { const n = await runNudges(now, sb); out.nudges = { reminded: n.reminded, toOffice: n.toOffice, closed: n.closed }; out.errors.push(...n.errors.map((x) => `reminders: ${x}`)); }
+  catch (e) { out.errors.push(`reminders: ${(e as Error).message}`); }
 
   // Client "you have updates" emails: rare by design (see RULES)
   if (process.env.CHAT_CLIENT_EMAILS !== "off" && mailConfigured()) {

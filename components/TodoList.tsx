@@ -9,6 +9,7 @@ import { DealDecision } from "@/components/DealDecision";
 import { BookingDecision } from "@/components/BookingDecision";
 import { AskDecision } from "@/components/AskDecision";
 import { TodoDone } from "@/components/TodoDone";
+import { ChaseActions } from "@/components/ChaseActions";
 import { IconTile } from "@/components/ui";
 
 const GROUPS: { key: TodoGroup; title: string; short: string; hint: string }[] = [
@@ -90,6 +91,11 @@ function Item({ i, canQuiet = false }: { i: TodoItem; canQuiet?: boolean }) {
         <p className="font-bold leading-snug">{i.text}</p>
         {i.detail && <p className="mt-1 line-clamp-3 text-body leading-snug text-ink-soft">{i.detail}</p>}
         {i.since && <p className="mt-1 text-caption text-ink-faint">{ago(i.since)}</p>}
+        {!!i.chase?.history.length && (
+          <ul className="mt-1.5 space-y-0.5 border-l-2 border-line pl-2.5 text-caption text-ink-soft" aria-label="What the app already did">
+            {i.chase.history.map((h, k) => <li key={k}>{h}</li>)}
+          </ul>
+        )}
         <div className="mt-3 flex flex-wrap items-center gap-2">
           {i.primary && (i.primary.external
             ? <a href={i.primary.href} target="_blank" rel="noopener" className="btn-ink h-9 min-h-0 px-3.5 text-small">{i.primary.label}<ExternalLink size={13} /></a>
@@ -97,11 +103,13 @@ function Item({ i, canQuiet = false }: { i: TodoItem; canQuiet?: boolean }) {
           {i.dogHref && i.primary?.href !== i.dogHref && <Link prefetch={false} href={i.dogHref} className="btn-ghost h-9 min-h-0 px-3 text-small"><PawPrint size={14} />Dog</Link>}
           {i.hubspot && !i.primary?.external && <a href={i.hubspot} target="_blank" rel="noopener" className="btn-ghost h-9 min-h-0 px-3 text-small">HubSpot<ExternalLink size={13} /></a>}
           {canQuiet && i.quietChatId && <QuietChatButton chatId={i.quietChatId} quiet={false} />}
-          {i.incidentId && !i.deal && !i.ask && <span className="ml-auto"><TodoDone id={i.incidentId} label={i.doneLabel} /></span>}
+          {i.incidentId && !i.deal && !i.ask && !i.chase && <span className="ml-auto"><TodoDone id={i.incidentId} label={i.doneLabel} /></span>}
           {i.ask && <AskDecision id={i.ask.id} kind={i.ask.kind} expired={i.ask.expired} trainer={i.ask.trainer} dealId={i.ask.dealId} />}
           {i.deal && <DealDecision dealId={i.deal} bookHref={`/a/bookings/new?deal=${i.deal}`} />}
           {i.booking && <BookingDecision bookingId={i.booking.id} move={i.booking.move} dog={i.booking.dog} trainer={i.booking.trainer} hasDeal={i.booking.hasDeal} />}
         </div>
+        {i.chase && <div className="mt-2"><ChaseActions c={i.chase} /></div>}
+        {i.chase && <p className="mt-1.5 text-caption text-ink-faint">Clears itself when {i.chase.trainerName.replace(/".*?"\s*/, "").split(" ")[0]} {i.chase.kind === "form_late" ? "sends the form" : i.chase.kind === "client_waiting" ? "or the office replies" : "posts"}.</p>}
       </div>
     </li>
   );

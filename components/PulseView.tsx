@@ -119,10 +119,10 @@ function Office({ o }: { o: OfficeView }) {
           <div className="mt-5"><MovesStrip moves={o.moves} limit={40} title="Pickups and drop-offs, next 14 days" /></div>
         </section>
         <section>
-          <H n={o.slowTrainers.length}>Trainers with repeated comms alerts</H>
+          <H n={o.slowTrainers.length}>Trainers who needed the most chasing</H>
           <ul className="panel divide-y divide-line">
-            {o.slowTrainers.map((x) => <li key={x.href}><Link prefetch={false} href={x.href} className="flex items-center justify-between gap-3 px-4 py-2.5 hover:bg-paper/60"><b>{x.name}</b><span className="text-small font-semibold tabular-nums text-heart">{x.alerts} alerts</span></Link></li>)}
-            {!o.slowTrainers.length && <Empty>No trainer had {o.alertBar}+ alerts in this range.</Empty>}
+            {o.slowTrainers.map((x) => <li key={x.href}><Link prefetch={false} href={x.href} className="flex items-center justify-between gap-3 px-4 py-2.5 hover:bg-paper/60"><b>{x.name}</b><span className="text-small font-semibold tabular-nums text-heart">{x.reminders ? `${x.reminders} reminder${x.reminders > 1 ? "s" : ""}` : ""}{x.reminders && x.alerts ? ", " : ""}{x.alerts ? `${x.alerts} to the office` : ""}</span></Link></li>)}
+            {!o.slowTrainers.length && <Empty>No trainer needed much chasing in this range.</Empty>}
           </ul>
           <H n={o.lateForms.reduce((n, x) => n + x.n, 0)}>Forms missing, by trainer</H>
           <ul className="panel divide-y divide-line">
@@ -185,7 +185,7 @@ function Trainers({ rows }: { rows: TrainerRow[] }) {
               <div><p className="text-caption text-ink-faint">Daily updates</p><p className="text-body font-semibold tabular-nums">{t.updateRate == null ? "–" : `${t.updateRate}%`} <span className="text-caption font-normal text-ink-faint">{t.careDays}d</span></p><Bar v={t.updateRate} tone={(t.updateRate ?? 100) < 60 ? "bg-heart" : "bg-lav"} /></div>
               <div><p className="text-caption text-ink-faint">Reply</p><p className="text-body font-semibold tabular-nums">{t.replyN ? minutesLabel(t.replyMedian) : "–"} <span className="text-caption font-normal text-ink-faint">{t.replyN || ""}</span></p></div>
               <div><p className="text-caption text-ink-faint">Forms on time</p><p className="text-body font-semibold tabular-nums">{t.formsOnTime == null ? "–" : `${t.formsOnTime}%`} <span className="text-caption font-normal text-ink-faint">{t.formsN || ""}</span></p></div>
-              <div><p className="text-caption text-ink-faint">Alerts</p><p className={`text-body font-semibold tabular-nums ${t.alerts >= 5 ? "text-heart" : ""}`}>{t.alerts}</p></div>
+              <div><p className="text-caption text-ink-faint">Reminders needed</p><p className={`text-body font-semibold tabular-nums ${t.reminders + 3 * t.alerts >= 10 ? "text-heart" : ""}`}>{t.reminders}{t.alerts > 0 && <span className="text-caption font-normal text-ink-faint"> +{t.alerts} office</span>}</p></div>
               <div><p className="text-caption text-ink-faint">Kennels used</p><p className="text-body font-semibold tabular-nums">{t.utilisation == null ? "–" : `${t.utilisation}%`} <span className="text-caption font-normal text-ink-faint">{t.cap ? `of ${t.cap}` : ""}</span></p>{t.utilisation != null && <Bar v={t.utilisation} tone="bg-fern" />}</div>
               <div><p className="text-caption text-ink-faint">Days off</p><p className={`text-body font-semibold tabular-nums ${t.daysOff >= 7 ? "text-warn" : ""}`}>{t.daysOff}{t.offNote && <span className="block text-caption font-normal text-ink-faint">{t.offNote}</span>}</p></div>
             </div>
@@ -338,7 +338,7 @@ export function PulseView({ p, q }: { p: Pulse; q: Q }) {
       {p.view === "trainers" && (
         <section>
           <H>Trainers</H>
-          <p className="mb-3 text-small text-ink-soft">Score = daily updates 40, replies 25, forms 20, alerts 15 (parts with no data drop out; small samples are pulled toward the group). Ranked by score. Kennels used = dog-days ÷ capacity × days. Quiet chats and days before the cutover don&apos;t count against anyone.</p>
+          <p className="mb-3 text-small text-ink-soft">Score = daily updates 40, replies 25, forms 20, chasing 15: the reminders the app had to send, and times the office had to step in (parts with no data drop out; small samples are pulled toward the group). Ranked by score. Kennels used = dog-days ÷ capacity × days. Quiet chats and days before the cutover don&apos;t count against anyone.</p>
           <Trainers rows={p.trainers} />
         </section>
       )}

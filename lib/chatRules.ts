@@ -4,6 +4,7 @@ import { REPORT_TZ } from "./reports";
 
 export const RULES = {
   trainerUpdateByHour: 20,        // trainer must have posted something by 8 pm Eastern on every day a dog is in care
+  updateReminderHour: 18,         // 6 pm Eastern: the app reminds the trainer about dogs with no update yet today (lib/nudges.ts)
   wakeFrom: 8, wakeTo: 21,        // "waking hours" for client waiting times: 8 am to 9 pm Eastern
   clientWaitingHours: 12,         // a client message with no reply after 12 waking hours is flagged
   pileUpCount: 3, pileUpWithinHours: 3,   // 3+ unanswered client messages within 3 hours is flagged straight away
@@ -32,6 +33,13 @@ export function wakingHours(from: Date, to: Date): number {
 
 export type BookingSpan = { start_date: string; end_date: string; status: string };
 const inCareOn = (bs: BookingSpan[], date: string) => bs.some((b) => b.status !== "cancelled" && b.start_date <= date && date <= b.end_date);
+
+/** A dog is in care on this day: from pickup day up to the night before it goes home (the drop-off day itself doesn't count). */
+export const inCareDay = (b: BookingSpan, date: string) => b.status !== "cancelled" && b.start_date <= date && date < b.end_date;
+/** A dog needs a chat update on this day: in care, and actually picked up if it's pickup day (the reminders and the trainer's To do agree). */
+export const needsUpdateOn = (b: BookingSpan & { picked_up_at?: string | null }, date: string) => inCareDay(b, date) && (b.start_date < date || !!b.picked_up_at);
+/** The day (Eastern) of a moment, or "" for none. */
+export const etDay = (iso: string | null | undefined) => (iso ? etParts(new Date(iso)).date : "");
 
 /** After 8 pm Eastern, on a day a dog is in care, the trainer hasn't posted anything today. */
 export function trainerSilent(now: Date, bookings: BookingSpan[], lastTrainerAt: string | null): boolean {
@@ -78,7 +86,8 @@ export const INCIDENT_LABEL = {
   trainer_silent: "Trainer hasn't posted today", client_waiting: "Client waiting for a reply", client_pileup: "Client messages piling up",
   ready_to_close: "Ready to close", reopened: "Client started a new chat",
   intake_media_missing: "No pickup photos or video", handover_photo_missing: "No photo with the trainer",
-  overbooked: "Trainer overbooked", length_changed: "Program length changed", booking_cancelled: "Training cancelled", hubspot_problem: "Check HubSpot", not_ready: "Not ready for training", check_vaccines: "Check vaccines", trainer_report: "Incident reported", deal_not_booked: "Closed Won, not booked", standby_reminder: "Standby: time to check", followup_request: "Follow-up to arrange", followup_report: "Follow-up report due", pickup_unconfirmed: "Pickup not confirmed", dropoff_unconfirmed: "Drop-off not confirmed", trainer_offer: "Check with the trainer", ask_pedro: "Ask Pedro"
+  overbooked: "Trainer overbooked", length_changed: "Program length changed", booking_cancelled: "Training cancelled", hubspot_problem: "Check HubSpot", not_ready: "Not ready for training", check_vaccines: "Check vaccines", trainer_report: "Incident reported", deal_not_booked: "Closed Won, not booked", standby_reminder: "Standby: time to check", followup_request: "Follow-up to arrange", followup_report: "Follow-up report due", pickup_unconfirmed: "Pickup not confirmed", dropoff_unconfirmed: "Drop-off not confirmed", trainer_offer: "Check with the trainer", ask_pedro: "Ask Pedro",
+  form_chase: "Form late after 2 reminders"
 } as const;
 export type IncidentKind = keyof typeof INCIDENT_LABEL;
 /** Incidents the chat check opens and clears by itself. The others are about forms, bookings or HubSpot. */

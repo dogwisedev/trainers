@@ -6,7 +6,6 @@ import { addDays, daysBetween, range, short, todayIso, weekStart, weeksFrom } fr
 import { KennelLegend, KennelStrip } from "@/components/KennelStrip";
 import { Empty, Pill, Section } from "@/components/ui";
 import { listTodos } from "@/lib/reportData";
-import { TodoRowCompact } from "@/components/ReportBits";
 import { readinessFor } from "@/lib/pretraining";
 import { isDemo, serviceClient } from "@/lib/supabase";
 import type { Booking } from "@/lib/types";
@@ -14,6 +13,8 @@ import { Info } from "lucide-react";
 import { contactFrom } from "@/lib/contactLinks";
 import { TodayVisits, type Visit } from "@/components/TodayVisits";
 import { CONFIRM_FROM } from "@/lib/moveRules";
+import { trainerToday } from "@/lib/trainerToday";
+import { TrainerTodo } from "@/components/TrainerTodo";
 
 export default async function TrainerHome() {
   const v = await requireRole("trainer");
@@ -27,7 +28,7 @@ export default async function TrainerHome() {
   const next = bookings.filter((b) => b.status !== "cancelled" && b.start_date > today).slice(0, 4);
   const open3 = soonestOpening(use, 3);
   const first = t.name.replace(/".*?"\s*/, "").split(" ")[0];
-  const todo = (await listTodos({ trainerId: t.id })).filter((x) => x.state !== "waiting");
+  const [todo, todayList] = await Promise.all([listTodos({ trainerId: t.id }).then((l) => l.filter((x) => x.state !== "waiting")), trainerToday(t.id, t.state)]);
   // Before-training checklist per dog, linking to the chat's Dog profile
   const shownIds = [...withYou, ...next].map((b) => b.id);
   const ready = await readinessFor(shownIds);
@@ -65,6 +66,7 @@ export default async function TrainerHome() {
   return (
     <>
       <TodayVisits visits={visits} today={today} />
+      <TrainerTodo today={todayList} forms={todo} />
       <div className="rounded-[28px] bg-mint p-5 md:p-7" data-tour="week">
         <p className="text-body text-ink-soft">{new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}</p>
         <h1 className="mt-1 text-h1 font-extrabold leading-tight md:text-display">Hi {first}</h1>
@@ -83,12 +85,6 @@ export default async function TrainerHome() {
         <div className="panel p-4"><p className="text-small text-ink-soft">Next 3-week opening</p><p className="text-h2 font-extrabold leading-9">{open3 ? (open3 === weekStart(today) ? "Now" : short(open3)) : "Full"}</p></div>
       </div>
 
-      {todo.length > 0 && (
-        <Section tour="todo" title="To do" action={<Link prefetch={false} href="/t/reports" className="text-body font-semibold underline">All forms</Link>}>
-          <ul className="panel divide-y divide-line overflow-hidden border-biscuit">{todo.slice(0, 5).map((x) => <TodoRowCompact key={`${x.booking.id}${x.window.kind}${x.window.week}`} t={x} />)}</ul>
-          {todo.length > 5 && <p className="mt-2 text-small text-ink-soft">And {todo.length - 5} more in <Link prefetch={false} href="/t/reports" className="underline">Forms</Link>.</p>}
-        </Section>
-      )}
 
       <Section tour="with-you" title="With you now">
         {withYou.length ? (

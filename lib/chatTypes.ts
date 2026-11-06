@@ -11,6 +11,7 @@ export type ChatRow = {
   admin_seen_at: string | null; invited_at: string | null; created_at: string; closed_at: string | null;
   client_emails: boolean; archived_at: string | null; transcript_url: string | null; notified_client_at?: string | null;
   quiet_at?: string | null; quiet_by?: string | null; // quiet chat (migration 039): finishing on Signal, no alerts
+  last_reply_at?: string | null; // the latest message from the trainer or a person in the office (migration 049)
 };
 export const driveView = (id: string) => `https://drive.google.com/file/d/${id}/view`;
 export const driveDownload = (id: string) => `https://drive.google.com/uc?export=download&id=${id}`;

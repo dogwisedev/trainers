@@ -12,6 +12,7 @@ import { auditCall } from "./audit";
 import { commsOverview, NarrowDown, recentMessages, trainerComms } from "./claudeComms";
 import { PULSE_RANGES, PULSE_VIEWS, pulseForClaude, pulseOnConnector } from "./claudePulse";
 import type { View } from "./pulse";
+import { nudgeReport } from "./nudges";
 
 // The tools behind the app's Claude connector (app/api/mcp/route.ts). Claude calls them through MCP with the
 // CLAUDE_MCP_KEY. Each tool reads with the service key, like the admin To do list and the daily email do, so whoever
@@ -124,7 +125,7 @@ const DATE = "^\\d{4}-\\d{2}-\\d{2}$";
 export const CLAUDE_TOOLS: ClaudeTool[] = [
   {
     name: "todo", title: "To do",
-    description: "Everything in the Dogwise app that needs a person now, most urgent first: clients waiting for a reply, trainers who haven't posted, incident reports, forms sent in for review, late forms, unread trainer messages, before-training gaps and booking or HubSpot problems. The same list as the admin To do page, apart from payslips waiting for approval.",
+    description: "Everything in the Dogwise app that needs a person now, most urgent first: clients waiting for a reply, trainers who haven't posted about a dog for 2 days (after 2 reminders from the app), forms still late after 2 reminders, incident reports, forms sent in for review, late forms, unread trainer messages, before-training gaps and booking or HubSpot problems. The same list as the admin To do page, apart from payslips waiting for approval. Items the app's reminders handed to the office (history shows what was already sent) clear themselves when the trainer acts; nobody needs to mark them Done.",
     input: {},
     run: async () => {
       // The To do list carries on when one of its lookups fails; this check makes a database outage an error instead of an empty list
@@ -136,6 +137,18 @@ export const CLAUDE_TOOLS: ClaudeTool[] = [
         lateForms: capped(d.late.map(formLine), "Use the forms tool with a trainer's name."),
         handoversBeforeApp: capped(d.beforeApp.map(formLine), "Use the forms tool with a trainer's name.")
       };
+    }
+  },
+  {
+    name: "reminders", title: "Reminders to trainers",
+    description: "The app's reminders to trainers (daily updates, clients waiting for a reply, late forms) over the last days. open: what's still on the ladder, at which stage (reminder 1 or 2 sent, or with the office), with its history. byTrainer: reminders each trainer needed and when they acted (after reminder 1, after reminder 2, after the office stepped in), for grading. checkIns: the office's check-ins from To do (in the app, texts, calls) and how often the suggested message was sent as it was. how: the rules. Something at reminder 1 or 2 is already being chased by the app: a person only needs to act on what's with the office.",
+    input: {
+      days: { type: "number", description: "How many days back. Default 7, up to 30.", optional: true, min: 1, max: 30 },
+      trainer: { type: "string", description: "Only this trainer (name or part of it).", optional: true }
+    },
+    run: async (a) => {
+      const r = await nudgeReport({ days: num(a, "days", 7, 1, 30), trainer: searchText(text(a, "trainer")) });
+      return { ...r, open: capped(r.open, "Narrow it down with a trainer's name.") };
     }
   },
   {
@@ -335,7 +348,7 @@ export const CLAUDE_TOOLS: ClaudeTool[] = [
   },
   {
     name: "pulse", title: "Pulse",
-    description: "Pulse, the app's dashboard (the admin page /a/pulse): the same figures, as data, for the last 7, 14, 30 or 90 days, each compared with the same number of days before (sales: with the same dates last year). tiles: daily updates, trainer and team reply times, forms on time, To do turnaround, clients waiting, dogs in care. office: To do counts, how To do is being handled (bursts of items marked Done seconds apart), clients who opened their chat, dogs with no word from Dogwise for 24 hours, clients left waiting more than once, balances owed before a start, pickups and drop-offs for the next 14 days, trainers with repeated alerts, late forms, new bookings, cancellations and incidents. trainers: every trainer's score out of 100 (daily updates 40, replies 25, forms on time 20, alerts 15), its parts, kennels used and days off. sales (HubSpot and Stripe): leads, sold, conversion, cost per sale, this month against last year, leads and sales by state, by source and by salesperson. cards: what Pulse says needs a decision. Worked out from a snapshot of the last 90 days that the app keeps for an hour (snapshotAt says when it was taken).",
+    description: "Pulse, the app's dashboard (the admin page /a/pulse): the same figures, as data, for the last 7, 14, 30 or 90 days, each compared with the same number of days before (sales: with the same dates last year). tiles: daily updates, trainer and team reply times, forms on time, To do turnaround, clients waiting, dogs in care. office: To do counts, how To do is being handled (bursts of items marked Done seconds apart), clients who opened their chat, dogs with no word from Dogwise for 24 hours, clients left waiting more than once, balances owed before a start, pickups and drop-offs for the next 14 days, trainers who needed the most chasing, late forms, new bookings, cancellations and incidents. trainers: every trainer's score out of 100 (daily updates 40, replies 25, forms on time 20, chasing 15: reminders the app had to send and times the office stepped in), its parts, kennels used and days off. sales (HubSpot and Stripe): leads, sold, conversion, cost per sale, this month against last year, leads and sales by state, by source and by salesperson. cards: what Pulse says needs a decision. Worked out from a snapshot of the last 90 days that the app keeps for an hour (snapshotAt says when it was taken).",
     input: {
       range: { type: "string", description: "7d, 14d, 30d or 90d (the last that many days, ending today). Default 14d.", optional: true, pattern: "^(7d|14d|30d|90d)$" },
       views: { type: "string", description: "Which views, separated by commas: office, trainers, sales. Default all three.", optional: true }

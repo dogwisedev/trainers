@@ -10,6 +10,8 @@ import { trainerSignins } from "./trainerSignin";
 import { dealKey } from "./chatTypes";
 import { cronProblems } from "./cronHealth";
 import { notAProgram, programFor } from "./programs";
+import { dayName, historyLines, openNudges, suggestCheckIn, type ChaseInfo, type Nudge, type NudgeKind } from "./nudges";
+import { quoConfigured, toE164 } from "./quo";
 
 // The admin "To do" list: everything that needs a person, in one place, most urgent first.
 // Sources: open incidents (chats, forms, bookings, HubSpot, before training), forms sent in for review,
@@ -27,6 +29,7 @@ export type TodoItem = {
   booking?: { id: string; move: "pickup" | "dropoff" | null; dog: string; trainer: string; hasDeal: boolean };
   ask?: { id: string; kind: "offer" | "pedro"; expired: boolean; trainer: string; dealId: string }; // Assign or Ask: check with the trainer / Ask Pedro // a booked dog that didn't start / finish as planned: Mark / Postpone / Cancel
   poc?: string;         // the trainer's Point of Contact (from the trainer's profile), for the POC filter; none = not tied to a trainer
+  chase?: ChaseInfo;    // handed to the office by the reminder ladder: history, a suggested check-in, Send in app / Text / Call (no Done: it clears itself)
 };
 /** late: forms past their deadline. beforeApp: handover reports due before the app took over the forms (still needed for the certificate). */
 export type TodoData = { items: TodoItem[]; late: (Todo & { trainerName: string; poc?: string })[]; beforeApp: (Todo & { trainerName: string; poc?: string })[]; pocs: string[] };
@@ -56,7 +59,7 @@ async function buildTodoUncached(): Promise<TodoData> {
     sb.from("chat_incidents").select("id, kind, status, detail, opened_at, chat_id, booking_id, report_id, ref, chat:chats(id, title, client_name, trainer_name, trainer_id, deal_key), booking:bookings!booking_id(id, dog_name, client_name, start_date, hubspot_deal_id, trainer_id, trainers(name))").neq("status", "resolved").order("opened_at"),
     sb.from("reports").select("id, kind, week_number, booking_id, submitted_at, trainer_id, trainers(name), booking:bookings!booking_id(dog_name, client_name, hubspot_deal_id)").eq("status", "submitted").order("submitted_at"),
     sb.from("messages").select("trainer_id, created_at, body").eq("sender_role", "trainer").is("read_at", null).order("created_at"),
-    sb.from("trainers").select("id, name, data_flags, active, probation, poc"),
+    sb.from("trainers").select("id, name, data_flags, active, probation, poc, phone"),
     trainerSignins().catch(() => []),
     sb.from("bookings").select("id, trainer_id, client_name, dog_name, start_date, end_date, weeks, status, reports_enabled, hubspot_deal_id").neq("status", "cancelled").gte("end_date", addDays(today, -75))
   ]);
@@ -70,6 +73,26 @@ async function buildTodoUncached(): Promise<TodoData> {
   const askOf = new Map(((askRows || []) as { id: string; kind: "offer" | "pedro"; trainer_id: string; deal_id: string }[]).map((a) => [a.id, a]));
   const bookingOfKey = (key: string) => bookings.find((b) => dealKey(b) === key);
   const items: TodoItem[] = [];
+
+  // The reminder ladder (lib/nudges.ts): what the app already sent, for the items it handed to the office
+  const nudges = await openNudges(sb).catch(() => [] as Nudge[]);
+  const nudgesOf = new Map<string, Nudge[]>();
+  for (const n of nudges) nudgesOf.set(n.ref, [...(nudgesOf.get(n.ref) || []), n]);
+  const tPhone = new Map(((trainers || []) as { id: string; phone: string | null }[]).map((t) => [t.id, t.phone]));
+  const canText = quoConfigured();
+  const chaseFor = (i: Inc, kind: NudgeKind, o: { trainerId?: string | null; trainer: string; dog: string; client: string; bookingId?: string }): ChaseInfo | undefined => {
+    if (!o.trainerId) return undefined;
+    let ref = (i.ref || "").startsWith("nudge:") ? i.ref!.slice(6) : null;
+    if (!ref && i.chat_id) ref = nudges.filter((n) => n.chat_id === i.chat_id && n.kind === kind).sort((a, b) => b.sent_at.localeCompare(a.sent_at))[0]?.ref || null;
+    const rows = ref ? nudgesOf.get(ref) || [] : [], bits = (ref || "").split(":");
+    const since = kind === "update_due" && bits[2] ? (bits[2] === "none" ? "pickup" : dayName(bits[2])) : undefined;
+    const firstAt = kind === "client_waiting" && ref ? ref.slice(ref.indexOf(":", 8) + 1) : "";
+    const hours = firstAt && Date.parse(firstAt) ? Math.max(1, Math.round((Date.now() - Date.parse(firstAt)) / 3600e3)) : undefined;
+    const form = kind === "form_late" && bits[2] ? `the ${kindName(bits[2] as Kind).toLowerCase()}${bits[2] === "weekly" ? ` (week ${bits[3]})` : ""}` : undefined;
+    const phone = tPhone.get(o.trainerId) || null;
+    return { ref, kind, trainerId: o.trainerId, trainerName: o.trainer, phone, chatId: i.chat_id, bookingId: o.bookingId || null,
+      history: historyLines(rows), suggested: suggestCheckIn(kind, { trainer: o.trainer, dog: o.dog, client: o.client, since, hours, form }), canText: canText && !!toE164(phone) };
+  };
 
   // ── Incidents ──
   for (const i of (incs || []) as unknown as Inc[]) {
@@ -88,9 +111,25 @@ async function buildTodoUncached(): Promise<TodoData> {
       not_ready: "dog", check_vaccines: "vaccine", trainer_report: "alert" };
     const add = (o: Omit<TodoItem, "key" | "since" | "incidentId" | "dogHref" | "hubspot"> & Partial<TodoItem>) => items.push({ ...base, icon: ICON[i.kind] || "alert", ...o });
     switch (i.kind) {
-      case "client_waiting": add({ group: "now", tone: "heart", text: `${client} is waiting for a reply about ${dog}`, primary: chat ? { ...chat, label: "Reply" } : undefined, quietChatId: i.chat_id || undefined }); break;
-      case "client_pileup": add({ group: "now", tone: "heart", text: `${client} has sent several messages about ${dog}`, primary: chat ? { ...chat, label: "Reply" } : undefined, quietChatId: i.chat_id || undefined }); break;
-      case "trainer_silent": add({ group: "now", tone: "heart", text: `${trainer} hasn't posted about ${dog} today`, primary: chat, quietChatId: i.chat_id || undefined }); break;
+      case "client_waiting": add({ group: "now", tone: "heart", text: `${client} is waiting for a reply about ${dog}`, primary: chat ? { ...chat, label: "Reply" } : undefined, quietChatId: i.chat_id || undefined,
+        chase: chaseFor(i, "client_waiting", { trainerId: i.chat?.trainer_id, trainer, dog, client, bookingId }) }); break;
+      case "client_pileup": add({ group: "now", tone: "heart", text: `${client} has sent several messages about ${dog}`, primary: chat ? { ...chat, label: "Reply" } : undefined, quietChatId: i.chat_id || undefined,
+        chase: chaseFor(i, "client_waiting", { trainerId: i.chat?.trainer_id, trainer, dog, client, bookingId }) }); break;
+      case "trainer_silent": {
+        // From the reminder ladder: 2 days with no post, after 2 reminders. (Before it: a flag every evening with no post.)
+        const fromLadder = (i.ref || "").startsWith("nudge:");
+        add({ group: "now", tone: "heart", text: fromLadder ? `${trainer} hasn't posted about ${dog} for 2 days` : `${trainer} hasn't posted about ${dog} today`,
+          detail: (i.detail || "").replace(/\s*Reminded .*$/, "") || undefined, primary: chat, quietChatId: i.chat_id || undefined,
+          chase: chaseFor(i, "update_due", { trainerId: i.chat?.trainer_id, trainer, dog, client, bookingId }) });
+        break;
+      }
+      case "form_chase": {
+        const bits = (i.ref || "").split(":"), kind = bits[3] as Kind | undefined;
+        const form = kind ? `${kindName(kind).toLowerCase()}${kind === "weekly" ? ` (week ${bits[4]})` : ""}` : "form";
+        add({ group: "now", tone: "biscuit", icon: "form", text: `${trainer} hasn't sent ${dog}'s ${form}`, detail: (i.detail || "").replace(/\s*Reminded .*$/, "") || undefined,
+          primary: dogHref ? { label: "Open dog", href: dogHref } : undefined, chase: chaseFor(i, "form_late", { trainerId: i.booking?.trainer_id || bk?.trainer_id, trainer, dog, client, bookingId }) });
+        break;
+      }
       case "reopened": add({ group: "week", tone: "biscuit", text: `${client} started a new chat about ${dog}`, primary: chat }); break;
       case "ready_to_close": add({ group: "week", tone: "line", text: `${dog}'s chat can be closed`, primary: chat ? { ...chat, label: "Open chat to close" } : undefined }); break;
       case "intake_media_missing": add({ group: "week", tone: "biscuit", text: `${dog}'s intake form came in without pickup photos or video`, primary: chat }); break;
