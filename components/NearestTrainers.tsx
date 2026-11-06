@@ -10,7 +10,7 @@ import type { DealCtx, LaneRow } from "@/lib/laneData";
 //  Ask Pedro     probation or out of range: a To do for Pedro with the details; once he approves, it's bookable.
 //  Greyed        doesn't take this program.  (On Hold: not shown.)
 // A small ★ Preferred only on a genuine tie (same lane, both free, about the same distance): fewer alerts wins.
-export function NearestTrainers({ ctx, picked, onPick }: { ctx: DealCtx; picked: string; onPick: (id: string, laneOk: "" | "offer") => void }) {
+export function NearestTrainers({ ctx, picked, onPick }: { ctx: DealCtx; picked: string; onPick: (id: string, laneOk: "" | "offer" | "pedro") => void }) {
   const [st, setSt] = useState<{ busy: boolean; msg: string; place: string; list: LaneRow[] }>({ busy: true, msg: "", place: "", list: [] });
   const [open, setOpen] = useState(""), [note, setNote] = useState(""), [done, setDone] = useState<Record<string, string>>({});
   const [pending, start] = useTransition();
@@ -52,7 +52,7 @@ export function NearestTrainers({ ctx, picked, onPick }: { ctx: DealCtx; picked:
                   <span className="shrink-0">
                     {t.lane === "assign" && <button type="button" onClick={() => onPick(t.id, "")} className={`h-9 min-h-0 px-3 text-small ${on ? "btn-ink" : "btn-ghost"}`}>{on ? <><Check size={15} />Picked</> : "Pick"}</button>}
                     {t.lane === "offer" && <button type="button" onClick={() => setOpen(open === t.id ? "" : t.id)} className="btn-ghost h-9 min-h-0 border-amber/60 px-3 text-small"><AlertTriangle size={14} className="text-amber" />Check first</button>}
-                    {t.lane === "pedro" && <button type="button" onClick={() => setOpen(open === t.id ? "" : t.id)} disabled={!!t.ask} className="btn-ghost h-9 min-h-0 border-bad/50 px-3 text-small"><ShieldQuestion size={14} className="text-bad" />Ask Pedro</button>}
+                    {t.lane === "pedro" && <button type="button" onClick={() => setOpen(open === t.id ? "" : t.id)} className="btn-ghost h-9 min-h-0 border-bad/50 px-3 text-small"><ShieldQuestion size={14} className="text-bad" />Ask Pedro</button>}
                   </span>
                 </div>
                 {open === t.id && t.lane === "offer" && (
@@ -67,9 +67,12 @@ export function NearestTrainers({ ctx, picked, onPick }: { ctx: DealCtx; picked:
                 )}
                 {open === t.id && t.lane === "pedro" && (
                   <div className="border-t border-line bg-bad-wash/40 p-3 text-small">
-                    <p className="font-semibold">Pedro decides this one. He gets a To do and an email with the dog, program, dates, distance and why.</p>
+                    <p className="font-semibold">Pedro decides this one.{t.ask ? " Already asked: it's on his To do." : ""} If he&apos;s already said yes, pick and book (it&apos;s recorded with your name). If not, ask him: he gets a To do and an email with the dog, program, dates, distance and why.</p>
                     <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Anything he should know? e.g. the client can meet at the I-95 exit" className="field-sm mt-2" />
-                    <button type="button" disabled={pending} onClick={() => ask("pedro", t.id)} className="btn-ink mt-2 h-9 min-h-0 px-3 text-small">{pending ? "Sending…" : "Ask Pedro"}</button>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <button type="button" onClick={() => { onPick(t.id, "pedro"); setOpen(""); }} className="btn-ink h-9 min-h-0 px-3 text-small"><Check size={15} />Pedro said yes: pick</button>
+                      <button type="button" disabled={pending} onClick={() => ask("pedro", t.id)} className="btn-ghost h-9 min-h-0 px-3 text-small">{pending ? "Sending…" : "Ask Pedro (To do + email)"}</button>
+                    </div>
                   </div>
                 )}
               </li>

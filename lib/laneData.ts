@@ -93,12 +93,20 @@ export async function lanesForDeal(d: DealCtx, opts: { limit?: number; sb?: Supa
   return { ok: true, place: [near.origin?.city, near.origin?.state].filter(Boolean).join(", "), rows: rows.slice(0, opts.limit || 6) };
 }
 
+/** Pedro himself (PEDRO_EMAIL, or a name starting "Pedro"): his own bookings never wait for his OK. */
+export const isPedro = (v: { name?: string | null; email?: string | null }) =>
+  (!!process.env.PEDRO_EMAIL && !!v.email && v.email.toLowerCase() === process.env.PEDRO_EMAIL.trim().toLowerCase()) || /^pedro\b/i.test(String(v.name || "").trim());
+
 /**
- * The check every booking passes (app and Sales Assistant): Ask-Pedro trainers need Pedro's approval on this deal; trainers
- * who need checking need "they said yes" (laneOk = "offer"). Returns the lane to record, or why not. If anything can't be
- * worked out (no ZIP, HubSpot down), the booking goes ahead as before and no lane is recorded.
+ * The check every booking passes (app and Sales Assistant).
+ *  - Ask-Pedro trainers (probation, out of range) need Pedro's OK: an approved ask on this deal, "Pedro said yes"
+ *    (laneOk = "pedro"), or Pedro booking it himself.
+ *  - Trainers who need checking (bonus dog, short notice, Watch) need "they said yes" (laneOk = "offer"); Pedro's OK covers this too.
+ * A "Pedro said yes" (or Pedro's own booking) is recorded as an approved ask, with who said so, and closes any open ask.
+ * Returns the lane to record, or why not (need: which button the form shows). If anything can't be worked out (no ZIP,
+ * HubSpot down), the booking goes ahead as before and no lane is recorded.
  */
-export async function laneGate(o: { dealId: string; trainerId: string; zip?: string | null; start: string; end: string; program?: string | null; dogs: number; laneOk?: string | null }, sb: SupabaseClient = serviceClient()): Promise<{ ok: true; lane: Lane | null; reasons: string } | { ok: false; message: string; lane: Lane }> {
+export async function laneGate(o: { dealId: string; trainerId: string; zip?: string | null; start: string; end: string; program?: string | null; dogs: number; laneOk?: string | null; by?: string; asPedro?: boolean }, sb: SupabaseClient = serviceClient()): Promise<{ ok: true; lane: Lane | null; reasons: string; note?: string } | { ok: false; lane: Lane; message: string; need?: "pedro" | "offer" }> {
   try {
     const { data: t } = await sb.from("trainers").select("*").eq("id", o.trainerId).maybeSingle();
     if (!t) return { ok: true, lane: null, reasons: "" };
@@ -109,13 +117,25 @@ export async function laneGate(o: { dealId: string; trainerId: string; zip?: str
     }
     const [before, asks, nights] = await Promise.all([programsBefore(sb, [o.trainerId], o.start), asksFor(sb, o.dealId), nightsFor(sb, [o.trainerId], o.start, o.end, o.dealId)]);
     const approved = asks.some((x) => x.trainer_id === o.trainerId && x.kind === "pedro" && x.status === "approved");
-    const r = laneFor(t as T, { start: o.start, end: o.end, program: o.program || null, dogs: Math.max(1, o.dogs), today: todayIso() }, road, before.get(o.trainerId) || 0, nights(t as T), approved);
-    const why = r.reasons.map((x) => x.text).join("; ");
-    if (r.lane === "pedro") return { ok: false, lane: r.lane, message: `${t.name.split(" ")[0]} needs Pedro's OK first (${why}). Use Ask Pedro.` };
-    if (r.lane === "offer" && o.laneOk !== "offer") return { ok: false, lane: r.lane, message: `Check with ${t.name.split(" ")[0]} first (${why}). Once they say yes, tick "They said yes" and book.` };
-    if (r.lane === "blocked") return { ok: false, lane: r.lane, message: `${t.name.split(" ")[0]} doesn't take ${o.program}. Pick someone else, or change their programs on their profile.` };
-    if (r.lane === "hidden") return { ok: false, lane: r.lane, message: `${t.name.split(" ")[0]} is on Hold.` };
-    return { ok: true, lane: approved && r.reasons.some((x) => x.code === "probation" || x.code === "range") ? "pedro" : r.lane, reasons: why };
+    const pedroYes = o.laneOk === "pedro" || !!o.asPedro;
+    const r = laneFor(t as T, { start: o.start, end: o.end, program: o.program || null, dogs: Math.max(1, o.dogs), today: todayIso() }, road, before.get(o.trainerId) || 0, nights(t as T), approved || pedroYes);
+    const why = r.reasons.map((x) => x.text).join("; "), first = String(t.name).split(" ")[0];
+    const needsPedro = r.reasons.some((x) => x.code === "probation" || x.code === "range");
+    if (r.lane === "pedro") return { ok: false, lane: r.lane, need: "pedro", message: `${first} needs Pedro's OK first (${why}). Ask Pedro, or if he has already said yes, tap "Pedro said yes: book".` };
+    if (r.lane === "offer" && o.laneOk !== "offer" && !pedroYes && !approved) return { ok: false, lane: r.lane, need: "offer", message: `Check with ${first} first (${why}). Ask them for me, or once they've said yes, tap "They said yes: book".` };
+    if (r.lane === "blocked") return { ok: false, lane: r.lane, message: `${first} doesn't take ${o.program}. Pick someone else, or change their programs on their profile.` };
+    if (r.lane === "hidden") return { ok: false, lane: r.lane, message: `${first} is on Hold.` };
+    // Record Pedro's OK given outside To do: who said so, and close any open ask for this trainer on this deal
+    let note: string | undefined;
+    if (needsPedro && !approved && pedroYes) {
+      const by = o.by || "An admin", said = o.asPedro ? `${by} (Pedro, booking it himself)` : `${by} (said Pedro said yes)`;
+      const open = asks.filter((x) => x.trainer_id === o.trainerId && x.kind === "pedro" && x.status === "open");
+      if (open.length) for (const a of open) await answerAsk(a.id, "approved", said, sb).catch(() => null);
+      else await sb.from("booking_asks").insert({ deal_id: o.dealId, trainer_id: o.trainerId, kind: "pedro", status: "approved", reasons: r.reasons.map((x) => x.code), detail: `${t.name}: ${why}.`, requested_by: by, answered_by: said, answered_at: new Date().toISOString() }).then(() => null, () => null);
+      note = o.asPedro ? "Pedro booked it himself" : `Pedro's OK, confirmed by ${by}`;
+      await auditSystem("Booked with Pedro's OK", `${t.name} for deal ${o.dealId}: ${why}. ${note}.`, { link: "/a" }).catch(() => null);
+    }
+    return { ok: true, lane: (approved || pedroYes) && needsPedro ? "pedro" : r.lane, reasons: why, note };
   } catch { return { ok: true, lane: null, reasons: "" }; }
 }
 

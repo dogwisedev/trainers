@@ -1,10 +1,12 @@
 "use client";
 import { NearestTrainers } from "@/components/NearestTrainers";
 import { PROGRAMS } from "@/lib/programs";
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
+import { flushSync } from "react-dom";
 import { useFormState, useFormStatus } from "react-dom";
 import { Trash2 } from "lucide-react";
-import { addTimeOff, dealPrefillAction, deleteTimeOff, Result, saveBooking, saveTrainer, setExtraDays, setDisplayNameAction, setPassword, type DealPrefill } from "@/app/actions";
+import { addTimeOff, askAction, dealPrefillAction, deleteTimeOff, Result, saveBooking, saveTrainer, setExtraDays, setDisplayNameAction, setPassword, type DealPrefill } from "@/app/actions";
+import type { DealCtx } from "@/lib/laneData";
 import { Trainer } from "@/lib/types";
 import { cleanDealId } from "@/lib/dealId";
 
@@ -179,7 +181,8 @@ export type TrainerOption = { id: string; name: string; place: string; free: num
 export function BookingForm({ trainers, defaultTrainer, defaultStart, defaultDeal, defaultLaneOk }: { trainers: TrainerOption[]; defaultTrainer?: string; defaultStart?: string; defaultDeal?: string; defaultLaneOk?: string }) {
   const [r, act] = useFormState(saveBooking, null);
   const [tid, setTid] = useState(defaultTrainer || "");
-  const [laneOk, setLaneOk] = useState<"" | "offer">(defaultLaneOk === "offer" ? "offer" : "");
+  const [laneOk, setLaneOk] = useState<"" | "offer" | "pedro">(defaultLaneOk === "offer" || defaultLaneOk === "pedro" ? defaultLaneOk : "");
+  const formRef = useRef<HTMLFormElement>(null);
   const [dealInput, setDealInput] = useState(defaultDeal || "");
   const [deal, setDeal] = useState<NonNullable<DealPrefill["deal"]> | null>(null);
   const [look, setLook] = useState<{ busy: boolean; msg: string; ok: boolean }>({ busy: false, msg: "", ok: true });
@@ -209,7 +212,7 @@ export function BookingForm({ trainers, defaultTrainer, defaultStart, defaultDea
   const notWon = !!deal && !deal.closedWon;
 
   return (
-    <form action={act} className="space-y-4">
+    <form ref={formRef} action={act} className="space-y-4">
       <div className="rounded-2xl border border-line bg-canvas p-3.5">
         <F label="HubSpot deal" hint="Required. Paste the deal's link (or its number) and the rest fills in.">
           <span className="flex gap-2">
@@ -235,7 +238,7 @@ export function BookingForm({ trainers, defaultTrainer, defaultStart, defaultDea
         picked={tid} onPick={(id, ok) => { setTid(id); setLaneOk(ok); }} />}
       <input type="hidden" name="lane_ok" value={laneOk} />
       {deal?.zip && <input type="hidden" name="deal_zip" value={deal.zip} />}
-      {laneOk === "offer" && tid && <p className="rounded-xl bg-amber-wash px-3 py-2 text-small font-semibold text-amber">Booking as checked: the trainer said yes.</p>}
+      {laneOk && tid && <p className="rounded-xl bg-amber-wash px-3 py-2 text-small font-semibold text-amber">{laneOk === "pedro" ? "Booking with Pedro's OK (recorded with your name)." : "Booking as checked: the trainer said yes."}</p>}
       <F label="Trainer">
         <select name="trainer_id" required value={tid} onChange={(e) => { setTid(e.target.value); setLaneOk(""); }} className="field">
           <option value="">Choose a trainer</option>
@@ -284,7 +287,29 @@ export function BookingForm({ trainers, defaultTrainer, defaultStart, defaultDea
       <BookSubmit disabled={!dealNo || notWon || (!!deal && deal.dogs.length > 0 && !picked.length)} />
       {!dealNo && <p className="text-caption text-ink-faint">Add the HubSpot deal to save.</p>}
       <Note r={r} />
+      {r && !r.ok && r.need && tid && (
+        <NeedOk need={r.need} trainer={trainers.find((t) => t.id === tid)?.name || "the trainer"} trainerId={tid}
+          ctx={deal ? { dealId: deal.id, zip: deal.zip, start: start || deal.start, end: start && start !== deal.start ? null : deal.end, program: deal.program || null, dogs: Math.max(1, deal.dogs.length), dogNames: deal.dogs, client: deal.client } : null}
+          onYes={() => { flushSync(() => setLaneOk(r.need!)); formRef.current?.requestSubmit(); }} />
+      )}
     </form>
+  );
+}
+/** Under a booking the gate stopped: say yes and book (recorded with your name), or ask (a To do; Pedro also gets an email). */
+function NeedOk({ need, trainer, trainerId, ctx, onYes }: { need: "pedro" | "offer"; trainer: string; trainerId: string; ctx: DealCtx | null; onYes: () => void }) {
+  const [pending, start] = useTransition();
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const first = trainer.split(" ")[0];
+  const ask = () => start(async () => { if (!ctx) return; const x = await askAction(need, ctx, trainerId, ""); setMsg({ ok: x.ok, text: x.message }); });
+  return (
+    <div className="rounded-2xl border border-line bg-paper p-3.5">
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <button type="button" onClick={onYes} className="btn-ink flex-1">{need === "pedro" ? "Pedro said yes: book" : `${first} said yes: book`}</button>
+        <button type="button" onClick={ask} disabled={pending || !ctx || msg?.ok} className="btn-ghost flex-1">{pending ? "Sending…" : need === "pedro" ? "Ask Pedro" : `Ask ${first} for me`}</button>
+      </div>
+      <p className="mt-2 text-caption text-ink-faint">{need === "pedro" ? "Already OK'd by Pedro (call, Slack)? Book it: it's recorded with your name. Not yet? Ask Pedro sends him a To do and an email with the dog, dates and why." : `Already spoken to ${first}? Book it. Not yet? It goes on To do for their POC to check.`}</p>
+      {msg && <p role="status" className={`mt-1 text-small font-semibold ${msg.ok ? "text-fern" : "text-heart"}`}>{msg.text}</p>}
+    </div>
   );
 }
 function BookSubmit({ disabled }: { disabled: boolean }) {

@@ -183,3 +183,8 @@ The app reminds the trainer itself; the office only gets what the trainer didn't
 ## Training materials stop when a program is off
 - Cancel or Postpone in the app: the booking is cancelled, so nothing more is sent (as before).
 - Cancelled, refunded or on standby in HubSpot only (Client Status Cancelled, Refunded or Standby, or the deal no longer Closed Won) while the booking is still live in the app: the HubSpot sync pauses the dog's materials (`bookings.hs_hold`, migration 050) and, for a program not over yet, puts it on To do to cancel or postpone in the app. It carries on by itself if HubSpot goes back to normal. The dog page shows why it's paused.
+
+## Ask Pedro, without getting stuck
+- A booking blocked for Pedro's OK (probation, out of range) shows two buttons right under the message: **Pedro said yes: book** (when he's already OK'd it by call or Slack: recorded as his approval with your name, and any open ask closes) and **Ask Pedro** (a To do, a push to admins, and an email to `PEDRO_EMAIL`). The closest-trainers list has the same two.
+- Pedro's OK covers the trainer check too (short notice, bonus dog, Watch), so nobody has to tick twice. Pedro booking it himself (`PEDRO_EMAIL`, or a name starting "Pedro") is never blocked.
+- A booking blocked for a trainer check gets **They said yes: book** and **Ask them for me** the same way.

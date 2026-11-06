@@ -85,13 +85,13 @@ export async function POST(req: Request) {
   // short notice or Watch. 409 with code "ask_pedro" / "check_first" tells the extension which button to show.
   let laneCols: Record<string, string> = {};
   if (dealId) {
-    const gate = await laneGate({ dealId, trainerId, zip: /^\d{5}$/.test(String(b.zip || "")) ? String(b.zip) : null, start: rows[0].start_date, end: rows[0].end_date, program: rows[0].program, dogs: rows.length, laneOk: b.lane_ok ? String(b.lane_ok) : null });
+    const gate = await laneGate({ dealId, trainerId, zip: /^\d{5}$/.test(String(b.zip || "")) ? String(b.zip) : null, start: rows[0].start_date, end: rows[0].end_date, program: rows[0].program, dogs: rows.length, laneOk: b.lane_ok ? String(b.lane_ok) : null, by: `${String(b.by || "").trim() || "Sales"} (Sales Assistant)` });
     if (!gate.ok) return bad(409, { code: gate.lane === "pedro" ? "ask_pedro" : gate.lane === "offer" ? "check_first" : "not_eligible", message: gate.message });
     if (gate.lane) laneCols = { lane: gate.lane, lane_reasons: gate.reasons };
   }
 
   // Room every week, counting the dogs in this same request too (a bonus dog the trainer said yes to is allowed over)
-  if (!b.force && b.lane_ok !== "offer") {
+  if (!b.force && b.lane_ok !== "offer" && b.lane_ok !== "pedro") {
     const from = rows.reduce((m, r) => (r.start_date < m ? r.start_date : m), rows[0].start_date);
     const to = rows.reduce((m, r) => (r.end_date > m ? r.end_date : m), rows[0].end_date);
     const [bk, off] = await Promise.all([

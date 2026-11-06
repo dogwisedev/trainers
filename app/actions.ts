@@ -7,7 +7,7 @@ import { clearFollowupTodos, followupState, writeSessionDate, writeSessionReport
 import { confirmMove } from "@/lib/pickup";
 import { setFollowupTrainer } from "@/lib/followupTrainer";
 import { readDealForBooking } from "@/lib/dealRead";
-import { answerAsk, createAsk, laneGate, lanesForDeal, type DealCtx } from "@/lib/laneData";
+import { answerAsk, createAsk, isPedro, laneGate, lanesForDeal, type DealCtx } from "@/lib/laneData";
 import { auditCall, audited } from "@/lib/audit";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
@@ -270,7 +270,7 @@ export async function dealPrefillAction(input: string): Promise<DealPrefill> {
 
 /** Book one or more dogs from one HubSpot deal. The deal is required (bookings without one miss date sync, alerts, Sales and balance links).
  *  Same checks as the extension: no dog booked twice on a deal, and a free kennel every week (unless "Book anyway" is ticked). */
-export async function saveBooking(_: Result | null, f: FormData): Promise<Result> {
+export async function saveBooking(_: Result | null, f: FormData): Promise<Result & { need?: "pedro" | "offer" }> {
   return audited("saveBooking", { f }, async () => {
   if (isDemo()) return DEMO;
   const v = await viewerOrThrow();
@@ -300,12 +300,14 @@ export async function saveBooking(_: Result | null, f: FormData): Promise<Result
   }));
 
   // Assign or Ask (OPS 08): probation or out of range need Pedro's OK; a bonus dog, short notice or Watch need "they said yes"
-  const gate = await laneGate({ dealId, trainerId, zip: str(f, "deal_zip"), start, end: rows[0].end_date, program: str(f, "program"), dogs: rows.length, laneOk: str(f, "lane_ok") });
-  if (!gate.ok) return { ok: false, message: gate.message };
+  // The button pressed wins over the hidden field: "Pedro said yes: book" / "They said yes: book" (components/forms.tsx)
+  const laneOk = str(f, "lane_ok_now") || str(f, "lane_ok");
+  const gate = await laneGate({ dealId, trainerId, zip: str(f, "deal_zip"), start, end: rows[0].end_date, program: str(f, "program"), dogs: rows.length, laneOk, by: v.name, asPedro: isPedro(v) });
+  if (!gate.ok) return { ok: false, message: gate.message, need: gate.need };
   const laneCols = gate.lane ? { lane: gate.lane, lane_reasons: gate.reasons || null } : {};
 
   // A free kennel every week (counting the dogs in this booking too). A bonus dog the trainer said yes to is allowed over.
-  if (f.get("force") !== "on" && str(f, "lane_ok") !== "offer") {
+  if (f.get("force") !== "on" && laneOk !== "offer" && laneOk !== "pedro" && !isPedro(v)) {
     const to = rows[0].end_date;
     const [bk, off] = await Promise.all([
       sb.from("bookings").select("*").eq("trainer_id", trainerId).neq("status", "cancelled").lte("start_date", to).gte("end_date", start),
