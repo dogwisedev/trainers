@@ -36,7 +36,16 @@ export async function loadIntro(sb: SupabaseClient = serviceClient()): Promise<s
   return (data?.value as string | undefined)?.trim() || DEFAULT_INTRO;
 }
 
-/** The 10-minute chat check: post today's item in each chat once its send time (12–5:30 PM Eastern) has come. */
+const BK_COLS = "id, hubspot_deal_id, dog_name, start_date, end_date, status, program, program_choice, training_paused, created_at";
+/** The deals' bookings, with hs_hold (HubSpot says the program is off: migration 050) when the column is there. */
+async function dealBookings(sb: SupabaseClient, deals: string[]): Promise<Bk[]> {
+  const withHold = await sb.from("bookings").select(`${BK_COLS}, hs_hold`).in("hubspot_deal_id", deals);
+  if (!withHold.error) return (withHold.data || []) as Bk[];
+  return ((await sb.from("bookings").select(BK_COLS).in("hubspot_deal_id", deals)).data || []) as Bk[];
+}
+
+/** The 10-minute chat check: post today's item in each chat once its send time (12–5:30 PM Eastern) has come.
+ *  Nothing goes to a cancelled booking (Cancel or Postpone in the app), a dog paused by hand, or a deal HubSpot says is off. */
 export async function runTrainingSends(sb: SupabaseClient = serviceClient()) {
   const out = { sent: 0, skipped: 0, errors: [] as string[] };
   if (isDemo()) return out;
@@ -53,13 +62,13 @@ export async function runTrainingSends(sb: SupabaseClient = serviceClient()) {
   const list = (chats || []) as { id: string; deal_key: string; title: string | null; client_user_id: string | null }[];
   const deals = list.map((c) => c.deal_key).filter((k) => /^\d+$/.test(k));
   if (!deals.length) return out;
-  const { data: bks } = await sb.from("bookings").select("id, hubspot_deal_id, dog_name, start_date, end_date, status, program, program_choice, training_paused, created_at").in("hubspot_deal_id", deals);
+  const bks = await dealBookings(sb, deals);
   const { data: sends } = await sb.from("training_sends").select("deal_key, material_id, status, at").in("deal_key", deals);
   const sent = (sends || []) as { deal_key: string; material_id: string | null; status: string; at: string }[];
   for (const c of list) {
     try {
       if (!/^\d+$/.test(c.deal_key)) continue;
-      const sch = scheduleFor(((bks || []) as Bk[]).filter((b) => b.hubspot_deal_id === c.deal_key), materials, settings);
+      const sch = scheduleFor(bks.filter((b) => b.hubspot_deal_id === c.deal_key), materials, settings);
       if (!sch || sch.paused || today < sch.start) continue;
       const mine = sent.filter((x) => x.deal_key === c.deal_key);
       const done = new Set(mine.map((x) => x.material_id));
@@ -112,12 +121,11 @@ export type DogTrainingRow = { title: string; kind: Material["kind"]; on: string
 export async function dealTraining(dealKey: string, sb: SupabaseClient = serviceClient()) {
   if (!/^\d+$/.test(dealKey)) return null;
   try {
-    const [materials, settings, { data: bks }, { data: sends }] = await Promise.all([
-      loadMaterials(sb), loadSettings(sb),
-      sb.from("bookings").select("id, hubspot_deal_id, dog_name, start_date, end_date, status, program, program_choice, training_paused, created_at").eq("hubspot_deal_id", dealKey),
+    const [materials, settings, bks, { data: sends }] = await Promise.all([
+      loadMaterials(sb), loadSettings(sb), dealBookings(sb, [dealKey]),
       sb.from("training_sends").select("material_id, status").eq("deal_key", dealKey)
     ]);
-    const sch = scheduleFor((bks || []) as Bk[], materials, settings);
+    const sch = scheduleFor(bks, materials, settings);
     if (!sch) return null;
     const st = new Map(((sends || []) as { material_id: string; status: "sent" | "skipped" | "failed" }[]).map((x) => [x.material_id, x.status]));
     const byId = new Map(materials.map((m) => [m.id, m]));
@@ -125,7 +133,7 @@ export async function dealTraining(dealKey: string, sb: SupabaseClient = service
       const s = st.get(p.id);
       return { title: byId.get(p.id)?.title || "Item", kind: byId.get(p.id)?.kind || "video", on: p.on, status: s === "sent" ? "sent" : s === "skipped" || p.on === null ? "skipped" : "planned", phase };
     };
-    return { program: sch.program, paused: sch.paused, leadId: sch.lead.id, rows: [...sch.during.map((p) => row(p, "during")), ...sch.after.map((p) => row(p, "after"))] };
+    return { program: sch.program, paused: sch.paused, byHand: sch.byHand, hold: sch.hold, leadId: sch.lead.id, rows: [...sch.during.map((p) => row(p, "during")), ...sch.after.map((p) => row(p, "after"))] };
   } catch { return null; } // migration 035 not run yet
 }
 

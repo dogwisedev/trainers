@@ -48,8 +48,9 @@ const NOW_KINDS: IncidentKind[] = ["trainer_report", "client_waiting", "client_p
 
 /** To do, worked out once per page load (the menu badge and the To do page use the same list, so the numbers always match). */
 export const buildTodo = cache(buildTodoUncached);
-/** The number on the To do badge and at the top of To do: every row, with the late forms (and the handovers from before the app) counted as one row each (as shown). */
-export const todoTotal = (d: TodoData) => d.items.length + (d.late.length ? 1 : 0) + (d.beforeApp.length ? 1 : 0);
+/** The number on the To do badge and at the top of To do: every row, with the handovers from before the app counted as one row (as shown).
+ *  Late forms aren't counted: the app reminds the trainers (lib/nudges.ts), and a form still late after 2 reminders is its own row. */
+export const todoTotal = (d: TodoData) => d.items.length + (d.beforeApp.length ? 1 : 0);
 export async function todoCount(): Promise<number> { return todoTotal(await buildTodo()); }
 
 async function buildTodoUncached(): Promise<TodoData> {

@@ -4,7 +4,7 @@ import { getViewer } from "@/lib/data";
 import { audited } from "@/lib/audit";
 import { isDemo, serverClient, serviceClient } from "@/lib/supabase";
 import { pushToTrainer } from "@/lib/push";
-import { sendText, toE164 } from "@/lib/quo";
+import { fromFor, sendText, toE164 } from "@/lib/quo";
 import type { NudgeKind } from "@/lib/nudges";
 
 // The office's check-in with a trainer, from an item the reminder ladder handed to To do (components/ChaseActions.tsx).
@@ -38,11 +38,11 @@ export async function checkInAction(c: CheckIn, channel: "app" | "text", text: s
     const body = text.trim();
     if (!body) return { ok: false, message: "Write a message first." };
     const sb = serviceClient();
-    const { data: t } = await sb.from("trainers").select("id, name, phone").eq("id", c.trainerId).maybeSingle();
+    const { data: t } = await sb.from("trainers").select("id, name, phone, poc").eq("id", c.trainerId).maybeSingle();
     if (!t) return { ok: false, message: "Trainer not found." };
     if (channel === "text") {
       if (!toE164(t.phone)) return { ok: false, message: `${t.name} has no mobile number on their profile.` };
-      const r = await sendText(t.phone, `Dogwise: ${body}`);
+      const r = await sendText(t.phone, `Dogwise: ${body}`, fromFor(t.poc).from); // from their POC's number when it's set
       if (!r.ok) return { ok: false, message: `The text didn't go: ${r.error}` };
     } else {
       const { error } = await serverClient().from("messages").insert({ trainer_id: t.id, sender_id: v.userId, sender_role: "admin", sender_name: "Dogwise team", body: body.slice(0, 4000) });

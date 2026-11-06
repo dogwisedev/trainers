@@ -11,7 +11,7 @@ const day = (iso: string) => new Date(`${iso}T12:00:00Z`).toLocaleDateString("en
 /** Dog page: the program used, what's been sent and what's next, and pause. */
 export function DogTraining({ bookingId, programs, chosen, bookingProgram, data }: {
   bookingId: string; programs: readonly string[]; chosen: string | null; bookingProgram: string | null;
-  data: { program: string | null; paused: boolean; rows: Row[] } | null;
+  data: { program: string | null; paused: boolean; byHand?: boolean; hold?: string | null; rows: Row[] } | null;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -45,9 +45,12 @@ export function DogTraining({ bookingId, programs, chosen, bookingProgram, data 
               </li>
             ))}
           </ol>
-          <button type="button" disabled={pending} onClick={() => run(() => setTrainingPausedAction(bookingId, !data.paused))} className="btn-ghost">
-            {data.paused ? <><Play size={16} />Resume</> : <><Pause size={16} />Pause for this dog</>}
-          </button>
+          {data.hold && <p className="rounded-xl bg-biscuit-wash px-3 py-2 text-small text-warn">Paused: {data.hold}. Nothing is sent while HubSpot says so; it carries on by itself if HubSpot goes back to normal. Cancel or postpone the booking in the app to stop it for good.</p>}
+          {(() => { const byHand = data.byHand ?? data.paused; return (
+            <button type="button" disabled={pending} onClick={() => run(() => setTrainingPausedAction(bookingId, !byHand))} className="btn-ghost">
+              {byHand ? <><Play size={16} />Resume</> : <><Pause size={16} />Pause for this dog</>}
+            </button>
+          ); })()}
         </>
       )}
       {data?.program && rows.length === 0 && <p className="text-small text-ink-soft">Nothing on the {data.program} list yet.</p>}

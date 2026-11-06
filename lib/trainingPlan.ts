@@ -42,8 +42,9 @@ export const DEFAULT_SETTINGS = (plan: string): PlanSettings => ({ plan, first_d
 /** The program used for a booking's materials: the one an admin picked, else the booking's own program name. */
 export const bookingProgram = (b: { program?: string | null; program_choice?: string | null }) => programFor(b.program_choice || "") || programFor(b.program || "");
 
-export type Bk = { id: string; hubspot_deal_id: string | null; dog_name: string | null; start_date: string; end_date: string; status: string; program: string | null; program_choice: string | null; training_paused: boolean; created_at: string };
-export type DealSchedule = { program: string | null; paused: boolean; during: Planned[]; after: Planned[]; start: string; end: string; lead: Bk };
+export type Bk = { id: string; hubspot_deal_id: string | null; dog_name: string | null; start_date: string; end_date: string; status: string; program: string | null; program_choice: string | null; training_paused: boolean; created_at: string; hs_hold?: string | null };
+/** paused: nothing goes out. byHand: someone paused this dog. hold: HubSpot says the program is off (Cancelled, Refunded, Standby, not Closed Won). */
+export type DealSchedule = { program: string | null; paused: boolean; byHand: boolean; hold: string | null; during: Planned[]; after: Planned[]; start: string; end: string; lead: Bk };
 
 /** One chat's schedule: the deal's first booking's program, from the first pickup to the last drop-off. */
 export function scheduleFor(bookings: Bk[], materials: { id: string; plan: string; position: number }[], settings: Map<string, PlanSettings>): DealSchedule | null {
@@ -57,6 +58,7 @@ export function scheduleFor(bookings: Bk[], materials: { id: string; plan: strin
   const a = settings.get("after") || DEFAULT_SETTINGS("after");
   const during = program ? planDuring(materials.filter((m) => m.plan === program), start, end, s.first_day) : [];
   const after = planAfter(materials.filter((m) => m.plan === "after"), end, a.start_after, a.every_days);
-  return { program, paused: live.some((b) => b.training_paused), during, after, start, end, lead };
+  const byHand = live.some((b) => b.training_paused), hold = live.find((b) => b.hs_hold)?.hs_hold || null;
+  return { program, paused: byHand || !!hold, byHand, hold, during, after, start, end, lead };
 }
 

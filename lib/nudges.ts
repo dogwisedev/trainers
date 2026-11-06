@@ -6,7 +6,7 @@ import { etAt, wakingHoursBetween } from "./commsTime";
 import { addDays } from "./dates";
 import { pushToTrainer } from "./push";
 import { mailConfigured, sendMail } from "./mail";
-import { quoConfigured, sendText, toE164 } from "./quo";
+import { fromFor, quoConfigured, sendText, toE164 } from "./quo";
 import { raiseIncident, resolveIncidents } from "./incidents";
 import { localParts, trainerZone } from "./moveRules";
 import { kindName, todos, type BookingForReports, type Kind, type RowLike } from "./reports";
@@ -44,7 +44,7 @@ const clip = (s: string | null | undefined, n: number) => { const t = String(s |
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 const list = (xs: string[]) => (xs.length > 1 ? `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}` : xs[0] || "");
 
-type Trainer = { id: string; name: string; phone: string | null; email: string | null; dogwise_email: string | null; state: string | null };
+type Trainer = { id: string; name: string; phone: string | null; email: string | null; dogwise_email: string | null; state: string | null; poc?: string | null };
 type Chat = { id: string; deal_key: string; trainer_id: string | null; title: string | null; client_name: string | null; quiet_at: string | null; last_trainer_at: string | null; last_client_at: string | null; last_reply_at: string | null };
 type Bk = { id: string; hubspot_deal_id: string | null; trainer_id: string; dog_name: string | null; client_name: string; start_date: string; end_date: string; status: string; picked_up_at?: string | null };
 type Want = { ref: string; kind: NudgeKind; step: 1 | 2; trainer: Trainer; chatId?: string; bookingId?: string; line: string; url: string; who?: string; one?: string };
@@ -70,7 +70,7 @@ async function deliver(t: Trainer, m: { title: string; body: string; url: string
   if (!m.second && pushed) return { channels, error: null };
   const link = `${site()}${m.url}`;
   if (quoConfigured() && toE164(t.phone)) {
-    const r = await sendText(t.phone!, `Dogwise: ${m.title}. ${m.body} ${link}`);
+    const r = await sendText(t.phone!, `Dogwise: ${m.title}. ${m.body} ${link}`, fromFor(t.poc).from); // from their POC's number when it's set
     if (r.ok) channels.push("text"); else errs.push(`text: ${r.error}`);
   }
   const to = t.email || t.dogwise_email;
@@ -113,6 +113,11 @@ export async function runNudges(now = new Date(), sb: SupabaseClient = serviceCl
     const { data: openRows, error } = await sb.from("nudges").select("*").is("done_at", null).limit(3000);
     if (error) { if (!/nudges|schema cache|does not exist/i.test(error.message)) out.errors.push(error.message); return out; } // migration 049 not run yet
     const open = (openRows || []) as Nudge[];
+    // The old nightly "hasn't posted today" items (from before the reminders, opened without a ref): the reminders replace
+    // them. A dog with no update now comes back to To do after 2 missed days, with its history.
+    await sb.from("chat_incidents").update({ status: "resolved", resolved_at: now.toISOString(), resolved_by: "automatic", auto_resolved: true,
+      resolved_note: "Replaced by the reminders: the trainer is reminded first, and it's back on To do after 2 missed days" })
+      .eq("kind", "trainer_silent").is("ref", null).neq("status", "resolved");
     const steps = new Map<string, Nudge[]>();
     for (const n of open) steps.set(n.ref, [...(steps.get(n.ref) || []), n]);
     const stepOf = (ref: string, s: number) => (steps.get(ref) || []).find((n) => n.step === s);
@@ -120,7 +125,7 @@ export async function runNudges(now = new Date(), sb: SupabaseClient = serviceCl
 
     const [{ data: cr }, { data: tr }] = await Promise.all([
       sb.from("chats").select("id, deal_key, trainer_id, title, client_name, quiet_at, last_trainer_at, last_client_at, last_reply_at").eq("status", "open"),
-      sb.from("trainers").select("id, name, phone, email, dogwise_email, state")
+      sb.from("trainers").select("id, name, phone, email, dogwise_email, state, poc")
     ]);
     const chats = (cr || []) as Chat[], chatById = new Map(chats.map((c) => [c.id, c]));
     const trainers = new Map(((tr || []) as Trainer[]).map((t) => [t.id, t]));

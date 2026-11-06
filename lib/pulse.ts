@@ -404,7 +404,7 @@ export async function pulse(q: { r?: string; from?: string; to?: string; v?: str
     let counts = { todo: 0, now: 0, toReview: 0, late: 0, notBooked: 0, notSignedIn: 0 }, lateForms: OfficeView["lateForms"] = [], balances: OfficeView["balances"] = [];
     try {
       const t = await buildTodo(); const signin = t.items.find((i) => i.key === "signin");
-      counts = { todo: t.items.length + (t.late.length ? 1 : 0) + (t.beforeApp.length ? 1 : 0), now: t.items.filter((i) => i.group === "now").length, toReview: t.items.filter((i) => i.key.startsWith("rep:")).length, late: t.late.length, notBooked: t.items.filter((i) => /closed won/i.test(i.text)).length, notSignedIn: signin ? Number((signin.text.match(/^(\d+)/) || [])[1] || 0) : 0 };
+      counts = { todo: t.items.length + (t.beforeApp.length ? 1 : 0), now: t.items.filter((i) => i.group === "now").length, toReview: t.items.filter((i) => i.key.startsWith("rep:")).length, late: t.late.length, notBooked: t.items.filter((i) => /closed won/i.test(i.text)).length, notSignedIn: signin ? Number((signin.text.match(/^(\d+)/) || [])[1] || 0) : 0 };
       const lf = new Map<string, number>(); for (const x of t.late) lf.set(x.trainerName || "Trainer", (lf.get(x.trainerName || "Trainer") || 0) + 1);
       lateForms = [...lf.entries()].map(([name, n]) => ({ name, n })).sort((a, b) => b.n - a.n);
       balances = t.items.filter((i) => /balance/i.test(i.detail || "") && /ready|start/i.test(i.text)).map((i) => ({ text: i.text, href: i.dogHref || i.primary?.href }));

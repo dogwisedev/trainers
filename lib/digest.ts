@@ -25,7 +25,7 @@ export async function sendDailyDigest(sb: SupabaseClient): Promise<boolean> {
   const lines = [
     ...now.slice(0, 12).map((i) => ({ text: `Now: ${i.text}`, link: link(i.primary?.href || i.dogHref) })),
     ...week.slice(0, 8).map((i) => ({ text: `This week: ${i.text}`, link: link(i.primary?.href || i.dogHref) })),
-    ...(late.length ? [{ text: `${late.length} form${late.length > 1 ? "s are" : " is"} late`, link: `${site()}/a` }] : []),
+    ...(late.length ? [{ text: `For information: ${late.length} form${late.length > 1 ? "s are" : " is"} late, and the app is reminding the trainers. You only need to act on those still late after 2 reminders (in the list above)`, link: `${site()}/a/reports` }] : []),
     ...(beforeApp.length ? [{ text: `${beforeApp.length} handover report${beforeApp.length > 1 ? "s" : ""} from before the app, needed for the certificate`, link: `${site()}/a` }] : []),
     ...(later.length ? [{ text: `${later.length} more when you have a minute`, link: `${site()}/a` }] : [])
   ];

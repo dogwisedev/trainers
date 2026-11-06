@@ -21,7 +21,7 @@ import { auditSystem } from "./audit";
 const site = () => (process.env.NEXT_PUBLIC_SITE_URL || "").replace(/\/$/, "");
 const KEEP_DAYS = 14; // bookings that ended more than this long ago are history: never moved
 
-type Row = PlanIn & { trainer_id: string; client_name: string; status: string; hubspot_deal_id: string; trainers: { name: string; capacity: number } | null };
+type Row = PlanIn & { trainer_id: string; client_name: string; status: string; hubspot_deal_id: string; trainers: { name: string; capacity: number } | null; hs_hold?: string | null };
 export type Change = { booking: string; deal: string; dog: string; client: string; trainer: string; from: string; to: string; days: [number, number]; extra: [number, number] };
 export type SyncResult = {
   mode: SyncMode; skipped?: string; startProp?: string; endProp?: string | null;
@@ -36,10 +36,12 @@ export async function syncHubspotDates(opts: { mode?: SyncMode; dealIds?: string
   const write = mode !== "dry", announce = mode === "live", emailTrainers = announce && opts.emailTrainers !== false;
   const today = etParts(new Date()).date;
 
-  let q = sb.from("bookings").select("id, trainer_id, client_name, dog_name, start_date, end_date, weeks, extra_days, status, hubspot_deal_id, trainers(name, capacity)")
-    .not("hubspot_deal_id", "is", null).neq("status", "cancelled").gte("end_date", addDays(today, -KEEP_DAYS));
-  if (opts.dealIds?.length) q = q.in("hubspot_deal_id", opts.dealIds);
-  const { data, error } = await q;
+  const COLS = "id, trainer_id, client_name, dog_name, start_date, end_date, weeks, extra_days, status, hubspot_deal_id, trainers(name, capacity)";
+  const query = (cols: string) => { let q = sb.from("bookings").select(cols).not("hubspot_deal_id", "is", null).neq("status", "cancelled").gte("end_date", addDays(today, -KEEP_DAYS)); if (opts.dealIds?.length) q = q.in("hubspot_deal_id", opts.dealIds); return q; };
+  // hs_hold: training materials paused while HubSpot says the program is off (migration 050; before it, no pausing)
+  let { data, error } = await query(`${COLS}, hs_hold`);
+  const holdOn = !error;
+  if (error) ({ data, error } = await query(COLS));
   if (error) { out.errors.push(error.message); return out; }
   const rows = (data || []) as unknown as Row[];
   const byDeal = new Map<string, Row[]>();
@@ -51,7 +53,7 @@ export async function syncHubspotDates(opts: { mode?: SyncMode; dealIds?: string
   try { props = await dealDateProps(); } catch (e) { out.errors.push((e as Error).message); return out; }
   out.startProp = props.start.name; out.endProp = props.end?.name || null;
   let deals;
-  try { deals = await readDeals([...byDeal.keys()].filter((id) => /^\d+$/.test(id)), [props.start.name, ...(props.end ? [props.end.name] : []), "hs_is_closed_won", "dealstage", "dealname"]); }
+  try { deals = await readDeals([...byDeal.keys()].filter((id) => /^\d+$/.test(id)), [props.start.name, ...(props.end ? [props.end.name] : []), "hs_is_closed_won", "dealstage", "dealname", "client_status"]); }
   catch (e) { out.errors.push((e as Error).message); return out; }
 
   // Open chats, so incidents link straight to the dog's chat
@@ -64,6 +66,16 @@ export async function syncHubspotDates(opts: { mode?: SyncMode; dealIds?: string
     if (write && await raiseIncident({ kind: "hubspot_problem", title: label(list), detail: `${detail} Deal: ${dealUrl(dealId)}`, ref: `deal:${dealId}`, chatId: chatOf.get(dealId), bookingId: list[0].id, link: dealUrl(dealId) }, sb)) out.incidents.push(`Check HubSpot: ${label(list)}`);
   };
 
+  /** Pause (why) or restart (null) the deal's training materials; logged when it changes. */
+  const hold = async (dealId: string, list: Row[], why: string | null) => {
+    if (!write || !holdOn) return;
+    const changed = list.filter((b) => (b.hs_hold ?? null) !== why);
+    if (!changed.length) return;
+    const { error: e } = await sb.from("bookings").update({ hs_hold: why }).in("id", changed.map((b) => b.id));
+    if (e) { out.errors.push(`materials pause: ${e.message}`); return; }
+    await auditSystem(why ? "Paused training materials" : "Training materials back on", `${label(list)}: ${why || "the HubSpot deal is back to normal"}.`, { link: dealUrl(dealId) });
+  };
+
   const applied: { row: Row; start: string; end: string; extra: number; oldDays: number; newDays: number }[] = [];
   const checked: string[] = [];
   for (const [dealId, list] of byDeal) {
@@ -73,10 +85,25 @@ export async function syncHubspotDates(opts: { mode?: SyncMode; dealIds?: string
       if (p.hs_is_closed_won !== "true") {
         const stage = await stageLabel(p.dealstage);
         out.problems.push(`${label(list)}: deal is now "${stage}"`);
+        await hold(dealId, list, `the HubSpot deal moved to "${stage}"`);
         if (write && await raiseIncident({
           kind: "booking_cancelled", title: label(list), office: true, ref: `deal:${dealId}`, chatId: chatOf.get(dealId), bookingId: list[0].id, link: dealUrl(dealId),
           detail: `The HubSpot deal for ${label(list)} moved to "${stage}" but the booking is still live in the app (${list.map((b) => `${b.dog_name || "dog"} ${short(b.start_date)} to ${short(b.end_date)}`).join(", ")}). Cancel or fix the booking, and the trainer's pay.`
         }, sb)) { out.incidents.push(`Training cancelled: ${label(list)}`); await auditSystem("Flagged a deal that's no longer Closed Won", `${label(list)}: the HubSpot deal moved to "${stage}" but the booking is still live.`, { link: dealUrl(dealId), ok: false, error: "Needs a person: cancel or fix the booking and the trainer's pay" }); }
+        continue;
+      }
+      // Client Status Cancelled, Refunded or Standby in HubSpot, while the booking is still live here: materials pause, and
+      // (for a program not over yet) To do says to cancel or postpone it in the app
+      const cs = String(p.client_status || "").trim();
+      if (/^(cancelled|refunded|standby)$/i.test(cs)) {
+        const standby = /^standby$/i.test(cs), dates = list.map((b) => `${b.dog_name || "dog"} ${short(b.start_date)} to ${short(b.end_date)}`).join(", ");
+        out.problems.push(`${label(list)}: Client Status is ${cs}`);
+        await hold(dealId, list, `Client Status is ${cs} in HubSpot`);
+        if (write && list.some((b) => b.end_date > today) && await raiseIncident(standby
+          ? { kind: "hubspot_problem", title: label(list), ref: `deal:${dealId}`, chatId: chatOf.get(dealId), bookingId: list[0].id, link: dealUrl(dealId),
+              detail: `Client Status is Standby in HubSpot, but ${label(list)} is still booked in the app (${dates}). Postpone it in the app (Standby), or change the Client Status. Training materials are paused meanwhile.` }
+          : { kind: "booking_cancelled", title: label(list), office: true, ref: `deal:${dealId}`, chatId: chatOf.get(dealId), bookingId: list[0].id, link: dealUrl(dealId),
+              detail: `Client Status is ${cs} in HubSpot, but the booking is still live in the app (${dates}). Cancel it in the app, and check refund or partial pay. Training materials are paused meanwhile.` }, sb)) out.incidents.push(`${standby ? "Standby" : "Training cancelled"}: ${label(list)}`);
         continue;
       }
       const hsStart = hsDate(p[props.start.name]), hsEnd = props.end ? hsDate(p[props.end.name]) : null;
@@ -84,6 +111,7 @@ export async function syncHubspotDates(opts: { mode?: SyncMode; dealIds?: string
       const { plan, problem: why } = planDeal(list, hsStart, hsEnd);
       if (why) { await problem(dealId, list, why); continue; }
       if (write) await resolveIncidents({ kinds: ["hubspot_problem", "booking_cancelled"], ref: `deal:${dealId}` }, "automatic", "HubSpot deal is fine again", sb);
+      await hold(dealId, list, null);
       for (const x of plan) {
         const row = list.find((b) => b.id === x.id)!;
         checked.push(row.id);

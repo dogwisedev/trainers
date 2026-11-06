@@ -83,7 +83,7 @@ export function clientDigestDue(now: Date, o: { latestFromOthers: string | null;
 }
 
 export const INCIDENT_LABEL = {
-  trainer_silent: "Trainer hasn't posted today", client_waiting: "Client waiting for a reply", client_pileup: "Client messages piling up",
+  trainer_silent: "No update for 2 days (after 2 reminders)", client_waiting: "Client waiting for a reply", client_pileup: "Client messages piling up",
   ready_to_close: "Ready to close", reopened: "Client started a new chat",
   intake_media_missing: "No pickup photos or video", handover_photo_missing: "No photo with the trainer",
   overbooked: "Trainer overbooked", length_changed: "Program length changed", booking_cancelled: "Training cancelled", hubspot_problem: "Check HubSpot", not_ready: "Not ready for training", check_vaccines: "Check vaccines", trainer_report: "Incident reported", deal_not_booked: "Closed Won, not booked", standby_reminder: "Standby: time to check", followup_request: "Follow-up to arrange", followup_report: "Follow-up report due", pickup_unconfirmed: "Pickup not confirmed", dropoff_unconfirmed: "Drop-off not confirmed", trainer_offer: "Check with the trainer", ask_pedro: "Ask Pedro",

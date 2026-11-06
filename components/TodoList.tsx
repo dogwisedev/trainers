@@ -29,7 +29,7 @@ function ago(iso?: string) {
 
 /** The admin To do list. Mobile first: icon, sentence, details, then the buttons on their own line. */
 export function TodoList({ items, late, beforeApp = [], canQuiet = false, pocs = [] }: { items: TodoItem[]; late: (Todo & { trainerName?: string; poc?: string })[]; beforeApp?: (Todo & { trainerName?: string; poc?: string })[]; canQuiet?: boolean; pocs?: string[] }) {
-  const forms = (late.length ? 1 : 0) + (beforeApp.length ? 1 : 0); // each is one row in "This week"
+  const forms = beforeApp.length ? 1 : 0; // one row in "This week" (late forms are the app's job now: see the note under the list)
   const counts = GROUPS.map((g) => ({ ...g, n: items.filter((i) => i.group === g.key).length + (g.key === "week" ? forms : 0) })).filter((g) => g.n);
   return (
     <>
@@ -42,22 +42,27 @@ export function TodoList({ items, late, beforeApp = [], canQuiet = false, pocs =
       </div>
       {GROUPS.map((g) => {
         const list = items.filter((i) => i.group === g.key);
-        const showLate = g.key === "week" && late.length > 0, showOld = g.key === "week" && beforeApp.length > 0;
-        if (!list.length && !showLate && !showOld) return null;
+        const showOld = g.key === "week" && beforeApp.length > 0;
+        if (!list.length && !showOld) return null;
         return (
           <section key={g.key} id={`todo-${g.key}`} data-group={g.key} className="scroll-mt-20">
-            <h2 className="group-title">{g.title}<span className="count">{list.length + (showLate ? 1 : 0) + (showOld ? 1 : 0)}</span></h2>
+            <h2 className="group-title">{g.title}<span className="count">{list.length + (showOld ? 1 : 0)}</span></h2>
             {g.hint && <p className="-mt-1.5 mb-2.5 px-1 text-small text-ink-faint">{g.hint}</p>}
             <ul className="panel divide-y divide-line overflow-hidden">
               {list.map((i) => <Item key={i.key} i={i} canQuiet={canQuiet} />)}
-              {showLate && <FormGroup title={`${late.length} form${late.length > 1 ? "s are" : " is"} late`} list={late}
-                note={<>Trainers get reminders. Use &ldquo;Not needed&rdquo; for forms that shouldn&apos;t exist.</>} />}
               {showOld && <FormGroup title={`${beforeApp.length} handover report${beforeApp.length > 1 ? "s" : ""} from before the app`} list={beforeApp}
                 note={<>Needed for the client&apos;s certificate and report. If it already went out the old way, press &ldquo;Not needed&rdquo;.</>} />}
             </ul>
           </section>
         );
       })}
+      {late.length > 0 && (
+        <details className="mt-4 rounded-[20px] border border-dashed border-line bg-white/60 px-4 py-3">
+          <summary className="cursor-pointer text-small text-ink-soft"><b className="text-ink">{late.length} form{late.length > 1 ? "s are" : " is"} late.</b> The app is reminding the trainers; any still late after 2 reminders shows up above to call. <span className="underline">Show</span></summary>
+          <ul className="mt-2 divide-y divide-line border-t border-line">{late.map((t) => <TodoRow key={`${t.booking.id}-${t.window.kind}-${t.window.week}`} t={t} mode="admin" poc={t.poc || ""} />)}</ul>
+          <p className="pt-2 text-caption text-ink-faint">Use &ldquo;Not needed&rdquo; for a form that shouldn&apos;t exist.</p>
+        </details>
+      )}
       </div>
     </>
   );
