@@ -4,7 +4,7 @@ import { getViewer } from "@/lib/data";
 import { audited } from "@/lib/audit";
 import { isDemo, serverClient, serviceClient } from "@/lib/supabase";
 import { pushToTrainer } from "@/lib/push";
-import { fromFor, sendText, toE164 } from "@/lib/quo";
+import { fromFor, loadPocNumbers, quoNumber, sendText, toE164 } from "@/lib/quo";
 import type { NudgeKind } from "@/lib/nudges";
 
 // The office's check-in with a trainer, from an item the reminder ladder handed to To do (components/ChaseActions.tsx).
@@ -42,7 +42,7 @@ export async function checkInAction(c: CheckIn, channel: "app" | "text", text: s
     if (!t) return { ok: false, message: "Trainer not found." };
     if (channel === "text") {
       if (!toE164(t.phone)) return { ok: false, message: `${t.name} has no mobile number on their profile.` };
-      const r = await sendText(t.phone, `Dogwise: ${body}`, fromFor(t.poc).from); // from their POC's number when it's set
+      const r = await sendText(t.phone, `Dogwise: ${body}`, fromFor(t.poc, await loadPocNumbers(sb)).from); // from their POC's own Quo number when it's set
       if (!r.ok) return { ok: false, message: `The text didn't go: ${r.error}` };
     } else {
       const { error } = await serverClient().from("messages").insert({ trainer_id: t.id, sender_id: v.userId, sender_role: "admin", sender_name: "Dogwise team", body: body.slice(0, 4000) });
@@ -63,4 +63,19 @@ export async function logCallAction(c: CheckIn): Promise<R> {
     await log(c, who, "call", "Called the trainer", null);
     return { ok: true, message: "" };
   } catch (e) { return { ok: false, message: (e as Error).message }; }
+}
+
+/** Your account → Your Quo number: the number texts to your trainers come from, and the POC name you answer to. */
+export async function saveQuoNumberAction(_: R | null, f: FormData): Promise<R> {
+  return audited("saveQuoNumber", { number: String(f.get("number") || ""), poc: String(f.get("poc") || "") }, async () => {
+    if (isDemo()) return { ok: false, message: "Demo mode: connect Supabase to save." };
+    const { v } = await admin();
+    const raw = String(f.get("number") || "").trim(), poc = String(f.get("poc") || "").replace(/\s+/g, " ").trim().slice(0, 60);
+    const number = raw ? quoNumber(raw) : null;
+    if (raw && !number) return { ok: false, message: "That doesn't look like a Quo number: type it like +1 646 576 7764, or its ID (PN…)." };
+    const { error } = await serviceClient().from("profiles").update({ quo_number: number, quo_poc: number ? poc || null : null }).eq("id", v.userId);
+    if (error) return { ok: false, message: /quo_|schema cache/i.test(error.message) ? "Run migration 051 in Supabase first." : error.message };
+    revalidatePath("/a/account");
+    return { ok: true, message: number ? `Saved. Texts to ${poc ? `${poc}'s` : "your"} trainers come from ${number}.` : "Removed: your trainers get texts from the default number." };
+  });
 }

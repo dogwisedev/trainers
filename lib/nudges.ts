@@ -6,7 +6,7 @@ import { etAt, wakingHoursBetween } from "./commsTime";
 import { addDays } from "./dates";
 import { pushToTrainer } from "./push";
 import { mailConfigured, sendMail } from "./mail";
-import { fromFor, quoConfigured, sendText, toE164 } from "./quo";
+import { fromFor, loadPocNumbers, quoConfigured, sendText, toE164, type PocNumbers } from "./quo";
 import { raiseIncident, resolveIncidents } from "./incidents";
 import { localParts, trainerZone } from "./moveRules";
 import { kindName, todos, type BookingForReports, type Kind, type RowLike } from "./reports";
@@ -63,14 +63,14 @@ async function claim(sb: SupabaseClient, rows: Partial<Nudge>[]): Promise<Nudge[
 }
 
 /** One message to a trainer: a phone notification, and a text (or email) when it's reminder 2 or the notification didn't reach a phone. */
-async function deliver(t: Trainer, m: { title: string; body: string; url: string; tag: string; second: boolean }): Promise<{ channels: string[]; error: string | null }> {
+async function deliver(t: Trainer, m: { title: string; body: string; url: string; tag: string; second: boolean }, nums: PocNumbers): Promise<{ channels: string[]; error: string | null }> {
   const channels: string[] = [], errs: string[] = [];
   const pushed = await pushToTrainer(t.id, { title: m.title, body: m.body, url: m.url, tag: m.tag }).catch(() => 0);
   if (pushed) channels.push("push");
   if (!m.second && pushed) return { channels, error: null };
   const link = `${site()}${m.url}`;
   if (quoConfigured() && toE164(t.phone)) {
-    const r = await sendText(t.phone!, `Dogwise: ${m.title}. ${m.body} ${link}`, fromFor(t.poc).from); // from their POC's number when it's set
+    const r = await sendText(t.phone!, `Dogwise: ${m.title}. ${m.body} ${link}`, fromFor(t.poc, nums).from); // from their POC's own Quo number when it's set
     if (r.ok) channels.push("text"); else errs.push(`text: ${r.error}`);
   }
   const to = t.email || t.dogwise_email;
@@ -88,7 +88,7 @@ async function deliver(t: Trainer, m: { title: string; body: string; url: string
 }
 
 /** Claims each trainer's due steps, then sends them ONE message covering all of them. */
-async function sendGrouped(sb: SupabaseClient, wants: Want[], now: Date, msg: (t: Trainer, items: Want[]) => { title: string; body: string; url: string; tag: string }) {
+async function sendGrouped(sb: SupabaseClient, wants: Want[], now: Date, nums: PocNumbers, msg: (t: Trainer, items: Want[]) => { title: string; body: string; url: string; tag: string }) {
   let sent = 0;
   const byTrainer = new Map<string, Want[]>();
   for (const w of wants) if (awake(w.trainer, now)) byTrainer.set(w.trainer.id, [...(byTrainer.get(w.trainer.id) || []), w]);
@@ -98,7 +98,7 @@ async function sendGrouped(sb: SupabaseClient, wants: Want[], now: Date, msg: (t
     if (!got.length) continue;
     const mine = items.filter((w) => got.some((g) => g.ref === w.ref && g.step === w.step));
     const m = msg(t, mine);
-    const r = await deliver(t, { ...m, second: mine.some((w) => w.step === 2) });
+    const r = await deliver(t, { ...m, second: mine.some((w) => w.step === 2) }, nums);
     await sb.from("nudges").update({ channels: r.channels, body: `${m.title}. ${m.body}`.slice(0, 1000), error: r.error }).in("id", got.map((g) => g.id));
     sent += got.length;
   }
@@ -122,6 +122,7 @@ export async function runNudges(now = new Date(), sb: SupabaseClient = serviceCl
     for (const n of open) steps.set(n.ref, [...(steps.get(n.ref) || []), n]);
     const stepOf = (ref: string, s: number) => (steps.get(ref) || []).find((n) => n.step === s);
     const { date: today, hour } = etParts(now);
+    const nums = await loadPocNumbers(sb); // each admin's own Quo number, for the trainers they're POC for
 
     const [{ data: cr }, { data: tr }] = await Promise.all([
       sb.from("chats").select("id, deal_key, trainer_id, title, client_name, quiet_at, last_trainer_at, last_client_at, last_reply_at").eq("status", "open"),
@@ -205,7 +206,7 @@ export async function runNudges(now = new Date(), sb: SupabaseClient = serviceCl
         }
       }
     }
-    out.reminded += await sendGrouped(sb, updates, now, (t, items) => {
+    out.reminded += await sendGrouped(sb, updates, now, nums, (t, items) => {
       const behind = items.filter((w) => w.step === 2) as typeof updates, fresh = items.filter((w) => w.step === 1);
       const zone = trainerZone(t.state);
       const cutoff = zone === "America/New_York" ? "8 PM" : `8 PM Eastern (${new Date(etAt(today, LADDER.cutoffHour)).toLocaleTimeString("en-US", { timeZone: zone, hour: "numeric" })} your time)`;
@@ -237,7 +238,7 @@ export async function runNudges(now = new Date(), sb: SupabaseClient = serviceCl
         if ((await claim(sb, [{ ref, kind: "client_waiting", step: 3, by: "app", trainer_id: t.id, chat_id: c.id, channels: ["office"], body: "On To do: client waiting" }])).length) out.toOffice++;
       }
     }
-    out.reminded += await sendGrouped(sb, waits, now, (_t, items) => ({
+    out.reminded += await sendGrouped(sb, waits, now, nums, (_t, items) => ({
       title: items.length === 1 ? `${items[0].who} is waiting for you` : `${items.length} clients are waiting for you`,
       body: items.length === 1 ? items[0].one || items[0].line : items.map((w) => w.line).join(" · "), url: items.length === 1 ? items[0].url : "/t", tag: "waiting"
     }));
@@ -263,7 +264,7 @@ export async function runNudges(now = new Date(), sb: SupabaseClient = serviceCl
           }
         }
       }
-      out.reminded += await sendGrouped(sb, forms, now, (_t, items) => ({
+      out.reminded += await sendGrouped(sb, forms, now, nums, (_t, items) => ({
         title: items.length === 1 ? "A form is late" : `${items.length} forms are late`,
         body: `${items.map((w) => cap(w.line)).join(" · ")}. Please send ${items.length === 1 ? "it" : "them"} today.`,
         url: items.length === 1 ? items[0].url : "/t/reports", tag: "forms-late"

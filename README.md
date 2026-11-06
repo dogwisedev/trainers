@@ -177,7 +177,7 @@ The app reminds the trainer itself; the office only gets what the trainer didn't
 - Pulse grades chasing (15 of the 100): the reminders the app had to send, plus 3 for each time the office stepped in, per 7 dog-days.
 - Vercel: `NUDGES=off` stops the ladder (and brings back the old evening "hasn't posted" flags). Texts need `QUO_API_KEY` and `QUO_FROM` (a local Quo number, +1XXXXXXXXXX; `QUO_API_URL` only if Quo's API address changes). Test it signed in as an admin: `/api/quo/test?to=+1XXXXXXXXXX`. Without Quo, reminders that would be texts go by email.
 - Sean's Claude (Communication Tower): the instructions it should follow are in `docs/comms-agent.md`.
-- Texts come from the trainer's POC's Quo number when `QUO_FROM_BY_POC` has it (JSON, POC name → Quo number ID `PN…` or +1…, matched by full or first name), so replies land in that POC's Quo inbox; everyone else's come from `QUO_FROM`. `/api/quo/test` lists each POC on a trainer profile, the number their trainers are texted from, and trainers with no mobile number.
+- Texts come from the trainer's POC's own Quo number: each admin sets it on **Your account → Your Quo number**, with the POC name they answer to (as written on trainer profiles), so those trainers' replies land in that admin's Quo inbox (migration 051). Everyone else's come from `QUO_FROM`. `/api/quo/test` lists each POC, the number their trainers are texted from, and trainers with no usable mobile number.
 - To do follows the same flow: late forms aren't a task (they're in a folded note under the list; the app reminds the trainers), and the old nightly "hasn't posted today" items are gone (cleared automatically).
 
 ## Training materials stop when a program is off
