@@ -12,6 +12,7 @@ export type ChatRow = {
   client_emails: boolean; archived_at: string | null; transcript_url: string | null; notified_client_at?: string | null;
   quiet_at?: string | null; quiet_by?: string | null; // quiet chat (migration 039): finishing on Signal, no alerts
   last_reply_at?: string | null; // the latest message from the trainer or a person in the office (migration 049)
+  reply_waived_at?: string | null; reply_waived_by?: string | null; // "No reply needed" from To do (migration 052): counts as a reply
 };
 export const driveView = (id: string) => `https://drive.google.com/file/d/${id}/view`;
 export const driveDownload = (id: string) => `https://drive.google.com/uc?export=download&id=${id}`;

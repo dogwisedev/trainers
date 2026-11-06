@@ -188,3 +188,10 @@ The app reminds the trainer itself; the office only gets what the trainer didn't
 - A booking blocked for Pedro's OK (probation, out of range) shows two buttons right under the message: **Pedro said yes: book** (when he's already OK'd it by call or Slack: recorded as his approval with your name, and any open ask closes) and **Ask Pedro** (a To do, a push to admins, and an email to `PEDRO_EMAIL`). The closest-trainers list has the same two.
 - Pedro's OK covers the trainer check too (short notice, bonus dog, Watch), so nobody has to tick twice. Pedro booking it himself (`PEDRO_EMAIL`, or a name starting "Pedro") is never blocked.
 - A booking blocked for a trainer check gets **They said yes: book** and **Ask them for me** the same way.
+
+## Reading client messages (who has to act)
+Each client message is labelled by the 10-minute chat check (`lib/clientNeeds.ts`, migration 052): **reply** (the trainer), **office** (payment, dates, refunds, or written to someone else), **none** ("Yes, that's perfect", thanks, an emoji) or **urgent** (a bite, an injury, illness, an escape, an upset client). Claude does it when `ANTHROPIC_API_KEY` is set in Vercel (`ANTHROPIC_MODEL` to change the model); simple rules otherwise.
+- Only **reply** (and urgent, and not-yet-labelled) messages count as a client waiting for the trainer: reminders, the trainer's To do today, the To do item, and grading. A reminder that turned out not to be needed doesn't count against the trainer.
+- **Office** questions go on To do for the office ("Darlene asked the office about Bear") until someone in the office answers in the chat, or taps **Handled** (answered by phone or email). **Urgent** ones go on To do straight away, with an alert.
+- On a waiting client, **No reply needed** counts as the answer to everything they had sent; the item stays closed until they write again. It also corrects the labels with your name, so `reminders` (the Claude connector) shows how often people changed the app's answer.
+- `CLIENT_NEEDS=off` in Vercel goes back to "the client spoke last = waiting".

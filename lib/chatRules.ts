@@ -38,6 +38,13 @@ const inCareOn = (bs: BookingSpan[], date: string) => bs.some((b) => b.status !=
 export const inCareDay = (b: BookingSpan, date: string) => b.status !== "cancelled" && b.start_date <= date && date < b.end_date;
 /** A dog needs a chat update on this day: in care, and actually picked up if it's pickup day (the reminders and the trainer's To do agree). */
 export const needsUpdateOn = (b: BookingSpan & { picked_up_at?: string | null }, date: string) => inCareDay(b, date) && (b.start_date < date || !!b.picked_up_at);
+/** The client's messages up to this moment count as answered: the latest reply from a person (trainer or office), or an
+ *  office "No reply needed" (migration 052), whichever is later. Before migration 049, the trainer's or office's latest message. */
+export function answeredUpTo(c: { last_reply_at?: string | null; last_trainer_at?: string | null; last_admin_at?: string | null; reply_waived_at?: string | null }): string | null {
+  const t = (v: string | null | undefined) => (v ? Date.parse(v) : 0);
+  const reply = c.last_reply_at !== undefined ? c.last_reply_at : t(c.last_trainer_at) > t(c.last_admin_at) ? c.last_trainer_at : c.last_admin_at;
+  return t(c.reply_waived_at) > t(reply) ? c.reply_waived_at! : reply || null;
+}
 /** The day (Eastern) of a moment, or "" for none. */
 export const etDay = (iso: string | null | undefined) => (iso ? etParts(new Date(iso)).date : "");
 
@@ -87,8 +94,8 @@ export const INCIDENT_LABEL = {
   ready_to_close: "Ready to close", reopened: "Client started a new chat",
   intake_media_missing: "No pickup photos or video", handover_photo_missing: "No photo with the trainer",
   overbooked: "Trainer overbooked", length_changed: "Program length changed", booking_cancelled: "Training cancelled", hubspot_problem: "Check HubSpot", not_ready: "Not ready for training", check_vaccines: "Check vaccines", trainer_report: "Incident reported", deal_not_booked: "Closed Won, not booked", standby_reminder: "Standby: time to check", followup_request: "Follow-up to arrange", followup_report: "Follow-up report due", pickup_unconfirmed: "Pickup not confirmed", dropoff_unconfirmed: "Drop-off not confirmed", trainer_offer: "Check with the trainer", ask_pedro: "Ask Pedro",
-  form_chase: "Form late after 2 reminders"
+  form_chase: "Form late after 2 reminders", client_office: "Client asked the office", client_urgent: "Client message needs attention now"
 } as const;
 export type IncidentKind = keyof typeof INCIDENT_LABEL;
 /** Incidents the chat check opens and clears by itself. The others are about forms, bookings or HubSpot. */
-export const CHAT_KINDS: IncidentKind[] = ["trainer_silent", "client_waiting", "client_pileup", "ready_to_close", "reopened"];
+export const CHAT_KINDS: IncidentKind[] = ["trainer_silent", "client_waiting", "client_pileup", "ready_to_close", "reopened", "client_office", "client_urgent"];

@@ -29,7 +29,8 @@ export type TodoItem = {
   booking?: { id: string; move: "pickup" | "dropoff" | null; dog: string; trainer: string; hasDeal: boolean };
   ask?: { id: string; kind: "offer" | "pedro"; expired: boolean; trainer: string; dealId: string }; // Assign or Ask: check with the trainer / Ask Pedro // a booked dog that didn't start / finish as planned: Mark / Postpone / Cancel
   poc?: string;         // the trainer's Point of Contact (from the trainer's profile), for the POC filter; none = not tied to a trainer
-  chase?: ChaseInfo;    // handed to the office by the reminder ladder: history, a suggested check-in, Send in app / Text / Call (no Done: it clears itself)
+  chase?: ChaseInfo;
+  clear?: "noreply" | "handled"; // a client item a person can close: "No reply needed" (waiting) / "Handled" (office question, urgent)    // handed to the office by the reminder ladder: history, a suggested check-in, Send in app / Text / Call (no Done: it clears itself)
 };
 /** late: forms past their deadline. beforeApp: handover reports due before the app took over the forms (still needed for the certificate). */
 export type TodoData = { items: TodoItem[]; late: (Todo & { trainerName: string; poc?: string })[]; beforeApp: (Todo & { trainerName: string; poc?: string })[]; pocs: string[] };
@@ -112,10 +113,13 @@ async function buildTodoUncached(): Promise<TodoData> {
       not_ready: "dog", check_vaccines: "vaccine", trainer_report: "alert" };
     const add = (o: Omit<TodoItem, "key" | "since" | "incidentId" | "dogHref" | "hubspot"> & Partial<TodoItem>) => items.push({ ...base, icon: ICON[i.kind] || "alert", ...o });
     switch (i.kind) {
-      case "client_waiting": add({ group: "now", tone: "heart", text: `${client} is waiting for a reply about ${dog}`, primary: chat ? { ...chat, label: "Reply" } : undefined, quietChatId: i.chat_id || undefined,
+      case "client_waiting": add({ group: "now", tone: "heart", text: `${client} is waiting for a reply about ${dog}`, primary: chat ? { ...chat, label: "Reply" } : undefined, quietChatId: i.chat_id || undefined, clear: "noreply",
         chase: chaseFor(i, "client_waiting", { trainerId: i.chat?.trainer_id, trainer, dog, client, bookingId }) }); break;
-      case "client_pileup": add({ group: "now", tone: "heart", text: `${client} has sent several messages about ${dog}`, primary: chat ? { ...chat, label: "Reply" } : undefined, quietChatId: i.chat_id || undefined,
+      case "client_pileup": add({ group: "now", tone: "heart", text: `${client} has sent several messages about ${dog}`, primary: chat ? { ...chat, label: "Reply" } : undefined, quietChatId: i.chat_id || undefined, clear: "noreply",
         chase: chaseFor(i, "client_waiting", { trainerId: i.chat?.trainer_id, trainer, dog, client, bookingId }) }); break;
+      // Read by the app (lib/clientNeeds.ts): for the office to answer in the chat, or Handled (answered by phone or email)
+      case "client_office": add({ group: "now", tone: "biscuit", text: `${client} asked the office about ${dog}`, detail: (i.detail || "").replace(/^.*? asked the office: /, ""), primary: chat ? { ...chat, label: "Reply" } : undefined, clear: "handled" }); break;
+      case "client_urgent": add({ group: "now", tone: "heart", text: `${client}: a message about ${dog} needs a person now`, detail: (i.detail || "").replace(/^[^:]*: /, ""), primary: chat ? { ...chat, label: "Reply" } : undefined, clear: "handled" }); break;
       case "trainer_silent": {
         // From the reminder ladder: 2 days with no post, after 2 reminders. (Before it: a flag every evening with no post.)
         const fromLadder = (i.ref || "").startsWith("nudge:");

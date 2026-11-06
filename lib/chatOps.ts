@@ -9,7 +9,7 @@ import { driveConfigured, ensureChatFolder, uploadFile } from "./drive";
 import { reportPdf } from "./reportPdf";
 import { buildTranscript } from "./chatTranscript";
 import { ChatMsg, ChatRow, driveView } from "./chatTypes";
-import { CHAT_KINDS, INCIDENT_LABEL, IncidentKind, RULES, clientDigestDue, clientWaiting, pileUp, readyToClose, trainerSilent } from "./chatRules";
+import { answeredUpTo, CHAT_KINDS, INCIDENT_LABEL, IncidentKind, RULES, clientDigestDue, clientWaiting, pileUp, readyToClose, trainerSilent } from "./chatRules";
 import { clearFormIncidents } from "./incidents";
 import { catchUpBookings } from "./bookingCatchup";
 import { sendDailyDigest } from "./digest";
@@ -28,8 +28,9 @@ import { runTrainingSends } from "./training";
 import { auditSystem } from "./audit";
 import { welcomeLink } from "./trainerSignin";
 import { nudgesOn, runNudges } from "./nudges";
+import { classifyNew, openFlags, pendingFor } from "./clientNeeds";
 
-const URGENT_CHAT: IncidentKind[] = ["client_waiting", "client_pileup"];
+const URGENT_CHAT: IncidentKind[] = ["client_waiting", "client_pileup", "client_urgent"];
 
 const site = () => (process.env.NEXT_PUBLIC_SITE_URL || "").replace(/\/$/, "");
 const logo = { filename: "dogwise.png", content: Buffer.from(BRAND_LOGO_PNG_BASE64, "base64"), contentType: "image/png", cid: "dogwise-logo" };
@@ -60,7 +61,7 @@ export async function runChatChecks(now = new Date()) {
   const sb = serviceClient();
   const { data: chatRows } = await sb.from("chats").select("*").eq("status", "open");
   const chats = (chatRows || []) as ChatRow[];
-  const out = { chats: chats.length, opened: 0, cleared: 0, realerted: 0, digests: 0, invited: 0, notified: 0, noticed: 0, autoClosed: 0, training: 0, reminded: 0, nudges: { reminded: 0, toOffice: 0, closed: 0 }, scheduled: released.posted, errors: [...released.errors.map((x) => `scheduled: ${x}`)] as string[] };
+  const out = { chats: chats.length, opened: 0, cleared: 0, realerted: 0, digests: 0, invited: 0, notified: 0, noticed: 0, autoClosed: 0, training: 0, reminded: 0, nudges: { reminded: 0, toOffice: 0, closed: 0 }, labelled: 0, scheduled: released.posted, errors: [...released.errors.map((x) => `scheduled: ${x}`)] as string[] };
   try { out.cleared += await clearFormIncidents(sb); } catch (e) { out.errors.push(`forms: ${(e as Error).message}`); }
   try { const c = await catchUpBookings(sb); out.errors.push(...c.errors.map((x) => `booking email: ${x}`)); } catch (e) { out.errors.push(`booking email: ${(e as Error).message}`); }
   try { if (await sendDailyDigest(sb)) out.digests++; } catch (e) { out.errors.push(`daily summary: ${(e as Error).message}`); }
@@ -92,6 +93,10 @@ export async function runChatChecks(now = new Date()) {
   // Only the chat incidents: form, booking and HubSpot incidents are opened and cleared elsewhere (lib/incidents.ts, lib/hubspotSync.ts)
   const { data: incRows } = await sb.from("chat_incidents").select("id, chat_id, kind, status, opened_at, last_alert_at").neq("status", "resolved").in("kind", CHAT_KINDS);
   const live = (incRows || []) as Incident[];
+  // Who has to act on each new client message (lib/clientNeeds.ts): only real questions count as waiting for the trainer;
+  // office questions and urgent messages go on To do for the office
+  const labelled = await classifyNew(sb, now);
+  const flags = await openFlags(sb, chats, now).catch(() => new Map());
   const fresh: { chat: ChatRow; kind: IncidentKind; detail: string }[] = [];
 
   for (const c of chats) {
@@ -113,18 +118,24 @@ export async function runChatChecks(now = new Date()) {
         c.trainer_id = carers[0]; c.trainer_name = name;
       }
       // A person's reply: the trainer, or someone in the office (migration 049). The app's automatic posts don't answer a client.
-      const lastReply = c.last_reply_at !== undefined ? c.last_reply_at : ms(c.last_trainer_at) > ms(c.last_admin_at) ? c.last_trainer_at : c.last_admin_at;
+      // "No reply needed" from To do counts as an answer too (migration 052)
+      const lastReply = answeredUpTo(c);
       const want = new Map<IncidentKind, string>();
       // A missed update now goes to the trainer first (lib/nudges.ts: 6 PM reminders), and to To do only after 2 missed days.
       // With the reminders switched off (NUDGES=off), the old rule: on To do every evening a dog has no post.
       if (!nudgesOn() && trainerSilent(now, bs, c.last_trainer_at)) want.set("trainer_silent", `No update from ${c.trainer_name || "the trainer"} today`);
-      const waiting = clientWaiting(now, c.last_client_at, lastReply);
+      // Waiting = the client's unanswered messages that need the trainer (not "thanks", not an office question)
+      const pending = c.last_client_at && ms(c.last_client_at) > ms(lastReply) ? await pendingFor(sb, c.id, lastReply) : [];
+      const waiting = clientWaiting(now, pending.length ? pending[pending.length - 1].created_at : null, lastReply);
       if (waiting !== null) want.set("client_waiting", `${c.client_name || "The client"} has been waiting ${waiting} waking hours for a reply`);
-      if (c.last_client_at && ms(c.last_client_at) > ms(lastReply)) {
-        const { data: unanswered } = await sb.from("chat_messages").select("created_at").eq("chat_id", c.id).eq("sender_role", "client").gt("created_at", lastReply || "1970-01-01").order("created_at", { ascending: false }).limit(20);
-        const n = pileUp(now, (unanswered || []).map((x: { created_at: string }) => x.created_at));
+      if (pending.length) {
+        const n = pileUp(now, pending.map((x) => x.created_at));
         if (n !== null) want.set("client_pileup", `${n} unanswered messages from ${c.client_name || "the client"} in the last ${RULES.pileUpWithinHours} hours`);
       }
+      const flag = flags.get(c.id) as { office: { body: string; why: string | null }[]; urgent: { body: string; why: string | null }[] } | undefined;
+      const quote = (f: { body: string; why: string | null }) => `“${f.body.replace(/\s+/g, " ").trim().slice(0, 140)}”${f.why ? ` (${f.why})` : ""}`;
+      if (flag?.office.length) want.set("client_office", `${c.client_name || "The client"} asked the office: ${flag.office.map(quote).join(" · ")}`);
+      if (flag?.urgent.length) want.set("client_urgent", `${c.client_name || "The client"}: ${flag.urgent.map(quote).join(" · ")}`);
       if (autoClose) {
         // Quiet chats close by themselves: a notice in the chat 7 days before, then closed (transcript saved, client emailed).
         // "Quiet" counts people's messages only, so the notice itself doesn't restart the clock.
@@ -158,7 +169,9 @@ export async function runChatChecks(now = new Date()) {
       for (const i of live.filter((x) => x.chat_id === c.id)) {
         const opened = ms(i.opened_at);
         const done = i.kind === "trainer_silent" ? ms(c.last_trainer_at) > opened
-          : i.kind === "client_waiting" || i.kind === "client_pileup" ? ms(lastReply) > opened
+          : i.kind === "client_waiting" || i.kind === "client_pileup" ? ms(lastReply) > opened || !pending.length
+          : i.kind === "client_office" ? !flag?.office.length
+          : i.kind === "client_urgent" ? !flag?.urgent.length
           : i.kind === "reopened" ? Math.max(ms(c.last_trainer_at), ms(c.last_admin_at)) > opened
           : i.kind === "ready_to_close" ? autoClose || ms(c.last_message_at) > opened : false;
         if (!done && c.quiet_at && QUIET_KINDS.includes(i.kind)) { await sb.from("chat_incidents").update({ status: "resolved", resolved_at: now.toISOString(), resolved_by: "automatic", resolved_note: "Quiet chat", auto_resolved: true }).eq("id", i.id); out.cleared++; continue; }
@@ -187,6 +200,7 @@ export async function runChatChecks(now = new Date()) {
     } catch (e) { out.errors.push(`alert: ${(e as Error).message}`); }
   }
 
+  out.labelled = labelled.labelled; out.errors.push(...labelled.errors.map((x) => `labels: ${x}`));
   // The reminder ladder (lib/nudges.ts): the trainer is reminded first; the office gets it after 2 ignored reminders
   try { const n = await runNudges(now, sb); out.nudges = { reminded: n.reminded, toOffice: n.toOffice, closed: n.closed }; out.errors.push(...n.errors.map((x) => `reminders: ${x}`)); }
   catch (e) { out.errors.push(`reminders: ${(e as Error).message}`); }

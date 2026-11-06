@@ -10,6 +10,7 @@ import { BookingDecision } from "@/components/BookingDecision";
 import { AskDecision } from "@/components/AskDecision";
 import { TodoDone } from "@/components/TodoDone";
 import { ChaseActions } from "@/components/ChaseActions";
+import { ClientClose } from "@/components/ClientClose";
 import { IconTile } from "@/components/ui";
 
 const GROUPS: { key: TodoGroup; title: string; short: string; hint: string }[] = [
@@ -108,13 +109,14 @@ function Item({ i, canQuiet = false }: { i: TodoItem; canQuiet?: boolean }) {
           {i.dogHref && i.primary?.href !== i.dogHref && <Link prefetch={false} href={i.dogHref} className="btn-ghost h-9 min-h-0 px-3 text-small"><PawPrint size={14} />Dog</Link>}
           {i.hubspot && !i.primary?.external && <a href={i.hubspot} target="_blank" rel="noopener" className="btn-ghost h-9 min-h-0 px-3 text-small">HubSpot<ExternalLink size={13} /></a>}
           {canQuiet && i.quietChatId && <QuietChatButton chatId={i.quietChatId} quiet={false} />}
-          {i.incidentId && !i.deal && !i.ask && !i.chase && <span className="ml-auto"><TodoDone id={i.incidentId} label={i.doneLabel} /></span>}
+          {i.incidentId && i.clear && <ClientClose id={i.incidentId} mode={i.clear} />}
+          {i.incidentId && !i.deal && !i.ask && !i.chase && !i.clear && <span className="ml-auto"><TodoDone id={i.incidentId} label={i.doneLabel} /></span>}
           {i.ask && <AskDecision id={i.ask.id} kind={i.ask.kind} expired={i.ask.expired} trainer={i.ask.trainer} dealId={i.ask.dealId} />}
           {i.deal && <DealDecision dealId={i.deal} bookHref={`/a/bookings/new?deal=${i.deal}`} />}
           {i.booking && <BookingDecision bookingId={i.booking.id} move={i.booking.move} dog={i.booking.dog} trainer={i.booking.trainer} hasDeal={i.booking.hasDeal} />}
         </div>
         {i.chase && <div className="mt-2"><ChaseActions c={i.chase} /></div>}
-        {i.chase && <p className="mt-1.5 text-caption text-ink-faint">Clears itself when {i.chase.trainerName.replace(/".*?"\s*/, "").split(" ")[0]} {i.chase.kind === "form_late" ? "sends the form" : i.chase.kind === "client_waiting" ? "or the office replies" : "posts"}.</p>}
+        {i.chase && <p className="mt-1.5 text-caption text-ink-faint">Clears itself when {i.chase.trainerName.replace(/".*?"\s*/, "").split(" ")[0]} {i.chase.kind === "form_late" ? "sends the form" : i.chase.kind === "client_waiting" ? "or the office replies, or with No reply needed" : "posts"}.</p>}
       </div>
     </li>
   );

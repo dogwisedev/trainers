@@ -1,7 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { serviceClient } from "./supabase";
-import { RULES, etDay, etParts, inCareDay, needsUpdateOn } from "./chatRules";
+import { RULES, answeredUpTo, etDay, etParts, inCareDay, needsUpdateOn } from "./chatRules";
 import { etAt, wakingHoursBetween } from "./commsTime";
 import { addDays } from "./dates";
 import { pushToTrainer } from "./push";
@@ -11,6 +11,7 @@ import { raiseIncident, resolveIncidents } from "./incidents";
 import { localParts, trainerZone } from "./moveRules";
 import { kindName, todos, type BookingForReports, type Kind, type RowLike } from "./reports";
 import { BRAND_LOGO_PNG_BASE64 } from "./brandLogo";
+import { needsStats, pendingFor } from "./clientNeeds";
 
 // The reminder ladder (migration 049). The app reminds the trainer itself, and hands a thing to the office only when
 // the trainer hasn't acted after 2 reminders. Runs with the 10-minute chat check (lib/chatOps.ts). Every step is a row
@@ -45,7 +46,7 @@ const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 const list = (xs: string[]) => (xs.length > 1 ? `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}` : xs[0] || "");
 
 type Trainer = { id: string; name: string; phone: string | null; email: string | null; dogwise_email: string | null; state: string | null; poc?: string | null };
-type Chat = { id: string; deal_key: string; trainer_id: string | null; title: string | null; client_name: string | null; quiet_at: string | null; last_trainer_at: string | null; last_client_at: string | null; last_reply_at: string | null };
+type Chat = { id: string; deal_key: string; trainer_id: string | null; title: string | null; client_name: string | null; quiet_at: string | null; last_trainer_at: string | null; last_client_at: string | null; last_reply_at: string | null; last_admin_at?: string | null; reply_waived_at?: string | null };
 type Bk = { id: string; hubspot_deal_id: string | null; trainer_id: string; dog_name: string | null; client_name: string; start_date: string; end_date: string; status: string; picked_up_at?: string | null };
 type Want = { ref: string; kind: NudgeKind; step: 1 | 2; trainer: Trainer; chatId?: string; bookingId?: string; line: string; url: string; who?: string; one?: string };
 
@@ -124,10 +125,11 @@ export async function runNudges(now = new Date(), sb: SupabaseClient = serviceCl
     const { date: today, hour } = etParts(now);
     const nums = await loadPocNumbers(sb); // each admin's own Quo number, for the trainers they're POC for
 
-    const [{ data: cr }, { data: tr }] = await Promise.all([
-      sb.from("chats").select("id, deal_key, trainer_id, title, client_name, quiet_at, last_trainer_at, last_client_at, last_reply_at").eq("status", "open"),
+    const [{ data: cr, error: chatErr }, { data: tr }] = await Promise.all([
+      sb.from("chats").select("*").eq("status", "open"),
       sb.from("trainers").select("id, name, phone, email, dogwise_email, state, poc")
     ]);
+    if (chatErr) { out.errors.push(chatErr.message); return out; } // never close anything on a failed read
     const chats = (cr || []) as Chat[], chatById = new Map(chats.map((c) => [c.id, c]));
     const trainers = new Map(((tr || []) as Trainer[]).map((t) => [t.id, t]));
     const keys = chats.map((c) => c.deal_key);
@@ -169,8 +171,10 @@ export async function runNudges(now = new Date(), sb: SupabaseClient = serviceCl
         if (done || gone) await resolveIncidents({ kinds: ["trainer_silent"], ref: `nudge:${ref}` }, "automatic", done ? "The trainer posted" : "Not needed any more", sb).catch(() => null);
       } else if (n.kind === "client_waiting") {
         const c = chatById.get(n.chat_id || ""), firstAt = ref.slice(ref.indexOf(":", 8) + 1);
-        if (c?.last_reply_at && ms(c.last_reply_at) > ms(firstAt)) done = c.last_reply_at;
+        const ans = c ? answeredUpTo(c) : null;
+        if (ans && ms(ans) > ms(firstAt)) done = ans;
         else if (!live(c)) gone = true;
+        else if (!(await pendingFor(sb, c.id, ans)).length) gone = true; // labelled "no reply needed" or an office question
       } else if (n.kind === "form_late" && !lateRefs.has(ref)) {
         const [, bookingId, kind, week] = ref.split(":");
         const r = reps.find((x) => x.booking_id === bookingId && x.kind === kind && x.week_number === Number(week));
@@ -218,14 +222,14 @@ export async function runNudges(now = new Date(), sb: SupabaseClient = serviceCl
     });
 
     // ── 3. Clients waiting for a reply ──
-    const waitingChats = chats.filter((c) => live(c) && c.last_client_at && (!c.last_reply_at || ms(c.last_client_at) > ms(c.last_reply_at)));
+    const waitingChats = chats.filter((c) => live(c) && c.last_client_at && ms(c.last_client_at) > ms(answeredUpTo(c)));
     const { data: incs } = waitingChats.length ? await sb.from("chat_incidents").select("chat_id").in("kind", ["client_waiting", "client_pileup"]).neq("status", "resolved").in("chat_id", waitingChats.map((c) => c.id)) : { data: [] };
     const officeHas = new Set(((incs || []) as { chat_id: string }[]).map((i) => i.chat_id));
     const waits: Want[] = [];
     for (const c of waitingChats) {
       const t = trainers.get(c.trainer_id!); if (!t) continue;
-      const { data: um } = await sb.from("chat_messages").select("created_at, body, kind").eq("chat_id", c.id).eq("sender_role", "client").gt("created_at", c.last_reply_at || "1970-01-01T00:00:00Z").order("created_at").limit(20);
-      const msgs = (um || []) as { created_at: string; body: string | null; kind: string }[];
+      // Only what needs the trainer: not "thanks" or "yes, that's perfect", not an office question (lib/clientNeeds.ts)
+      const msgs = await pendingFor(sb, c.id, answeredUpTo(c));
       if (!msgs.length) continue;
       const firstAt = msgs[0].created_at, lastMsg = msgs[msgs.length - 1], ref = `waiting:${c.id}:${firstAt}`;
       const h = wakingHoursBetween(ms(firstAt), now.getTime());
@@ -355,6 +359,7 @@ export async function nudgeReport(o: { days: number; trainer?: string }, sb: Sup
   const written = people.filter((r) => r.suggested != null);
   return {
     how: LADDER_TEXT, days: o.days,
+    clientMessages: await needsStats(sb, since).catch(() => null), // who had to act on clients' messages, and how often people changed the app's answer
     open: open.reverse(),
     byTrainer: [...per.values()].sort((a, b) => b.reminders - a.reminders || a.trainer.localeCompare(b.trainer)),
     checkIns: {

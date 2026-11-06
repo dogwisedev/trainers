@@ -6,6 +6,7 @@ import { isDemo, serverClient, serviceClient } from "@/lib/supabase";
 import { pushToTrainer } from "@/lib/push";
 import { fromFor, loadPocNumbers, quoNumber, sendText, toE164 } from "@/lib/quo";
 import type { NudgeKind } from "@/lib/nudges";
+import { answeredUpTo } from "@/lib/chatRules";
 
 // The office's check-in with a trainer, from an item the reminder ladder handed to To do (components/ChaseActions.tsx).
 // Each one is logged in `nudges` with what the app suggested and whether it was changed, so we can see how often the
@@ -77,5 +78,39 @@ export async function saveQuoNumberAction(_: R | null, f: FormData): Promise<R> 
     if (error) return { ok: false, message: /quo_|schema cache/i.test(error.message) ? "Run migration 051 in Supabase first." : error.message };
     revalidatePath("/a/account");
     return { ok: true, message: number ? `Saved. Texts to ${poc ? `${poc}'s` : "your"} trainers come from ${number}.` : "Removed: your trainers get texts from the default number." };
+  });
+}
+
+/** To do, on a client item: "No reply needed" (waiting / several messages) or "Handled" (an office question or urgent
+ *  message dealt with by phone or email). It counts as the answer, so the item stays closed until the client writes again,
+ *  and the messages' labels are corrected with your name (which is how we see how well the app reads them). */
+export async function clientCloseAction(incidentId: string): Promise<R> {
+  return audited("clientCloseAction", { incidentId }, async () => {
+    if (isDemo()) return { ok: false, message: "Demo mode." };
+    const { who } = await admin();
+    const sb = serviceClient(), now = new Date().toISOString();
+    const { data: inc } = await sb.from("chat_incidents").select("id, kind, chat_id, status").eq("id", incidentId).maybeSingle();
+    if (!inc?.chat_id) return { ok: false, message: "Not found." };
+    if (inc.kind === "client_waiting" || inc.kind === "client_pileup") {
+      const { data: c } = await sb.from("chats").select("*").eq("id", inc.chat_id).maybeSingle();
+      const after = c ? answeredUpTo(c) : null;
+      const { error } = await sb.from("chats").update({ reply_waived_at: now, reply_waived_by: who }).eq("id", inc.chat_id);
+      if (error) return { ok: false, message: /reply_waived|schema cache/i.test(error.message) ? "Run migration 052 in Supabase first." : error.message };
+      // The client's messages up to now: "no reply needed", by you (kept beside the app's own first answer)
+      const { data: msgs } = await sb.from("chat_messages").select("id, created_at").eq("chat_id", inc.chat_id).eq("sender_role", "client").gt("created_at", after || "1970-01-01T00:00:00Z");
+      const list = (msgs || []) as { id: string; created_at: string }[];
+      if (list.length) {
+        const { data: had } = await sb.from("message_needs").select("message_id, first").in("message_id", list.map((m) => m.id));
+        const first = new Map(((had || []) as { message_id: string; first: string | null }[]).map((x) => [x.message_id, x.first]));
+        await sb.from("message_needs").upsert(list.map((m) => ({ message_id: m.id, chat_id: inc.chat_id, sent_at: m.created_at, needs: "none", why: "No reply needed (To do)", by: who, first: first.get(m.id) ?? null, at: now })), { onConflict: "message_id" });
+      }
+      await sb.from("chat_incidents").update({ status: "resolved", resolved_at: now, resolved_by: who, resolved_note: "No reply needed" }).eq("chat_id", inc.chat_id).in("kind", ["client_waiting", "client_pileup"]).neq("status", "resolved");
+      await sb.from("nudges").update({ done_at: now, outcome: "gone" }).eq("chat_id", inc.chat_id).eq("kind", "client_waiting").is("done_at", null);
+    } else if (inc.kind === "client_office" || inc.kind === "client_urgent") {
+      await sb.from("message_needs").update({ handled_at: now, handled_by: who }).eq("chat_id", inc.chat_id).eq("needs", inc.kind === "client_office" ? "office" : "urgent").is("handled_at", null);
+      await sb.from("chat_incidents").update({ status: "resolved", resolved_at: now, resolved_by: who, resolved_note: "Handled" }).eq("id", inc.id);
+    } else return { ok: false, message: "This one clears by itself." };
+    revalidatePath("/a");
+    return { ok: true, message: inc.kind.startsWith("client_waiting") || inc.kind === "client_pileup" ? "Closed: no reply needed." : "Marked handled." };
   });
 }

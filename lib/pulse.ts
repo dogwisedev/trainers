@@ -104,7 +104,8 @@ export async function buildAppPart(sb: SupabaseClient = serviceClient()): Promis
   ]);
   const reads = await all<{ chat_id: string; user_id: string }>((a, b) => sb.from("chat_reads").select("chat_id, user_id").order("chat_id").range(a, b));
   // Reminders the app sent (none before migration 049: then chasing is graded on alerts, as before)
-  const nudgeRows = await all<{ trainer_id: string | null; sent_at: string; step: number | null }>((a, b) => sb.from("nudges").select("trainer_id, sent_at, step").not("step", "is", null).gte("sent_at", `${from}T00:00:00Z`).order("sent_at").range(a, b)).catch(() => []);
+  const nudgeRows = (await all<{ trainer_id: string | null; sent_at: string; step: number | null; kind: string; outcome: string | null }>((a, b) => sb.from("nudges").select("trainer_id, sent_at, step, kind, outcome").not("step", "is", null).gte("sent_at", `${from}T00:00:00Z`).order("sent_at").range(a, b)).catch(() => []))
+    .filter((n) => !(n.kind === "client_waiting" && n.outcome === "gone")); // a reminder that turned out not to be needed doesn't count against them
   const firstNudge = await sb.from("nudges").select("sent_at").not("step", "is", null).order("sent_at").limit(1).then((r) => (r.data?.[0] as { sent_at: string } | undefined)?.sent_at || null, () => null);
   let points = bks.length + trs.length + chats.length + msgs.length + incs.length + reps.length + offs.length + dm.length + reads.length + acts.length;
 
