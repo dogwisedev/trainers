@@ -37,7 +37,9 @@ export async function syncHubspotDates(opts: { mode?: SyncMode; dealIds?: string
   const today = etParts(new Date()).date;
 
   const COLS = "id, trainer_id, client_name, dog_name, start_date, end_date, weeks, extra_days, status, hubspot_deal_id, trainers(name, capacity)";
-  const query = (cols: string) => { let q = sb.from("bookings").select(cols).not("hubspot_deal_id", "is", null).neq("status", "cancelled").gte("end_date", addDays(today, -KEEP_DAYS)); if (opts.dealIds?.length) q = q.in("hubspot_deal_id", opts.dealIds); return q; };
+  // A booking just saved (dealIds) always takes HubSpot's dates, even when the dates typed in ended weeks ago (a program
+  // booked late); the regular sync only looks at bookings that ended in the last KEEP_DAYS days
+  const query = (cols: string) => { let q = sb.from("bookings").select(cols).not("hubspot_deal_id", "is", null).neq("status", "cancelled"); q = opts.dealIds?.length ? q.in("hubspot_deal_id", opts.dealIds) : q.gte("end_date", addDays(today, -KEEP_DAYS)); return q; };
   // hs_hold: training materials paused while HubSpot says the program is off (migration 050; before it, no pausing)
   let { data, error } = await query(`${COLS}, hs_hold`);
   const holdOn = !error;
