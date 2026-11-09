@@ -34,11 +34,21 @@ export async function alertAdmins(subject: string, intro: string, lines: { text:
   return true;
 }
 
-/** The same alert as a Buzz message: the subject in bold, the intro, one line per item with its link, then the button. */
+/** The same alert as a Buzz message, laid out for a phone: the subject in bold, what happened, then the items. Each item's
+ *  text is its own link (no trailing "Open" to wrap onto a line of its own), and items the digest prefixes with "Now:",
+ *  "This week:" or "For information:" are grouped under that heading instead of repeating it on every row. */
 export function buzzAlert(subject: string, intro: string, lines: { text: string; link: string }[], button?: { label: string; link: string }) {
   const MAX_LINES = 15;
-  const items = lines.slice(0, MAX_LINES).map((l) => `• ${md(l.text)} · ${mdLink("Open", l.link)}`);
-  if (lines.length > MAX_LINES) items.push(`• and ${lines.length - MAX_LINES} more in the app`);
-  // Headline, what happened, the items, the button: a blank line between each block so it reads on a phone
-  return [`**${md(subject)}**`, md(intro), items.join("\n"), button ? mdLink(button.label, button.link) : ""].filter(Boolean).join("\n\n");
+  const groups: { label: string; items: string[] }[] = [];
+  for (const l of lines.slice(0, MAX_LINES)) {
+    const m = l.text.match(/^(Now|This week|For information|Later): ([\s\S]*)$/);
+    const label = m ? m[1] : "", text = m ? m[2] : l.text;
+    let g = groups[groups.length - 1];
+    if (!g || g.label !== label) groups.push((g = { label, items: [] }));
+    g.items.push(`• ${mdLink(text, l.link)}`);
+  }
+  const blocks = groups.map((g) => [g.label ? `**${g.label}**` : "", ...g.items].filter(Boolean).join("\n"));
+  const more = lines.length > MAX_LINES ? `…and ${lines.length - MAX_LINES} more in the app` : "";
+  // Headline, what happened, each group, the button: a blank line between each block so it reads on a phone
+  return [`**${md(subject)}**`, md(intro), ...blocks, more, button ? mdLink(button.label, button.link) : ""].filter(Boolean).join("\n\n");
 }
