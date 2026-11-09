@@ -218,4 +218,6 @@ Turn a channel off by removing its two variables.
 Try it without waiting for a real alert or payment (signed in as an admin, in the browser):
 - `/api/buzz/test` shows what each channel would get, and sends nothing: a connection test, today's To do list as the 8 AM message would show it, and the last 3 real Stripe payments, Closed Won deals and Bark leads as Buzz would show them.
 - `?send=office`, `?send=payments`, `?send=sales`, `?send=leads` or `?send=all` posts them, each marked TEST (`&n=` up to 10 of each). It only reads Stripe, HubSpot and To do; it changes nothing, and test posts never count as announced.
+- Each channel's line shows which hook the app is using: the end of the URL, and the secret's length and a 6-character tag (never the secret). To check a secret you hold matches, run this in PowerShell and paste it when asked; the tag it prints must match:
+  `$s = (Read-Host "Secret") -replace '\s','' -replace '^["'']+|["'']+$',''; $h = [Security.Cryptography.SHA256]::Create().ComputeHash([Text.Encoding]::UTF8.GetBytes($s)); "tag " + (($h[0..2] | ForEach-Object { $_.ToString('x2') }) -join '') + ", $($s.Length) characters"`
 - Under each message it says whether Buzz took it. Buzz answers "not found" (404) for a wrong secret, a wrong URL, a workflow that's off, or a workflow whose creator left the channel.

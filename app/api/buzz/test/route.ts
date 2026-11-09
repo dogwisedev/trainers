@@ -1,5 +1,5 @@
 import { getViewer } from "@/lib/data";
-import { buzzOn, postToBuzzDetailed, type BuzzRoom } from "@/lib/buzz";
+import { buzzFingerprint, buzzOn, postToBuzzDetailed, type BuzzRoom } from "@/lib/buzz";
 import { buzzAlert } from "@/lib/adminAlert";
 import { digestMessage } from "@/lib/digest";
 import { replayRecentCharges } from "@/lib/paymentAlert";
@@ -34,9 +34,10 @@ export async function GET(req: Request) {
     const r = await postToBuzzDetailed(room, message);
     out.push(r.ok ? "→ sent ✓ (it shows in Buzz a moment later)" : `→ NOT SENT: ${r.result}${/^HTTP 404/.test(r.result) ? "\n  Buzz says \"not found\" for all of these: the secret doesn't match, the URL is wrong, the workflow is off, or its creator left the channel." : ""}`, "");
   };
+  const fingerprints = Object.fromEntries(await Promise.all((["office", "payments", "sales", "leads"] as BuzzRoom[]).map(async (r) => [r, await buzzFingerprint(r)])));
   const section = (room: BuzzRoom, title: string) => {
     const key = room.toUpperCase();
-    out.push("════════════════════════", `${title}: ${buzzOn(room) ? "ON" : `OFF (set BUZZ_${key}_URL and BUZZ_${key}_SECRET in Vercel, then redeploy)`}`, "");
+    out.push("════════════════════════", `${title}: ${buzzOn(room) ? `ON · ${fingerprints[room]}` : `OFF (set BUZZ_${key}_URL and BUZZ_${key}_SECRET in Vercel, then redeploy)`}`, "");
   };
 
   section("office", "OFFICE channel");

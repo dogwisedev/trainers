@@ -10,10 +10,24 @@ import "server-only";
 //   BUZZ_LEADS_URL, BUZZ_LEADS_SECRET         each new Bark lead (lib/leadAlert.ts)
 export type BuzzRoom = "office" | "payments" | "sales" | "leads";
 
+// Pasted values often carry quotes, spaces or a line break; none belong in a URL or a secret, so they're dropped
+const clean = (v: string | undefined) => (v || "").replace(/\s+/g, "").replace(/^["']+|["']+$/g, "");
 const envOf = (room: BuzzRoom) => {
   const key = room.toUpperCase();
-  return { url: (process.env[`BUZZ_${key}_URL`] || "").trim(), secret: (process.env[`BUZZ_${key}_SECRET`] || "").trim() };
+  return { url: clean(process.env[`BUZZ_${key}_URL`]), secret: clean(process.env[`BUZZ_${key}_SECRET`]) };
 };
+
+/** For the test page: which hook the app is using, without showing the secret. The tag is the first 6 characters of the
+ *  secret's SHA-256, so it can be compared with the secret you hold (see the README) but not turned back into it. */
+export async function buzzFingerprint(room: BuzzRoom): Promise<string> {
+  const { url, secret } = envOf(room);
+  if (!url || !secret) return "not set";
+  const { createHash } = await import("crypto");
+  let where = url;
+  try { const u = new URL(url); where = `${u.host} …${u.pathname.slice(-6)}`; } catch { return `URL isn't a web address (starts "${url.slice(0, 12)}…")`; }
+  const warn = /\/hooks\/[0-9a-f-]{36}$/i.test(url) ? "" : " · ⚠ URL doesn't end in /hooks/<workflow id>";
+  return `hook ${where} · secret ${secret.length} characters, tag ${createHash("sha256").update(secret).digest("hex").slice(0, 6)}${warn}`;
+}
 export const buzzOn = (room: BuzzRoom) => { const e = envOf(room); return !!(e.url && e.secret); };
 
 /** Markdown-safe text for names, notes and anything a person typed (Buzz renders messages as Markdown). */
