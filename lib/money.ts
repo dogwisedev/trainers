@@ -112,5 +112,5 @@ export async function recordPayment(dealId: string, amount: number, sessionId: s
   }
   await updateDeal(dealId, props);
   await syncMoney({ dealIds: [dealId], sb });
-  return { ok: true, note: `amount_paid now ${paid}` };
+  return { ok: true, note: `amount_paid now ${paid}`, fresh: true, sale: num(p.amount), paid };
 }

@@ -16,6 +16,14 @@ async function stripe<T>(path: string, form: Record<string, string>): Promise<T>
   return d as T;
 }
 
+/** One Stripe object by path (e.g. /payment_intents/pi_…, /customers/cus_…). */
+export async function stripeGet<T>(path: string): Promise<T> {
+  const r = await fetch(`https://api.stripe.com/v1${path}`, { cache: "no-store", headers: { Authorization: `Bearer ${process.env.STRIPE_SECRET_KEY}` } });
+  const d = await r.json();
+  if (!r.ok) throw new Error(`Stripe: ${d?.error?.message || r.status}`);
+  return d as T;
+}
+
 /** Every card charge between two instants (epoch seconds), newest first: who, how much, succeeded or failed. For Pulse (Sales). */
 export async function chargeOutcomes(fromSec: number, toSec: number, maxPages = 30): Promise<{ customer: string; status: string; amount: number; created: number }[]> {
   const out: { customer: string; status: string; amount: number; created: number }[] = [];

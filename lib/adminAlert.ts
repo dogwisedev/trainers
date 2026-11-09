@@ -2,6 +2,7 @@ import "server-only";
 import { pushToAdmins } from "./push";
 import { mailConfigured, sendMail } from "./mail";
 import { BRAND_LOGO_PNG_BASE64 } from "./brandLogo";
+import { md, mdLink, postToBuzz } from "./buzz";
 
 /** The office inbox for money matters (refunds, partial pay). OFFICE_EMAIL overrides it. */
 export const officeEmail = () => (process.env.OFFICE_EMAIL || "info@dogwiseacademy.com").trim();
@@ -12,8 +13,11 @@ export const officeEmail = () => (process.env.OFFICE_EMAIL || "info@dogwiseacade
 export async function alertAdmins(subject: string, intro: string, lines: { text: string; link: string }[], button?: { label: string; link: string }, opts: { alsoTo?: string[]; email?: boolean } = {}) {
   const list = [...(process.env.ADMIN_NOTIFY_EMAIL || process.env.PAYROLL_NOTIFY_EMAIL || "").split(","), ...(opts.alsoTo || [])].map((s) => s.trim()).filter(Boolean);
   const to = [...new Map(list.map((a) => [a.toLowerCase(), a])).values()];
-  // Admins' phones too (anyone who turned notifications on)
-  await pushToAdmins({ title: subject, body: intro, url: (lines[0]?.link || button?.link || "/a").replace(/^https?:\/\/[^/]+/, ""), tag: subject.slice(0, 60) });
+  // Admins' phones too (anyone who turned notifications on), and the Buzz office channel (side by side with everything else)
+  await Promise.all([
+    pushToAdmins({ title: subject, body: intro, url: (lines[0]?.link || button?.link || "/a").replace(/^https?:\/\/[^/]+/, ""), tag: subject.slice(0, 60) }),
+    postToBuzz("office", buzzAlert(subject, intro, lines, button))
+  ]);
   if (!opts.email || !to.length || !mailConfigured()) return false;
   const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
   await sendMail({
@@ -28,4 +32,12 @@ export async function alertAdmins(subject: string, intro: string, lines: { text:
     attachments: [{ filename: "dogwise.png", content: Buffer.from(BRAND_LOGO_PNG_BASE64, "base64"), contentType: "image/png", cid: "dogwise-logo" }]
   });
   return true;
+}
+
+/** The same alert as a Buzz message: the subject in bold, the intro, one line per item with its link, then the button. */
+function buzzAlert(subject: string, intro: string, lines: { text: string; link: string }[], button?: { label: string; link: string }) {
+  const MAX_LINES = 15;
+  const items = lines.slice(0, MAX_LINES).map((l) => `• ${md(l.text)} · ${mdLink("Open", l.link)}`);
+  if (lines.length > MAX_LINES) items.push(`• and ${lines.length - MAX_LINES} more in the app`);
+  return [`**${md(subject)}**`, md(intro), ...items, ...(button ? [mdLink(button.label, button.link)] : [])].filter(Boolean).join("\n");
 }

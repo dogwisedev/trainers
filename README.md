@@ -195,3 +195,15 @@ Each client message is labelled by the 10-minute chat check (`lib/clientNeeds.ts
 - **Office** questions go on To do for the office ("Darlene asked the office about Bear") until someone in the office answers in the chat, or taps **Handled** (answered by phone or email). **Urgent** ones go on To do straight away, with an alert.
 - On a waiting client, **No reply needed** counts as the answer to everything they had sent; the item stays closed until they write again. It also corrects the labels with your name, so `reminders` (the Claude connector) shows how often people changed the app's answer.
 - `CLIENT_NEEDS=off` in Vercel goes back to "the client spoke last = waiting".
+
+## Buzz, side by side with Slack
+The app posts to Buzz as well as everything it already does. Slack is unchanged (the Slack payment message still comes from barktoHubSpot). Nothing goes to Buzz until its variables are set, and a Buzz problem never stops or slows anything else.
+- **Payments channel:** every Stripe payment, paid or failed: the client, each dog (tap the name for its page) with program, trainer and dates, the sale, the sales person, the HubSpot deal. Failed payments say why in plain words, with the balance link to resend. A dog not booked yet gets a **Book it** link (Closed Won deals only). The app's own balance links post once HubSpot is updated, so **Still owed** / **Paid in full** is exact; other payments don't show what's owed, because amount_paid is filled in by hand and may not include them yet.
+- **Office channel:** every admin alert, the same ones that reach admins' phones (not ready before training, chat incidents, a trainer's incident report, a client starting a new chat, the 8 AM To do list), each with its Open link.
+- No green ticks in Buzz: a message posted by a webhook gives back no id, so a reaction can't be matched to the alert. Buzz pings, the app is where things get done.
+
+Setup (about 10 minutes):
+1. In Buzz, for each channel (payments, office): create a workflow in that channel → trigger **Webhook** → one **Send message** step with the text exactly `{{trigger.message}}` → save. Copy the URL and the secret (the secret is shown once). Create the workflows from an account that stays in the channel: if its creator leaves, the webhook stops.
+2. Vercel → Environment Variables: `BUZZ_PAYMENTS_URL`, `BUZZ_PAYMENTS_SECRET`, `BUZZ_OFFICE_URL`, `BUZZ_OFFICE_SECRET`. Redeploy.
+3. Stripe → Developers → Webhooks → the app's endpoint (`/api/stripe/webhook`) → add the events `charge.succeeded` and `charge.failed` (keep `checkout.session.completed`). The app always answers Stripe with 200 for these, so they never cause retries.
+Turn a channel off by removing its two variables.
