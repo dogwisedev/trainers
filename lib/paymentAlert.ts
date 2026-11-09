@@ -18,7 +18,7 @@ import { buzzOn, md, mdLink, postToBuzz } from "./buzz";
 const site = () => (process.env.NEXT_PUBLIC_SITE_URL || "").replace(/\/$/, "");
 const dealUrl = (id: string) => `https://app.hubspot.com/contacts/21869370/record/0-3/${id}`;
 const contactUrl = (id: string) => `https://app.hubspot.com/contacts/21869370/record/0-1/${id}`;
-const dollars = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const dollars = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: Math.round(n * 100) % 100 ? 2 : 0, maximumFractionDigits: 2 })}`;
 const money = (cents: number, currency: string) => (currency.toLowerCase() === "usd" ? dollars(cents / 100) : `${(cents / 100).toFixed(2)} ${currency.toUpperCase()}`);
 const num = (v: unknown) => { const n = Number(String(v ?? "").replace(/[$,\s]/g, "")); return Number.isFinite(n) ? n : 0; };
 
@@ -75,29 +75,38 @@ async function contextFor(o: { dealId?: string | null; email?: string | null }):
 
 const trainerName = (b: Booking) => (Array.isArray(b.trainers) ? b.trainers[0]?.name : b.trainers?.name) || "";
 
-function bookingLine(b: Booking, today: string) {
-  const when = b.status === "cancelled" ? "cancelled"
-    : today < b.start_date ? `starts ${long(b.start_date)}`
-    : today <= b.end_date ? `in training until ${long(b.end_date)}`
-    : `finished ${long(b.end_date)}`;
-  const program = b.program || b.program_choice || (b.weeks ? `${b.weeks} weeks` : "");
-  const trainer = trainerName(b);
-  return [`**${mdLink(b.dog_name || "Dog", `${site()}/a/dogs/${b.id}`)}**`, md(program), trainer ? `with ${md(trainer)}` : "no trainer yet", when].filter(Boolean).join(" · ");
-}
+// Layout, built for a phone: a bold headline, then one fact per line starting with its label, then the links, with a blank
+// line between the three blocks.
+const block = (head: string, details: string[], links: string) => [head, details.filter(Boolean).join("\n"), links].filter(Boolean).join("\n\n");
 
-/** The dog lines, or what's missing and the one link that fixes it. */
-function whereLines(ctx: Ctx, email: string | null) {
+/** "Dog:" and "Trainer:" for each booking on the deal, or a "Booking:" / "Deal:" line saying what's missing. */
+function dogLines(ctx: Ctx, email: string | null): string[] {
   const today = etParts(new Date()).date;
-  if (ctx.bookings.length) return ctx.bookings.map((b) => bookingLine(b, today));
-  if (ctx.dealId && ctx.deal) return [ctx.deal.hs_is_closed_won === "true"
-    ? `Not booked in the app yet · ${mdLink("Book it", `${site()}/a/bookings/new?deal=${ctx.dealId}`)}`
-    : "Deal not Closed Won yet, so not booked in the app"];
-  if (ctx.dealId) return [`Deal ${md(ctx.dealId)} couldn't be read from HubSpot`];
-  if (ctx.contactId) return [`No HubSpot deal for this client yet · ${mdLink("Open the contact", contactUrl(ctx.contactId))}`];
-  return [email ? `No HubSpot contact for ${md(email)} yet` : "No email on this payment, so no HubSpot match"];
+  if (ctx.bookings.length) return ctx.bookings.flatMap((b) => {
+    const when = b.status === "cancelled" ? "cancelled"
+      : today < b.start_date ? `starts ${long(b.start_date)}`
+      : today <= b.end_date ? `in training until ${long(b.end_date)}`
+      : `finished ${long(b.end_date)}`;
+    const program = b.program || b.program_choice || (b.weeks ? `${b.weeks} weeks` : "");
+    const trainer = trainerName(b);
+    return [`Dog: **${md(b.dog_name || "Dog")}**${program ? ` · ${md(program)}` : ""}`, `Trainer: ${trainer ? md(trainer) : "none yet"} · ${when}`];
+  });
+  if (ctx.dealId && ctx.deal) return [ctx.deal.hs_is_closed_won === "true" ? "Booking: not booked in the app yet" : "Booking: not yet (the deal isn't Closed Won)"];
+  if (ctx.dealId) return [`Deal: ${md(ctx.dealId)} couldn't be read from HubSpot`];
+  if (ctx.contactId) return ["Deal: none for this client in HubSpot yet"];
+  return [email ? `HubSpot: no contact for ${md(email)} yet` : "HubSpot: no email on this payment to match"];
 }
 
-const footer = (ctx: Ctx) => [ctx.owner ? `Sales: ${md(ctx.owner)}` : "", ctx.dealId ? mdLink("HubSpot deal", dealUrl(ctx.dealId)) : ""].filter(Boolean).join(" · ");
+/** "Sale: $… · Sales: name", saying so when the deal has no owner. */
+const salesLine = (ctx: Ctx, sale = "") => [sale, ctx.dealId ? `Sales: ${ctx.owner ? md(ctx.owner) : "no owner on the deal"}` : ""].filter(Boolean).join(" · ");
+
+/** The links block: each dog's page, Book it (Closed Won, not booked), anything extra, then HubSpot. */
+function linkLine(ctx: Ctx, extra: string[] = []) {
+  const dogs = ctx.bookings.map((b) => mdLink(`${b.dog_name || "Dog"} in the app`, `${site()}/a/dogs/${b.id}`));
+  const book = !ctx.bookings.length && ctx.dealId && ctx.deal?.hs_is_closed_won === "true" ? [mdLink("Book it", `${site()}/a/bookings/new?deal=${ctx.dealId}`)] : [];
+  const hs = ctx.dealId ? [mdLink("HubSpot deal", dealUrl(ctx.dealId))] : ctx.contactId ? [mdLink("HubSpot contact", contactUrl(ctx.contactId))] : [];
+  return [...dogs, ...book, ...extra, ...hs].join(" · ");
+}
 
 const clientName = (ctx: Ctx, stripeName?: string | null, email?: string | null) =>
   ctx.bookings.find((b) => b.client_name)?.client_name || stripeName || email || "Unknown client";
@@ -160,18 +169,18 @@ async function chargeMessage(succeeded: boolean, ch: StripeCharge, dealIdKnown?:
   const who = md(clientName(ctx, name, email));
   const amount = money(ch.amount, ch.currency || "usd");
   const sale = ctx.deal?.amount ? `Sale: ${dollars(num(ctx.deal.amount))}` : "";
-  const lines = succeeded
-    ? [`💰 **${amount} paid** · ${who}`, ...whereLines(ctx, email), [sale, footer(ctx)].filter(Boolean).join(" · ")]
-    : [
-        `🛎️ **${amount} payment failed** · ${who}${email && md(email) !== who ? ` · ${md(email)}` : ""}`,
-        `Why: ${declineReason(ch)}`,
-        ...whereLines(ctx, email),
-        /_checkout_cancel+ed/.test(String(ch.outcome?.reason || ch.failure_code || "").toLowerCase())
-          ? `Next: ask if they'd like to finish it or pay another way${ctx.deal?.remaining_balance_link ? ` · ${mdLink("Balance link", ctx.deal.remaining_balance_link)}` : ""}`
-          : ctx.deal?.remaining_balance_link ? `Next: ask the client to pay again · ${mdLink("Balance link to resend", ctx.deal.remaining_balance_link)}` : "Next: ask the client to try again or use another card",
-        footer(ctx)
-      ];
-  return lines.filter(Boolean).join("\n");
+  if (succeeded) return block(`💰 **${amount} paid** · ${who}`, [...dogLines(ctx, email), salesLine(ctx, sale)], linkLine(ctx));
+  const code = String(ch.outcome?.reason || ch.failure_code || "").toLowerCase();
+  const link = ctx.deal?.remaining_balance_link || null;
+  const next = /_checkout_cancel+ed/.test(code) ? "ask if they'd like to finish it or pay another way"
+    : link ? "ask the client to pay again with the balance link" : "ask the client to try again or use another card";
+  return block(`🛎️ **${amount} failed** · ${who}`, [
+    `Why: ${declineReason(ch)}`,
+    `Next: ${next}`,
+    email && md(email) !== who ? `Email: ${md(email)}` : "",
+    ...dogLines(ctx, email),
+    salesLine(ctx, sale)
+  ], linkLine(ctx, link ? [mdLink("Balance link", link)] : []));
 }
 
 /** A balance link paid (checkout.session.completed), after recordPayment added it to the deal. `sale`/`paid` are HubSpot's
@@ -185,15 +194,10 @@ async function balanceMessage(o: { dealId: string; amount: number; sale?: number
   const ctx = ctxIn || await contextFor({ dealId: o.dealId });
   const owed = o.sale != null && o.paid != null ? Math.max(0, Math.round((o.sale - o.paid) * 100) / 100) : null;
   const balance = owed == null ? "HubSpot couldn't find this deal, so the payment isn't on it yet"
-    : owed < 0.01 ? `✅ **Paid in full** (${dollars(o.sale!)})`
-    : `**Still owed: ${dollars(owed)}** of ${dollars(o.sale!)}`;
-  const lines = [
-    `💰 **${dollars(o.amount)} balance paid** · ${md(clientName(ctx, o.name, o.email))}`,
-    ...whereLines(ctx, o.email || null),
-    balance,
-    footer(ctx)
-  ];
-  return lines.filter(Boolean).join("\n");
+    : owed < 0.01 ? `✅ **paid in full** (${dollars(o.sale!)})`
+    : `**${dollars(owed)} still owed** of ${dollars(o.sale!)}`;
+  return block(`💰 **${dollars(o.amount)} balance paid** · ${md(clientName(ctx, o.name, o.email))}`,
+    [...dogLines(ctx, o.email || null), `Balance: ${balance}`, salesLine(ctx)], linkLine(ctx));
 }
 
 /** For /api/buzz/test: the Buzz messages the last `n` real Stripe payments would have made, marked TEST. Balance-link payments

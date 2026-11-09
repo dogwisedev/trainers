@@ -39,33 +39,35 @@ export async function leadMessage(dealId: string, dIn?: DealProps): Promise<stri
   const place = where.length ? where.join(", ") : [d.city, d.state].filter(Boolean).join(", ");
   const dogs = Math.max(1, num(d.how_many_dogs_need_training_));
 
-  const score = d.lead_score ? `**Score ${num(d.lead_score)}/100**` : "No lead score yet";
+  const score = d.lead_score ? `**${num(d.lead_score)}/100**` : "not scored yet";
   const verdict = VERDICT[String(d.lead_verdict || "").toLowerCase()] || "";
+  const before = d.bark_pros_before_purchase !== undefined && d.bark_pros_before_purchase !== null && d.bark_pros_before_purchase !== "" ? num(d.bark_pros_before_purchase) : null;
   const cost = [
     d.bark_credits_paid ? `${num(d.bark_credits_paid)} credits` : "",
-    d.bark_pros_before_purchase !== undefined && d.bark_pros_before_purchase !== null && d.bark_pros_before_purchase !== "" ? `${num(d.bark_pros_before_purchase)} pro${num(d.bark_pros_before_purchase) === 1 ? "" : "s"} bought before us` : "",
+    before != null ? `${before} pro${before === 1 ? "" : "s"} bought before us` : "",
     d.auto_bought === "true" ? "auto-bought" : ""
   ].filter(Boolean).join(" · ");
-
   const dog = [short(d.what_is_the_breed_of_the_dog_s__, 40), short(d.what_are_the_dog_s__age_s__, 30), dogs > 1 ? `${dogs} dogs` : ""].filter(Boolean).map(md).join(", ");
   const wants = short(d.which_type_s__of_training_would_you_consider_ || d.what_type_of_dog_training_do_you_need_, 70);
   const hiring = short(d.how_likely_are_you_to_make_a_hiring_decision_, 40);
-  const about = [dog ? `Dog: ${dog}` : "", wants ? `wants: ${md(wants)}` : "", d.lead_track === "bt_conversion" ? "not asking for board & train" : "", hiring ? `hiring: ${md(hiring)}` : ""].filter(Boolean).join(" · ");
-
   // Bark Buster's flags usually say "Bite history: Yes, …" already; only add our own when they don't
   const flags = [d.bite_history === "true" && !/bite/i.test(String(d.lead_flags || "")) ? "bite history" : "", lines(d.lead_flags, 3)].filter(Boolean).join(" · ");
   const [trainers, owner] = await Promise.all([roomNear(zip, dogs, d), ownerOf(d.hubspot_owner_id)]);
 
-  return [
-    `🐕 **New Bark lead: ${md(name || "No name")}**${place ? ` · ${md(place)}` : ""}`,
-    [score, verdict, cost].filter(Boolean).join(" · "),
-    about,
+  // A phone-sized layout: headline, one labelled fact per line, then the link, with a blank line between
+  const details = [
+    `Score: ${[score, verdict].filter(Boolean).join(" · ")}`,
+    cost ? `Cost: ${cost}` : "",
+    dog ? `Dog: ${dog}` : "",
+    wants || d.lead_track === "bt_conversion" ? `Wants: ${[wants ? md(wants) : "", d.lead_track === "bt_conversion" ? "(not board & train)" : ""].filter(Boolean).join(" ")}` : "",
+    hiring ? `Hiring: ${md(hiring)}` : "",
     d.lead_pros ? `👍 ${lines(d.lead_pros, 2)}` : "",
     d.lead_cons ? `👎 ${lines(d.lead_cons, 2)}` : "",
     flags ? `🚩 ${flags}` : "",
-    `🐾 ${trainers}`,
-    `${owner ? `Owner: ${md(owner)}` : "No owner yet"} · ${mdLink("HubSpot deal", dealUrl(dealId))}`
+    `Trainers: ${trainers}`,
+    `Owner: ${owner ? md(owner) : "not assigned yet"}`
   ].filter(Boolean).join("\n");
+  return [`🐕 **New Bark lead: ${md(name || "No name")}**${place ? ` · ${md(place)}` : ""}`, details, mdLink("HubSpot deal", dealUrl(dealId))].join("\n\n");
 }
 
 async function ownerOf(id: unknown): Promise<string | null> {
@@ -73,18 +75,18 @@ async function ownerOf(id: unknown): Promise<string | null> {
   try { return (await listOwners()).find((o) => o.id === String(id))?.name || null; } catch { return null; }
 }
 
-/** Trainers in range with room in the next 4 weeks (from the app); falls back to Bark Buster's nearest trainer. */
+/** After "Trainers: ": who's in range with room in the next 4 weeks (the app's availability), else Bark Buster's nearest. */
 async function roomNear(zip: string | null, dogs: number, d: DealProps): Promise<string> {
-  const buster = d.nearest_trainer ? `Nearest: ${md(d.nearest_trainer)}${d.trainer_distance_mi ? ` (~${num(d.trainer_distance_mi)} mi${d.trainer_in_range === "false" ? ", out of range" : ""})` : ""}` : "";
-  if (!zip) return buster || "No ZIP, so no trainer check";
+  const buster = d.nearest_trainer ? `nearest is ${md(d.nearest_trainer)}${d.trainer_distance_mi ? ` (~${num(d.trainer_distance_mi)} mi${d.trainer_in_range === "false" ? ", out of range" : ""})` : ""}` : "";
+  if (!zip) return buster || "no ZIP to check";
   try {
     const a = await availability({ zip, routes: false });
-    if (!a.ok) return buster || `Trainers: ${md(a.error)}`;
+    if (!a.ok) return buster || md(a.error);
     const fits = a.trainers.filter((t) => t.inRange && t.free.slice(0, 4).some((f) => f >= dogs)).slice(0, 3);
-    if (fits.length) return `Room in the next 4 weeks: ${fits.map((t) => `${md(t.name)} (~${t.distance} mi)`).join(" · ")}`;
+    if (fits.length) return `${fits.map((t) => `${md(t.name)} (~${t.distance} mi)`).join(" · ")} ${fits.length === 1 ? "has" : "have"} room in the next 4 weeks`;
     const near = a.trainers.find((t) => t.inRange);
-    return near ? `In range but full for 4 weeks: ${md(near.name)} (~${near.distance} mi)` : (buster || "No trainer in range");
-  } catch { return buster || "Trainers: couldn't check"; }
+    return near ? `${md(near.name)} (~${near.distance} mi) is in range but full for 4 weeks` : (buster || "nobody in range");
+  } catch { return buster || "couldn't check"; }
 }
 
 /** Announce one deal as a new Bark lead, once. */

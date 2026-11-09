@@ -46,24 +46,31 @@ export async function winMessage(dealId: string, dealIn?: DealProps): Promise<st
   ]);
 
   const what = [program, weeks ? `${weeks} week${weeks === 1 ? "" : "s"}` : ""].filter(Boolean).join(", ");
-  const head = `🎉 **New sale: ${md(dogs.join(" & ") || "dog name not set")}**${what ? ` · ${md(what)}` : ""}`;
-  const who = [md(d.client_name || "Client name not set"), d.client_location ? md(d.client_location) : "", start ? `starts ${long(start)}` : "no start date yet"].filter(Boolean).join(" · ");
-
   const amount = num(d.amount), paid = num(d.amount_paid);
   const owed = d.amount ? Math.max(0, Math.round((amount - paid) * 100) / 100) : num(d.amount_outstanding);
-  const money = !d.amount && !d.amount_paid ? "💵 No amount on the deal yet"
-    : owed < 0.01 ? `💵 ✅ Paid in full (${dollars(paid || amount)})`
-    : `💵 ${dollars(paid)} paid · **${dollars(owed)} owed**${amount ? ` of ${dollars(amount)}` : ""} · ${d.remaining_balance_link ? "balance link ready" : "no balance link yet"}`;
+  const money = !d.amount && !d.amount_paid ? "no amount on the deal yet"
+    : owed < 0.01 ? `✅ paid in full (${dollars(paid || amount)})`
+    : `${dollars(paid)} paid · **${dollars(owed)} owed** of ${dollars(amount)} · ${d.remaining_balance_link ? "balance link ready" : "no balance link yet"}`;
+  const trainers = booked.length
+    ? `Booked: ${booked.map((b) => `${md(b.dog_name || "Dog")} with ${md(trainerName(b) || "no trainer yet")}`).join(" · ")}`
+    : `Trainers: ${await freeTrainers(zip, start, weeks, dogCount)}`;
+  const links = [
+    ...booked.map((b) => mdLink(`${b.dog_name || "Dog"} in the app`, `${site()}/a/dogs/${b.id}`)),
+    ...(booked.length ? [] : [mdLink("Book it", `${site()}/a/bookings/new?deal=${dealId}`)]),
+    mdLink("HubSpot deal", dealUrl(dealId))
+  ].join(" · ");
 
-  const book = mdLink("Book it", `${site()}/a/bookings/new?deal=${dealId}`);
-  let trainers: string;
-  if (booked.length) {
-    const t = booked.map((b) => `${mdLink(b.dog_name || "Dog", `${site()}/a/dogs/${b.id}`)} with ${md(trainerName(b) || "no trainer yet")}`);
-    trainers = `🐾 Booked: ${t.join(" · ")}`;
-  } else trainers = `🐾 ${await freeTrainers(zip, start, weeks, dogCount)} · ${book}`;
-
-  const scores = board ? `🏆 ${md(ownerName || "No owner")} · ${ordinal(board.mine)} win in ${board.month} · team: ${board.count} wins, ${dollars(board.total)}` : `🏆 ${md(ownerName || "No owner")}`;
-  return [head, who, money, trainers, `${scores} · ${mdLink("HubSpot deal", dealUrl(dealId))}`].join("\n");
+  // A phone-sized layout: headline, one labelled fact per line, then the links, with a blank line between
+  const details = [
+    what ? `Program: ${md(what)}` : "",
+    `Starts: ${start ? long(start) : "no start date yet"}`,
+    d.client_location ? `Where: ${md(d.client_location)}` : "",
+    `Money: ${money}`,
+    trainers,
+    `Sold by: ${ownerName ? md(ownerName) : "no owner on the deal"}${board && ownerName ? ` · ${ordinal(board.mine)} win in ${board.month}` : ""}`,
+    board ? `Team: ${board.count} win${board.count === 1 ? "" : "s"} in ${board.month} · ${dollars(board.total)}` : ""
+  ].filter(Boolean).join("\n");
+  return [`🎉 **New sale: ${md(dogs.join(" & ") || "dog name not set")}** · ${md(d.client_name || "client name not set")}`, details, links].join("\n\n");
 }
 
 const trainerName = (b: Booked) => (Array.isArray(b.trainers) ? b.trainers[0]?.name : b.trainers?.name) || "";
@@ -79,21 +86,21 @@ async function ownerOf(id: unknown): Promise<string | null> {
   try { return (await listOwners()).find((o) => o.id === String(id))?.name || null; } catch { return null; }
 }
 
-/** Nearest trainers (in range) with enough free kennels for every week of the program, from the app's availability. */
+/** After "Trainers: ": the nearest in range with enough free kennels for every week of the program (the app's availability). */
 async function freeTrainers(zip: string | null, start: string | null, weeks: number, dogs: number): Promise<string> {
-  if (!zip) return "No ZIP on the deal, so no trainer suggestions";
-  if (!start) return "No start date yet, so no trainer suggestions";
+  if (!zip) return "no ZIP on the deal to check";
+  if (!start) return "no start date yet to check";
   try {
     const a = await availability({ zip, routes: false });
-    if (!a.ok) return `Trainers: ${md(a.error)}`;
+    if (!a.ok) return md(a.error);
     const first = a.weeks.reduce((idx, w, i) => (w <= start ? i : idx), -1);
     const span = Math.max(1, weeks || 1);
-    if (first < 0) return "Starts before this week: check trainers in the app";
-    if (first + span > a.weeks.length) return "Starts more than 16 weeks out: too early to suggest trainers";
+    if (first < 0) return "starts before this week, check in the app";
+    if (first + span > a.weeks.length) return "starts more than 16 weeks out, too early to check";
     const fits = a.trainers.filter((t) => t.inRange && t.free.slice(first, first + span).every((f) => f >= dogs)).slice(0, 3);
-    if (!fits.length) return `No trainer in range has ${dogs > 1 ? `${dogs} free kennels` : "a free kennel"} for the whole program`;
-    return `Free for the whole program: ${fits.map((t) => `${md(t.name)} (~${t.distance} mi)`).join(" · ")}`;
-  } catch (e) { return `Trainers: couldn't check (${md((e as Error).message)})`; }
+    if (!fits.length) return `nobody in range has ${dogs > 1 ? `${dogs} free kennels` : "a free kennel"} for the whole program`;
+    return `${fits.map((t) => `${md(t.name)} (~${t.distance} mi)`).join(" · ")} free for the whole program`;
+  } catch (e) { return `couldn't check (${md((e as Error).message)})`; }
 }
 
 /** This month's wins (by close date, Eastern), counting this deal even if HubSpot's search hasn't caught up with it yet. */

@@ -39,5 +39,6 @@ export function buzzAlert(subject: string, intro: string, lines: { text: string;
   const MAX_LINES = 15;
   const items = lines.slice(0, MAX_LINES).map((l) => `• ${md(l.text)} · ${mdLink("Open", l.link)}`);
   if (lines.length > MAX_LINES) items.push(`• and ${lines.length - MAX_LINES} more in the app`);
-  return [`**${md(subject)}**`, md(intro), ...items, ...(button ? [mdLink(button.label, button.link)] : [])].filter(Boolean).join("\n");
+  // Headline, what happened, the items, the button: a blank line between each block so it reads on a phone
+  return [`**${md(subject)}**`, md(intro), items.join("\n"), button ? mdLink(button.label, button.link) : ""].filter(Boolean).join("\n\n");
 }
