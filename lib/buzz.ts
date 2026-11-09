@@ -6,7 +6,9 @@ import "server-only";
 // Vercel variables (each pair from the workflow's webhook dialog; the secret is shown once):
 //   BUZZ_OFFICE_URL, BUZZ_OFFICE_SECRET       the app's admin alerts (the same ones that go to admins' phones)
 //   BUZZ_PAYMENTS_URL, BUZZ_PAYMENTS_SECRET   Stripe payments, paid and failed
-export type BuzzRoom = "office" | "payments";
+//   BUZZ_SALES_URL, BUZZ_SALES_SECRET         each new Closed Won deal (lib/salesWin.ts)
+//   BUZZ_LEADS_URL, BUZZ_LEADS_SECRET         each new Bark lead (lib/leadAlert.ts)
+export type BuzzRoom = "office" | "payments" | "sales" | "leads";
 
 const envOf = (room: BuzzRoom) => {
   const key = room.toUpperCase();
@@ -23,8 +25,15 @@ const MAX = 3500; // a chat message, not a report
 
 /** Posts one message to a Buzz channel. Never throws; false when off or it didn't go (logged). */
 export async function postToBuzz(room: BuzzRoom, message: string): Promise<boolean> {
+  return (await postToBuzzDetailed(room, message)).ok;
+}
+
+/** The same, saying what happened ("sent", "off: …", "HTTP 404 …", "timed out"), for the test page. */
+export async function postToBuzzDetailed(room: BuzzRoom, message: string): Promise<{ ok: boolean; result: string }> {
   const { url, secret } = envOf(room);
-  if (!url || !secret || !message.trim()) return false;
+  const key = room.toUpperCase();
+  if (!url || !secret) return { ok: false, result: `off: BUZZ_${key}_URL and BUZZ_${key}_SECRET must both be set (then redeploy)` };
+  if (!message.trim()) return { ok: false, result: "nothing to send" };
   const text = message.length > MAX ? `${message.slice(0, MAX - 1)}…` : message;
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 6000);
@@ -34,11 +43,16 @@ export async function postToBuzz(room: BuzzRoom, message: string): Promise<boole
       headers: { "Content-Type": "application/json", "X-Webhook-Secret": secret },
       body: JSON.stringify({ message: text })
     });
-    if (!r.ok) { console.error(`buzz ${room}: HTTP ${r.status} ${(await r.text().catch(() => "")).slice(0, 200)}`); return false; }
-    return true; // 202: Buzz posts it a moment later
+    if (!r.ok) {
+      const body = (await r.text().catch(() => "")).slice(0, 200);
+      console.error(`buzz ${room}: HTTP ${r.status} ${body}`);
+      return { ok: false, result: `HTTP ${r.status} ${body}`.trim() };
+    }
+    return { ok: true, result: "sent" }; // 202: Buzz posts it a moment later
   } catch (e) {
-    console.error(`buzz ${room}: ${(e as Error).name === "AbortError" ? "timed out" : (e as Error).message}`);
-    return false;
+    const why = (e as Error).name === "AbortError" ? "timed out" : (e as Error).message;
+    console.error(`buzz ${room}: ${why}`);
+    return { ok: false, result: why };
   } finally {
     clearTimeout(timer);
   }

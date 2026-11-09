@@ -37,7 +37,7 @@ type Booking = {
 };
 type Ctx = { dealId: string | null; deal: DealProps | null; contactId: string | null; bookings: Booking[]; owner: string | null };
 
-const DEAL_PROPS = ["dealname", "amount", "hubspot_owner_id", "remaining_balance_link", "hs_is_closed", "hs_is_closed_won"];
+const DEAL_PROPS = ["dealname", "amount", "amount_paid", "hubspot_owner_id", "remaining_balance_link", "hs_is_closed", "hs_is_closed_won"];
 
 /** The deal (given, or the client's newest deal that isn't Closed Lost), its bookings in the app, and the sales owner. Each part
  *  that fails is just left out: a thinner message beats no message. */
@@ -145,8 +145,14 @@ async function chargeEmailName(ch: StripeCharge): Promise<{ email: string | null
 /** charge.succeeded / charge.failed. Balance-link successes are skipped here: balancePaidAlert posts those, with the exact balance. */
 export async function chargeAlert(succeeded: boolean, ch: StripeCharge): Promise<boolean> {
   if (!buzzOn("payments")) return false;
-  const dealId = await linkDealId(ch);
-  if (succeeded && dealId) return false;
+  const msg = await chargeMessage(succeeded, ch);
+  return msg ? postToBuzz("payments", msg) : false;
+}
+
+/** The message for one charge; null for a balance-link success (balancePaidAlert has it). */
+async function chargeMessage(succeeded: boolean, ch: StripeCharge, dealIdKnown?: string | null): Promise<string | null> {
+  const dealId = dealIdKnown !== undefined ? dealIdKnown : await linkDealId(ch);
+  if (succeeded && dealId) return null;
   const { email, name } = await chargeEmailName(ch);
   const ctx = await contextFor({ dealId, email });
   const who = md(clientName(ctx, name, email));
@@ -161,14 +167,18 @@ export async function chargeAlert(succeeded: boolean, ch: StripeCharge): Promise
         ctx.deal?.remaining_balance_link ? `Next: ask the client to pay again · ${mdLink("Balance link to resend", ctx.deal.remaining_balance_link)}` : "Next: ask the client to try again or use another card",
         footer(ctx)
       ];
-  return postToBuzz("payments", lines.filter(Boolean).join("\n"));
+  return lines.filter(Boolean).join("\n");
 }
 
 /** A balance link paid (checkout.session.completed), after recordPayment added it to the deal. `sale`/`paid` are HubSpot's
  *  figures straight after this payment; without them (deal not found) the message says so instead of guessing. */
 export async function balancePaidAlert(o: { dealId: string; amount: number; sale?: number; paid?: number; name?: string | null; email?: string | null }): Promise<boolean> {
   if (!buzzOn("payments")) return false;
-  const ctx = await contextFor({ dealId: o.dealId });
+  return postToBuzz("payments", await balanceMessage(o));
+}
+
+async function balanceMessage(o: { dealId: string; amount: number; sale?: number; paid?: number; name?: string | null; email?: string | null }, ctxIn?: Ctx): Promise<string> {
+  const ctx = ctxIn || await contextFor({ dealId: o.dealId });
   const owed = o.sale != null && o.paid != null ? Math.max(0, Math.round((o.sale - o.paid) * 100) / 100) : null;
   const balance = owed == null ? "HubSpot couldn't find this deal, so the payment isn't on it yet"
     : owed < 0.01 ? `✅ **Paid in full** (${dollars(o.sale!)})`
@@ -179,5 +189,30 @@ export async function balancePaidAlert(o: { dealId: string; amount: number; sale
     balance,
     footer(ctx)
   ];
-  return postToBuzz("payments", lines.filter(Boolean).join("\n"));
+  return lines.filter(Boolean).join("\n");
+}
+
+/** For /api/buzz/test: the Buzz messages the last `n` real Stripe payments would have made, marked TEST. Balance-link payments
+ *  show what's owed as HubSpot has it now (live, they show it straight after that payment). Posts nothing itself. */
+export async function replayRecentCharges(n: number): Promise<{ id: string; when: string; message: string }[]> {
+  if (!stripeConfigured()) throw new Error("STRIPE_SECRET_KEY isn't set");
+  const want = Math.min(Math.max(n, 1), 10);
+  const list = await stripeGet<{ data: (StripeCharge & { status: string; created: number })[] }>(`/charges?limit=${want + 5}`); // a few spare: pending ones are skipped
+  const out: { id: string; when: string; message: string }[] = [];
+  for (const ch of list.data || []) {
+    if (out.length >= want) break;
+    if (ch.status !== "succeeded" && ch.status !== "failed") continue;
+    const succeeded = ch.status === "succeeded";
+    const dealId = await linkDealId(ch);
+    let message: string | null;
+    if (succeeded && dealId) {
+      const ctx = await contextFor({ dealId });
+      const { email, name } = await chargeEmailName(ch);
+      message = await balanceMessage({ dealId, amount: ch.amount / 100, sale: ctx.deal ? num(ctx.deal.amount) : undefined, paid: ctx.deal ? num(ctx.deal.amount_paid) : undefined, name, email }, ctx);
+    } else message = await chargeMessage(succeeded, ch, dealId);
+    if (!message) continue;
+    const when = new Date(ch.created * 1000).toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+    out.push({ id: ch.id, when, message: `🧪 **TEST**: a replay of a real payment from ${when} ET. Nothing to do.\n${message}` });
+  }
+  return out;
 }

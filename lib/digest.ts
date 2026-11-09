@@ -17,10 +17,18 @@ export async function sendDailyDigest(sb: SupabaseClient): Promise<boolean> {
   // Claim today first, so it can never go twice. No table yet (migration 019 not run) = no summary, rather than one every 10 minutes.
   const { error } = await sb.from("app_state").upsert({ key: "digest_date", value: date, updated_at: new Date().toISOString() });
   if (error) return false;
+  const d = await digestMessage();
+  if (!d) return false;
+  await alertAdmins(d.subject, d.intro, d.lines, d.button, { email: true }); // the one admin email of the day
+  return true;
+}
+
+/** The "To do today" summary as it stands right now (null when there's nothing to do). Sent by sendDailyDigest; previewed by /api/buzz/test. */
+export async function digestMessage(): Promise<{ subject: string; intro: string; lines: { text: string; link: string }[]; button: { label: string; link: string } } | null> {
   const todo = await buildTodo(), { items, late, beforeApp } = todo;
   const now = items.filter((i) => i.group === "now"), week = items.filter((i) => i.group === "week"), later = items.filter((i) => i.group === "later");
   const total = todoTotal(todo);
-  if (!total) return false;
+  if (!total) return null;
   const link = (href?: string) => (href && /^https?:/.test(href) ? href : `${site()}${href || "/a"}`);
   const lines = [
     ...now.slice(0, 12).map((i) => ({ text: `Now: ${i.text}`, link: link(i.primary?.href || i.dogHref) })),
@@ -30,7 +38,9 @@ export async function sendDailyDigest(sb: SupabaseClient): Promise<boolean> {
     ...(later.length ? [{ text: `${later.length} more when you have a minute`, link: `${site()}/a` }] : [])
   ];
   const more = now.length - 12 + Math.max(0, week.length - 8);
-  await alertAdmins(`To do today: ${total} thing${total > 1 ? "s" : ""}${now.length ? ` (${now.length} now)` : ""}`,
-    `Good morning. Here's what needs a person today${more > 0 ? ` (and ${more} more on the list)` : ""}.`, lines, { label: "Open To do", link: `${site()}/a` }, { email: true }); // the one admin email of the day
-  return true;
+  return {
+    subject: `To do today: ${total} thing${total > 1 ? "s" : ""}${now.length ? ` (${now.length} now)` : ""}`,
+    intro: `Good morning. Here's what needs a person today${more > 0 ? ` (and ${more} more on the list)` : ""}.`,
+    lines, button: { label: "Open To do", link: `${site()}/a` }
+  };
 }

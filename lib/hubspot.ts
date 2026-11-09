@@ -196,6 +196,26 @@ function etMidnightMs(date: string): number {
   return Date.parse(`${date}T05:00:00Z`);
 }
 /** Closed Won deals with a close date on or after `since` (YYYY-MM-DD, Eastern). Up to 3,000. */
+type Filter = { propertyName: string; operator: string; value?: string };
+/** Deals created since a day (Eastern midnight) matching any of `groups` (each a list of filters that must all hold), oldest
+ *  first. For the Buzz lead alerts. */
+export async function dealsCreatedSince(since: string, groups: Filter[][], properties: string[]): Promise<{ id: string; properties: DealProps }[]> {
+  const out: { id: string; properties: DealProps }[] = [];
+  let after: string | undefined;
+  for (let page = 0; page < 10; page++) {
+    const res = await hs<SearchPage>("/crm/v3/objects/deals/search", {
+      method: "POST", body: JSON.stringify({
+        filterGroups: groups.map((g) => ({ filters: [{ propertyName: "createdate", operator: "GTE", value: String(etMidnightMs(since)) }, ...g] })),
+        properties: [...new Set([...properties, "createdate"])], sorts: [{ propertyName: "createdate", direction: "ASCENDING" }], limit: 100, ...(after ? { after } : {})
+      })
+    });
+    out.push(...(res.results || []).map((r) => ({ id: String(r.id), properties: r.properties || {} })));
+    after = res.paging?.next?.after;
+    if (!after) break;
+  }
+  return out;
+}
+
 export async function closedWonSince(since: string, properties: string[]): Promise<{ id: string; properties: DealProps }[]> {
   const from = String(etMidnightMs(since));
   const props = [...new Set([...properties, "hs_is_closed_won", "closedate", "dealname"])];

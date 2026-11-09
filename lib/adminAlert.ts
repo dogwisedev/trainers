@@ -35,7 +35,7 @@ export async function alertAdmins(subject: string, intro: string, lines: { text:
 }
 
 /** The same alert as a Buzz message: the subject in bold, the intro, one line per item with its link, then the button. */
-function buzzAlert(subject: string, intro: string, lines: { text: string; link: string }[], button?: { label: string; link: string }) {
+export function buzzAlert(subject: string, intro: string, lines: { text: string; link: string }[], button?: { label: string; link: string }) {
   const MAX_LINES = 15;
   const items = lines.slice(0, MAX_LINES).map((l) => `• ${md(l.text)} · ${mdLink("Open", l.link)}`);
   if (lines.length > MAX_LINES) items.push(`• and ${lines.length - MAX_LINES} more in the app`);

@@ -1,0 +1,28 @@
+{
+  "uid": "dogwise_buzz",
+  "type": "app",
+  "config": {
+    "description": "Tells the DogwiseTrainers app the moment a deal is won or a Bark lead is scored, so Buzz hears within seconds.",
+    "name": "Dogwise Buzz",
+    "distribution": "private",
+    "auth": {
+      "type": "static",
+      "requiredScopes": [
+        "oauth",
+        "crm.objects.deals.read"
+      ],
+      "optionalScopes": [],
+      "conditionallyRequiredScopes": []
+    },
+    "permittedUrls": {
+      "fetch": [],
+      "iframe": [],
+      "img": []
+    },
+    "support": {
+      "supportEmail": "info@dogwiseacademy.com",
+      "documentationUrl": "https://github.com/dogwisedev/trainers#buzz-side-by-side-with-slack",
+      "supportUrl": "https://trainers-seven.vercel.app"
+    }
+  }
+}

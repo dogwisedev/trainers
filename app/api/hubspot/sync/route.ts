@@ -8,6 +8,8 @@ import { standbyReminders } from "@/lib/standby";
 import { syncProgramStatus } from "@/lib/programSync";
 import { writeFormLinks } from "@/lib/clientForms";
 import { cronRan } from "@/lib/cronHealth";
+import { announceRecentWins } from "@/lib/salesWin";
+import { announceRecentLeads } from "@/lib/leadAlert";
 
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
@@ -35,6 +37,9 @@ export async function GET(req: Request) {
   const program = dry ? null : await syncProgramStatus().catch((e) => ({ written: 0, errors: [(e as Error).message] }));
   // Each new HubSpot contact gets its personal before-training link (dogwise_forms_link)
   const formLinks = dry ? null : await writeFormLinks().catch((e) => ({ written: 0, errors: [(e as Error).message] }));
+  // New sales and Bark leads the HubSpot webhook didn't announce in Buzz (it normally has, within seconds): at most 10 each a run
+  const sales = dry ? null : await announceRecentWins().catch((e) => ({ posted: 0, errors: [(e as Error).message] }));
+  const leads = dry ? null : await announceRecentLeads().catch((e) => ({ posted: 0, errors: [(e as Error).message] }));
   if (cron) await cronRan("hubspot", !result.errors.length, [...result.errors, ...(unbooked?.errors || [])].slice(0, 3).join("; ") || null);
-  return NextResponse.json({ ...result, pretraining, unbooked, standby, program, formLinks });
+  return NextResponse.json({ ...result, pretraining, unbooked, standby, program, formLinks, sales, leads });
 }
