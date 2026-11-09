@@ -37,9 +37,11 @@ export async function syncHubspotDates(opts: { mode?: SyncMode; dealIds?: string
   const today = etParts(new Date()).date;
 
   const COLS = "id, trainer_id, client_name, dog_name, start_date, end_date, weeks, extra_days, status, hubspot_deal_id, trainers(name, capacity)";
-  // A booking just saved (dealIds) always takes HubSpot's dates, even when the dates typed in ended weeks ago (a program
-  // booked late); the regular sync only looks at bookings that ended in the last KEEP_DAYS days
-  const query = (cols: string) => { let q = sb.from("bookings").select(cols).not("hubspot_deal_id", "is", null).neq("status", "cancelled"); q = opts.dealIds?.length ? q.in("hubspot_deal_id", opts.dealIds) : q.gte("end_date", addDays(today, -KEEP_DAYS)); return q; };
+  // Bookings that ended in the last KEEP_DAYS days, plus any booked in the last KEEP_DAYS days whatever their dates: a
+  // program booked late (after it ended, with the dates typed in wrong) still takes HubSpot's dates, quietly (below).
+  // A booking just saved (dealIds) always takes them.
+  const lateFrom = new Date(Date.now() - KEEP_DAYS * 864e5).toISOString();
+  const query = (cols: string) => { let q = sb.from("bookings").select(cols).not("hubspot_deal_id", "is", null).neq("status", "cancelled"); q = opts.dealIds?.length ? q.in("hubspot_deal_id", opts.dealIds) : q.or(`end_date.gte.${addDays(today, -KEEP_DAYS)},created_at.gte.${lateFrom}`); return q; };
   // hs_hold: training materials paused while HubSpot says the program is off (migration 050; before it, no pausing)
   let { data, error } = await query(`${COLS}, hs_hold`);
   const holdOn = !error;
@@ -137,14 +139,17 @@ export async function syncHubspotDates(opts: { mode?: SyncMode; dealIds?: string
   }
   const untouched = checked.filter((id) => !applied.some((a) => a.row.id === id));
   for (let i = 0; i < untouched.length; i += 150) await sb.from("bookings").update({ hubspot_synced_at: now }).in("id", untouched.slice(i, i + 150));
-  if (!announce || !done.length) return out;
+  // A booking made after its program ended (picked up above by when it was made) is corrected quietly: no "dates changed"
+  // email, no "length changed" item, no overbooking check on weeks long gone
+  const told = done.filter((a) => a.row.end_date >= addDays(today, -KEEP_DAYS));
+  if (!announce || !told.length) return out;
 
   // ── Tell people (live only) ──
   if (emailTrainers) {
-    const n = await notifyBookings(sb, done.map((a) => a.row.id), "changed");
+    const n = await notifyBookings(sb, told.map((a) => a.row.id), "changed");
     out.errors.push(...n.errors.map((x) => `email: ${x}`));
   }
-  for (const a of done) {
+  for (const a of told) {
     if (a.newDays !== a.oldDays) {
       const what = `${a.row.dog_name || "the dog"} (${a.row.client_name}, with ${a.row.trainers?.name || "the trainer"})`;
       if (await raiseIncident({
@@ -155,7 +160,7 @@ export async function syncHubspotDates(opts: { mode?: SyncMode; dealIds?: string
   }
   // Overbooked? Day by day, for each trainer whose bookings moved
   const byTrainer = new Map<string, typeof done>();
-  for (const a of done) byTrainer.set(a.row.trainer_id, [...(byTrainer.get(a.row.trainer_id) || []), a]);
+  for (const a of told) byTrainer.set(a.row.trainer_id, [...(byTrainer.get(a.row.trainer_id) || []), a]);
   for (const [trainerId, list] of byTrainer) {
     const from = list.reduce((m, a) => (a.start < m ? a.start : m), list[0].start), to = list.reduce((m, a) => (a.end > m ? a.end : m), list[0].end);
     const [{ data: bk }, { data: off }] = await Promise.all([
