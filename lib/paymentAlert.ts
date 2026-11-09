@@ -105,6 +105,8 @@ const clientName = (ctx: Ctx, stripeName?: string | null, email?: string | null)
 /** A decline in plain words for the office. Unknown reasons fall back to Stripe's own sentence. */
 function declineReason(ch: StripeCharge) {
   const code = String(ch.outcome?.reason || ch.failure_code || "").toLowerCase();
+  const provider = code.match(/^([a-z]+)_checkout_cancel+ed/)?.[1];
+  if (provider) return `The client cancelled the ${provider[0].toUpperCase()}${provider.slice(1)} checkout. No money moved.`;
   const plain: [RegExp, string][] = [
     [/insufficient_funds/, "Not enough money on the card."],
     [/card_velocity_exceeded|withdrawal_count_limit_exceeded/, "The card's spending limit is reached."],
@@ -161,10 +163,12 @@ async function chargeMessage(succeeded: boolean, ch: StripeCharge, dealIdKnown?:
   const lines = succeeded
     ? [`💰 **${amount} paid** · ${who}`, ...whereLines(ctx, email), [sale, footer(ctx)].filter(Boolean).join(" · ")]
     : [
-        `🛎️ **${amount} payment failed** · ${who}${email ? ` · ${md(email)}` : ""}`,
+        `🛎️ **${amount} payment failed** · ${who}${email && md(email) !== who ? ` · ${md(email)}` : ""}`,
         `Why: ${declineReason(ch)}`,
         ...whereLines(ctx, email),
-        ctx.deal?.remaining_balance_link ? `Next: ask the client to pay again · ${mdLink("Balance link to resend", ctx.deal.remaining_balance_link)}` : "Next: ask the client to try again or use another card",
+        /_checkout_cancel+ed/.test(String(ch.outcome?.reason || ch.failure_code || "").toLowerCase())
+          ? `Next: ask if they'd like to finish it or pay another way${ctx.deal?.remaining_balance_link ? ` · ${mdLink("Balance link", ctx.deal.remaining_balance_link)}` : ""}`
+          : ctx.deal?.remaining_balance_link ? `Next: ask the client to pay again · ${mdLink("Balance link to resend", ctx.deal.remaining_balance_link)}` : "Next: ask the client to try again or use another card",
         footer(ctx)
       ];
   return lines.filter(Boolean).join("\n");

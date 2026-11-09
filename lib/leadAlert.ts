@@ -52,7 +52,8 @@ export async function leadMessage(dealId: string, dIn?: DealProps): Promise<stri
   const hiring = short(d.how_likely_are_you_to_make_a_hiring_decision_, 40);
   const about = [dog ? `Dog: ${dog}` : "", wants ? `wants: ${md(wants)}` : "", d.lead_track === "bt_conversion" ? "not asking for board & train" : "", hiring ? `hiring: ${md(hiring)}` : ""].filter(Boolean).join(" · ");
 
-  const flags = [d.bite_history === "true" ? "bite history" : "", lines(d.lead_flags, 2)].filter(Boolean).join(" · ");
+  // Bark Buster's flags usually say "Bite history: Yes, …" already; only add our own when they don't
+  const flags = [d.bite_history === "true" && !/bite/i.test(String(d.lead_flags || "")) ? "bite history" : "", lines(d.lead_flags, 3)].filter(Boolean).join(" · ");
   const [trainers, owner] = await Promise.all([roomNear(zip, dogs, d), ownerOf(d.hubspot_owner_id)]);
 
   return [
