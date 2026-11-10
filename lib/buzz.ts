@@ -8,8 +8,9 @@ import "server-only";
 //   BUZZ_PAYMENTS_URL, BUZZ_PAYMENTS_SECRET   Stripe payments, paid and failed
 //   BUZZ_SALES_URL, BUZZ_SALES_SECRET         each new Closed Won deal (lib/salesWin.ts)
 //   BUZZ_LEADS_URL, BUZZ_LEADS_SECRET         each new Bark lead (lib/leadAlert.ts)
-//   BUZZ_NOTION_URL, BUZZ_NOTION_SECRET       Back Office Workstream changes in Notion (lib/notionAlert.ts)
-export type BuzzRoom = "office" | "payments" | "sales" | "leads" | "notion";
+//   BUZZ_NOTION_URL, BUZZ_NOTION_SECRET       Notion changes (lib/notionAlert.ts)
+//   BUZZ_MIRROR_URL, BUZZ_MIRROR_SECRET       the Slack mirror: one workflow that routes each post to its channel by `target`
+export type BuzzRoom = "office" | "payments" | "sales" | "leads" | "notion" | "mirror";
 
 // Pasted values often carry quotes, spaces or a line break; none belong in a URL or a secret, so they're dropped
 const clean = (v: string | undefined) => (v || "").replace(/\s+/g, "").replace(/^["']+|["']+$/g, "");
@@ -39,12 +40,12 @@ export const mdLink = (label: string, url: string | null | undefined) => (url &&
 const MAX = 3500; // a chat message, not a report
 
 /** Posts one message to a Buzz channel. Never throws; false when off or it didn't go (logged). */
-export async function postToBuzz(room: BuzzRoom, message: string): Promise<boolean> {
-  return (await postToBuzzDetailed(room, message)).ok;
+export async function postToBuzz(room: BuzzRoom, message: string, extra?: Record<string, string>): Promise<boolean> {
+  return (await postToBuzzDetailed(room, message, extra)).ok;
 }
 
 /** The same, saying what happened ("sent", "off: …", "HTTP 404 …", "timed out"), for the test page. */
-export async function postToBuzzDetailed(room: BuzzRoom, message: string): Promise<{ ok: boolean; result: string }> {
+export async function postToBuzzDetailed(room: BuzzRoom, message: string, extra?: Record<string, string>): Promise<{ ok: boolean; result: string; status?: number }> {
   const { url, secret } = envOf(room);
   const key = room.toUpperCase();
   if (!url || !secret) return { ok: false, result: `off: BUZZ_${key}_URL and BUZZ_${key}_SECRET must both be set (then redeploy)` };
@@ -56,12 +57,12 @@ export async function postToBuzzDetailed(room: BuzzRoom, message: string): Promi
     const r = await fetch(url, {
       method: "POST", cache: "no-store", signal: ctrl.signal,
       headers: { "Content-Type": "application/json", "X-Webhook-Secret": secret },
-      body: JSON.stringify({ message: text })
+      body: JSON.stringify({ ...(extra || {}), message: text })
     });
     if (!r.ok) {
       const body = (await r.text().catch(() => "")).slice(0, 200);
       console.error(`buzz ${room}: HTTP ${r.status} ${body}`);
-      return { ok: false, result: `HTTP ${r.status} ${body}`.trim() };
+      return { ok: false, result: `HTTP ${r.status} ${body}`.trim(), status: r.status };
     }
     return { ok: true, result: "sent" }; // 202: Buzz posts it a moment later
   } catch (e) {

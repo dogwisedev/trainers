@@ -1,0 +1,27 @@
+# The "Buzz Mirror" Slack app (lib/slackMirror.ts). api.slack.com/apps → Create New App → From a manifest → paste this.
+# Read-only: it reads messages in the channels it's invited to and posts nothing in Slack.
+display_information:
+  name: Buzz Mirror
+  description: Copies messages from chosen channels into Buzz while the team moves over.
+  background_color: "#1d6f6a"
+features:
+  bot_user:
+    display_name: Buzz Mirror
+    always_online: false
+oauth_config:
+  scopes:
+    bot:
+      - channels:history
+      - groups:history
+      - channels:read
+      - groups:read
+      - users:read
+settings:
+  event_subscriptions:
+    request_url: https://trainers-seven.vercel.app/api/slack/mirror
+    bot_events:
+      - message.channels
+      - message.groups
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false

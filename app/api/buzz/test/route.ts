@@ -6,6 +6,7 @@ import { replayRecentCharges } from "@/lib/paymentAlert";
 import { replayRecentWins } from "@/lib/salesWin";
 import { replayRecentLeads } from "@/lib/leadAlert";
 import { replayRecentNotion } from "@/lib/notionAlert";
+import { backfillStatus, MIRROR, mirrorOn, mirrorWorkflowYaml } from "@/lib/slackMirror";
 import { serviceClient } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
@@ -18,7 +19,8 @@ export const maxDuration = 60;
 //   /api/buzz/test?send=sales      the last 3 Closed Won deals as the sales channel would show them, marked TEST (&n=1..10)
 //   /api/buzz/test?send=leads      the last 3 Bark leads as the leads channel would show them, marked TEST (&n=1..10)
 //   /api/buzz/test?send=notion     the last 3 edited Notion database items as the Notion channel would show them (&n=1..10)
-//   /api/buzz/test?send=all        all five
+//   /api/buzz/test?send=mirror     one TEST line into each Slack-mirror channel, to check the workflow routes them all
+//   /api/buzz/test?send=all        all of them
 // Nothing here touches Stripe, HubSpot or the To do list: it only reads them.
 const site = () => (process.env.NEXT_PUBLIC_SITE_URL || "").replace(/\/$/, "");
 
@@ -29,7 +31,7 @@ export async function GET(req: Request) {
   const send = q.get("send") || "";
   const n = Math.min(10, Math.max(1, Number(q.get("n")) || 3));
   const sending = (room: BuzzRoom) => send === "all" || send === room;
-  const out: string[] = [send ? `Buzz test: sending to ${send === "all" ? "every channel" : `the ${send} channel`}` : "Buzz test: PREVIEW ONLY, nothing sent. Add ?send=office, ?send=payments, ?send=sales, ?send=leads, ?send=notion or ?send=all to post these, marked TEST.", ""];
+  const out: string[] = [send ? `Buzz test: sending to ${send === "all" ? "every channel" : `the ${send} channel`}` : "Buzz test: PREVIEW ONLY, nothing sent. Add ?send=office, ?send=payments, ?send=sales, ?send=leads, ?send=notion, ?send=mirror or ?send=all to post these, marked TEST.", ""];
 
   const deliver = async (room: BuzzRoom, message: string) => {
     out.push(message, "");
@@ -96,6 +98,24 @@ export async function GET(req: Request) {
     if (!list.length) out.push("No database items found: connect Dogwise Buzz to the pages in Notion (⋯ → Connections).", "");
     for (const [i, x] of list.entries()) { out.push(`${i + 1}. ${x.id}`, ""); await deliver("notion", x.message); }
   } catch (e) { out.push(`Couldn't read Notion: ${(e as Error).message}`, ""); }
+
+  section("mirror", "SLACK MIRROR");
+  const since = await serviceClient().from("app_state").select("value").eq("key", "slack_mirror_since").maybeSingle();
+  out.push(
+    `Slack app token (SLACK_MIRROR_TOKEN): ${process.env.SLACK_MIRROR_TOKEN ? "set" : "NOT SET"} · Signing secret (SLACK_MIRROR_SIGNING_SECRET): ${process.env.SLACK_MIRROR_SIGNING_SECRET ? "set" : "NOT SET"} · ${mirrorOn() ? "mirroring" : "not mirroring"}${process.env.SLACK_MIRROR_OFF === "1" ? " (SLACK_MIRROR_OFF=1)" : ""}`,
+    since.data?.value ? `Live since ${new Date(Number(since.data.value) * 1000).toLocaleString("en-US", { timeZone: "America/New_York" })} ET: older messages come from the backfill` : "Not started: it starts with the first message or the first backfill.",
+    ""
+  );
+  const status = new Map((await backfillStatus()).map((x) => [x.name, x.days]));
+  out.push("Backfill, one channel at a time (safe to open again; it never posts a day twice):");
+  for (const m of MIRROR) out.push(`  #${m.name} · ${status.get(m.name) || 0} days in Buzz · ${site()}/api/slack/mirror/backfill?channel=${m.name}`);
+  out.push("");
+  for (const m of MIRROR) {
+    if (!sending("mirror")) break;
+    const r = await postToBuzzDetailed("mirror", `🧪 **TEST**: the Slack mirror reaches #${m.name}. Nothing to do.`, { target: m.name });
+    out.push(`  #${m.name}: ${r.ok ? "sent ✓" : `NOT SENT: ${r.result}`}`);
+  }
+  out.push("", "The Buzz workflow for the mirror (create it in Systems Channel, then paste this in the editor's YAML tab):", "", mirrorWorkflowYaml(), "");
 
   out.push("════════════════════════", "In Buzz, ** shows as bold and [text](link) as a tappable link.");
   return new Response(out.join("\n"), { headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" } });
