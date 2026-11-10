@@ -215,9 +215,16 @@ Setup (about 10 minutes):
    The app can only read deals. Anything the webhook posts is in the Vercel logs as `hubspot webhook`; a wrong secret answers HubSpot 401.
 Turn a channel off by removing its two variables.
 
+**Notion channel** (Back Office Workstream, side by side with Sean's Slack automation): a post when an item is added, or when its Status, Owner, Next step, Latest update, Due or Priority changes, with who changed it and a link. Typing in a page, or other fields, stays quiet; Notion bundles quick edits into one post. Comes from the **Dogwise Buzz** Notion integration (`lib/notionAlert.ts`; more databases can be added to `BOARDS` there). Setup, once:
+1. In Buzz, a channel for it with the same webhook workflow → Vercel `BUZZ_NOTION_URL`, `BUZZ_NOTION_SECRET`.
+2. Notion → Settings → Connections → **Develop or manage integrations** → **New integration**: name **Dogwise Buzz**, this workspace, Internal. Capabilities: **Read content** and **Read user information without email** only. Save, copy the **Internal Integration Secret** → Vercel `NOTION_TOKEN`. Redeploy.
+3. In Notion, open the **Back Office Workstream** database → **⋯ → Connections** → add **Dogwise Buzz**. (It sees only what it's added to.)
+4. In the integration → **Webhooks** → create a subscription: URL `https://trainers-seven.vercel.app/api/notion/webhook`, events **page.created** and **page.properties_updated**. Notion sends a verification token to the app: open `/api/buzz/test`, copy it from the NOTION section, paste it into Notion's **Verify** box, and into Vercel as `NOTION_WEBHOOK_TOKEN`. Redeploy.
+5. `/api/buzz/test?send=notion` replays the last 3 edited items, marked TEST. Live posts are in the Vercel logs as `notion webhook`.
+
 Try it without waiting for a real alert or payment (signed in as an admin, in the browser):
 - `/api/buzz/test` shows what each channel would get, and sends nothing: a connection test, today's To do list as the 8 AM message would show it, and the last 3 real Stripe payments, Closed Won deals and Bark leads as Buzz would show them.
-- `?send=office`, `?send=payments`, `?send=sales`, `?send=leads` or `?send=all` posts them, each marked TEST (`&n=` up to 10 of each). It only reads Stripe, HubSpot and To do; it changes nothing, and test posts never count as announced.
+- `?send=office`, `?send=payments`, `?send=sales`, `?send=leads`, `?send=notion` or `?send=all` posts them, each marked TEST (`&n=` up to 10 of each). It only reads Stripe, HubSpot and To do; it changes nothing, and test posts never count as announced.
 - Each channel's line shows which hook the app is using: the end of the URL, and the secret's length and a 6-character tag (never the secret). To check a secret you hold matches, run this in PowerShell and paste it when asked; the tag it prints must match:
   `$s = (Read-Host "Secret") -replace '\s','' -replace '^["'']+|["'']+$',''; $h = [Security.Cryptography.SHA256]::Create().ComputeHash([Text.Encoding]::UTF8.GetBytes($s)); "tag " + (($h[0..2] | ForEach-Object { $_.ToString('x2') }) -join '') + ", $($s.Length) characters"`
 - Under each message it says whether Buzz took it. Buzz answers "not found" (404) for a wrong secret, a wrong URL, a workflow that's off, or a workflow whose creator left the channel.

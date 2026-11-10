@@ -8,7 +8,8 @@ import "server-only";
 //   BUZZ_PAYMENTS_URL, BUZZ_PAYMENTS_SECRET   Stripe payments, paid and failed
 //   BUZZ_SALES_URL, BUZZ_SALES_SECRET         each new Closed Won deal (lib/salesWin.ts)
 //   BUZZ_LEADS_URL, BUZZ_LEADS_SECRET         each new Bark lead (lib/leadAlert.ts)
-export type BuzzRoom = "office" | "payments" | "sales" | "leads";
+//   BUZZ_NOTION_URL, BUZZ_NOTION_SECRET       Back Office Workstream changes in Notion (lib/notionAlert.ts)
+export type BuzzRoom = "office" | "payments" | "sales" | "leads" | "notion";
 
 // Pasted values often carry quotes, spaces or a line break; none belong in a URL or a secret, so they're dropped
 const clean = (v: string | undefined) => (v || "").replace(/\s+/g, "").replace(/^["']+|["']+$/g, "");
