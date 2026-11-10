@@ -9,8 +9,8 @@ import "server-only";
 //   BUZZ_SALES_URL, BUZZ_SALES_SECRET         each new Closed Won deal (lib/salesWin.ts)
 //   BUZZ_LEADS_URL, BUZZ_LEADS_SECRET         each new Bark lead (lib/leadAlert.ts)
 //   BUZZ_NOTION_URL, BUZZ_NOTION_SECRET       Notion changes (lib/notionAlert.ts)
-//   BUZZ_MIRROR_URL, BUZZ_MIRROR_SECRET       the Slack mirror: one workflow that routes each post to its channel by `target`
-export type BuzzRoom = "office" | "payments" | "sales" | "leads" | "notion" | "mirror";
+//   (the Slack mirror has a hook per channel: BUZZ_MIRROR_HOOKS, read by lib/slackMirror.ts, posted with postToHook)
+export type BuzzRoom = "office" | "payments" | "sales" | "leads" | "notion";
 
 // Pasted values often carry quotes, spaces or a line break; none belong in a URL or a secret, so they're dropped
 const clean = (v: string | undefined) => (v || "").replace(/\s+/g, "").replace(/^["']+|["']+$/g, "");
@@ -23,6 +23,12 @@ const envOf = (room: BuzzRoom) => {
  *  secret's SHA-256, so it can be compared with the secret you hold (see the README) but not turned back into it. */
 export async function buzzFingerprint(room: BuzzRoom): Promise<string> {
   const { url, secret } = envOf(room);
+  return hookFingerprint(url, secret);
+}
+
+/** The same for any hook. */
+export async function hookFingerprint(urlIn: string, secretIn: string): Promise<string> {
+  const url = clean(urlIn), secret = clean(secretIn);
   if (!url || !secret) return "not set";
   const { createHash } = await import("crypto");
   let where = url;
@@ -49,6 +55,13 @@ export async function postToBuzzDetailed(room: BuzzRoom, message: string, extra?
   const { url, secret } = envOf(room);
   const key = room.toUpperCase();
   if (!url || !secret) return { ok: false, result: `off: BUZZ_${key}_URL and BUZZ_${key}_SECRET must both be set (then redeploy)` };
+  return postToHook(url, secret, message, extra, room);
+}
+
+/** Posts to one workflow's hook (a Buzz workflow can only post in its own channel, so each channel has its own hook). */
+export async function postToHook(urlIn: string, secretIn: string, message: string, extra?: Record<string, string>, label = "hook"): Promise<{ ok: boolean; result: string; status?: number }> {
+  const url = clean(urlIn), secret = clean(secretIn), room = label;
+  if (!url || !secret) return { ok: false, result: "no hook set" };
   if (!message.trim()) return { ok: false, result: "nothing to send" };
   const text = message.length > MAX ? `${message.slice(0, MAX - 1)}…` : message;
   const ctrl = new AbortController();

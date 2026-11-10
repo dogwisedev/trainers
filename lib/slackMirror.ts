@@ -1,46 +1,47 @@
 import "server-only";
 import { serviceClient } from "./supabase";
-import { md, postToBuzzDetailed } from "./buzz";
+import { md, postToHook } from "./buzz";
 import { claim, claimed } from "./announce";
 
 // Slack → Buzz mirror, for the move: the "Buzz Mirror" Slack app sends every new message in the channels below to
 // /api/slack/mirror, and the app posts it to the matching Buzz channel within seconds; /api/slack/mirror/backfill posts
 // last month's history, one message per day. People's messages only: bots (HubSpot, payments, the mirror itself) stay out.
-// One Buzz workflow (Webhook trigger) routes every post by its `target`: mirrorWorkflowYaml() prints it, /api/buzz/test shows it.
-// Vercel: SLACK_MIRROR_TOKEN (the app's Bot User OAuth Token), SLACK_MIRROR_SIGNING_SECRET, BUZZ_MIRROR_URL/SECRET.
-// Stop it on switch day with SLACK_MIRROR_OFF=1 (or uninstall the Slack app).
-// Adding a channel: one line here, invite @Buzz Mirror in Slack, and re-paste the YAML from the test page into the workflow.
-export const MIRROR: { slack: string; name: string; buzz: string }[] = [
-  { slack: "C048YKVJZFA", name: "back-office-staff", buzz: "156cc94a-e81d-4446-8297-03ce942748e5" },
-  { slack: "C0C62V15BB3", name: "first-word-dump", buzz: "cdc69c6f-0fc9-47fa-a4e3-8313bc516ac0" },
-  { slack: "C0AG9FQNLAU", name: "flagged-ongoing", buzz: "e580a64a-7e86-42a8-aaa3-e09f0d37c2a7" },
-  { slack: "C03L08NG4CS", name: "general", buzz: "683c9edf-644f-5c42-bc4e-1d869026b1bc" },
-  { slack: "C0CB599QQH2", name: "ops_app", buzz: "0167e532-3e30-4c83-8fd2-0b88c55dabc7" },
-  { slack: "C03LQ1EGE6L", name: "random", buzz: "fbad9238-7dbc-48bd-acbf-debbbe2793cb" },
-  { slack: "C03KTLHS5DL", name: "sales", buzz: "60f217a3-a83d-4153-a754-74f37d63492c" },
-  { slack: "C05AHA58W65", name: "sales-team", buzz: "0b9a0ccc-fae6-40dc-ad7d-ccbee568a2d2" },
-  { slack: "C0BG5HFHZMZ", name: "sales-team-private", buzz: "9ab67633-9784-49bb-944f-d222760f0d43" },
-  { slack: "C08CC35BPEK", name: "trainer-information", buzz: "36af164e-b104-498b-ae0a-7d09de1f42ec" },
-  { slack: "C043YQ60R50", name: "trainers", buzz: "df069b8a-547d-4bb9-924d-c2056169dc61" }
+// A Buzz workflow can only post in its own channel, so each mirrored channel has its own webhook workflow (Webhook trigger,
+// one Send message step whose text is {{trigger.message}}), and Vercel BUZZ_MIRROR_HOOKS lists them, one per line:
+//   general https://dogwise-academy.communities.buzz.xyz/hooks/<workflow id> <secret>
+// (";" between entries works too, and "name=url|secret"). Also SLACK_MIRROR_TOKEN (the Slack app's Bot User OAuth Token)
+// and SLACK_MIRROR_SIGNING_SECRET. Stop it on switch day with SLACK_MIRROR_OFF=1 (or uninstall the Slack app).
+// Adding a channel: one line here, invite @Buzz Mirror in Slack, a workflow in the Buzz channel, a line in BUZZ_MIRROR_HOOKS.
+export const MIRROR: { slack: string; name: string }[] = [
+  { slack: "C048YKVJZFA", name: "back-office-staff" },
+  { slack: "C0C62V15BB3", name: "first-word-dump" },
+  { slack: "C0AG9FQNLAU", name: "flagged-ongoing" },
+  { slack: "C03L08NG4CS", name: "general" },
+  { slack: "C0CB599QQH2", name: "ops_app" },
+  { slack: "C03LQ1EGE6L", name: "random" },
+  { slack: "C03KTLHS5DL", name: "sales" },
+  { slack: "C05AHA58W65", name: "sales-team" },
+  { slack: "C0BG5HFHZMZ", name: "sales-team-private" },
+  { slack: "C08CC35BPEK", name: "trainer-information" },
+  { slack: "C043YQ60R50", name: "trainers" }
 ];
 const bySlack = new Map(MIRROR.map((m) => [m.slack, m]));
 export const mirrorOn = () => !!process.env.SLACK_MIRROR_TOKEN && process.env.SLACK_MIRROR_OFF !== "1";
 
-/** The one Buzz workflow for every mirrored channel: paste it in the workflow editor's YAML tab. */
-export function mirrorWorkflowYaml() {
-  return [
-    "name: Slack mirror",
-    "trigger:",
-    "  on: webhook",
-    "steps:",
-    ...MIRROR.flatMap((m) => [
-      `  - id: ${m.name.replace(/[^A-Za-z0-9_]/g, "_")}`,
-      `    if: 'trigger_target == "${m.name}"'`,
-      "    action: send_message",
-      "    text: \"{{trigger.message}}\"",
-      `    channel: ${m.buzz}`
-    ])
-  ].join("\n");
+/** Each channel's hook, from BUZZ_MIRROR_HOOKS. */
+export function mirrorHooks(): Map<string, { url: string; secret: string }> {
+  const out = new Map<string, { url: string; secret: string }>();
+  for (const line of (process.env.BUZZ_MIRROR_HOOKS || "").split(/[\n;]+/)) {
+    const m = line.replace(/["']/g, "").trim().match(/^#?([A-Za-z0-9_-]+)\s*[=:\s]\s*(https:\/\/\S+?)\s*[|\s]\s*(\S+)$/);
+    if (m) out.set(m[1].toLowerCase(), { url: m[2], secret: m[3] });
+  }
+  return out;
+}
+/** Post into one mirrored channel's Buzz workflow. */
+export async function postToMirror(name: string, message: string) {
+  const h = mirrorHooks().get(name.toLowerCase());
+  if (!h) return { ok: false, result: `no hook for #${name} in BUZZ_MIRROR_HOOKS`, status: undefined as number | undefined };
+  return postToHook(h.url, h.secret, message, undefined, `mirror #${name}`);
 }
 
 // ---------- Slack API (read-only) ----------
@@ -94,14 +95,15 @@ const dayLabel = (iso: string) => new Date(`${iso}T12:00:00Z`).toLocaleDateStrin
 const filesText = (m: SlackMsg) => (m.files || []).map((f) => `📎 ${f.permalink ? `[${md(f.title || f.name || "file")}](${f.permalink})` : md(f.title || f.name || "file")}`).join("\n");
 const firstLine = (s: string, n = 60) => { const t = s.replace(/\s+/g, " ").trim(); return t.length > n ? `${t.slice(0, n - 1)}…` : t; };
 
-/** When the mirror started: history before it comes from the backfill, everything after from the live mirror. */
-async function mirrorSince(): Promise<number> {
-  const sb = serviceClient();
-  const { data } = await sb.from("app_state").select("value").eq("key", "slack_mirror_since").maybeSingle();
-  if (data?.value) return Number(data.value);
-  const now = Date.now() / 1000;
-  await sb.from("app_state").insert({ key: "slack_mirror_since", value: String(now) });
-  return now;
+/** Per channel, when its live mirror took over: the first message it actually got into Buzz (or the first backfill, if
+ *  that came first). History before it comes from the backfill, so messages the live mirror couldn't post (before the
+ *  hook was set, say) are never lost. */
+async function liveSince(slackId: string): Promise<number | null> {
+  const { data } = await serviceClient().from("app_state").select("value").eq("key", `slack_mirror_since:${slackId}`).maybeSingle();
+  return data?.value ? Number(data.value) : null;
+}
+async function markLive(slackId: string, ts: number) {
+  await serviceClient().from("app_state").insert({ key: `slack_mirror_since:${slackId}`, value: String(ts) }); // the first one stays
 }
 
 // ---------- live ----------
@@ -115,8 +117,8 @@ export async function mirrorEvent(body: SlackEventBody): Promise<string> {
   const m = bySlack.get(e.channel);
   if (!m) return "not a mirrored channel";
   if (!isPerson(e)) return "not a person's message";
-  await mirrorSince();
-  if (!(await claim(`slack_event:${body.event_id || `${e.channel}:${e.ts}`}`))) return "already mirrored";
+  const key = `slack_event:${body.event_id || `${e.channel}:${e.ts}`}`;
+  if (!(await claim(key))) return "already mirrored";
   const name = md(await userName(e.user!));
   const text = await slackToMarkdown(e.text || "");
   let head = `**${name}** · ${clock(e.ts)}`;
@@ -128,8 +130,10 @@ export async function mirrorEvent(body: SlackEventBody): Promise<string> {
     } catch { /* the reply still goes, without the quote */ }
     head = `↳ ${head}${to || " · reply in a thread"}`;
   }
-  const r = await postToBuzzDetailed("mirror", [head, text, filesText(e)].filter(Boolean).join("\n"), { target: m.name });
-  return r.ok ? "posted" : `not posted: ${r.result}`;
+  const r = await postToMirror(m.name, [head, text, filesText(e)].filter(Boolean).join("\n"));
+  if (!r.ok) { await serviceClient().from("app_state").delete().eq("key", key); return `not posted: ${r.result} (the backfill will bring it)`; }
+  if ((await liveSince(m.slack)) == null) await markLive(m.slack, Number(e.ts));
+  return "posted";
 }
 
 // ---------- backfill ----------
@@ -140,7 +144,10 @@ export async function backfillChannel(name: string, days: number, budgetMs = 450
   const m = MIRROR.find((x) => x.name === name);
   if (!m) return { posted: 0, skipped: 0, done: true, note: `no mirrored channel called ${name}` };
   if (!mirrorOn()) return { posted: 0, skipped: 0, done: true, note: "the mirror is off (SLACK_MIRROR_TOKEN unset, or SLACK_MIRROR_OFF=1)" };
-  const until = await mirrorSince();
+  if (!mirrorHooks().has(m.name)) return { posted: 0, skipped: 0, done: true, note: `no hook for #${m.name} in BUZZ_MIRROR_HOOKS yet` };
+  // Up to when this channel's live mirror took over; if it hasn't yet, up to now, and the live mirror carries on from here
+  let until = await liveSince(m.slack);
+  if (until == null) { until = Date.now() / 1000; await markLive(m.slack, until); until = (await liveSince(m.slack)) ?? until; }
   const oldest = String(until - Math.min(Math.max(days, 1), 60) * 86400);
 
   // The channel's messages, then each thread's replies under its parent
@@ -187,7 +194,7 @@ export async function backfillChannel(name: string, days: number, budgetMs = 450
   for (const p of todo) {
     if (Date.now() - start > budgetMs) return { posted, skipped: done.size, done: false, note: "out of time for this run: open it again to carry on" };
     if (!(await claim(p.key))) continue;
-    const r = await postToBuzzDetailed("mirror", p.text, { target: m.name });
+    const r = await postToMirror(m.name, p.text);
     if (!r.ok) {
       await serviceClient().from("app_state").delete().eq("key", p.key);
       return { posted, skipped: done.size, done: false, note: r.status === 429 ? "Buzz asked to slow down: open it again in a minute" : `Buzz didn't take it: ${r.result}` };
@@ -198,13 +205,18 @@ export async function backfillChannel(name: string, days: number, budgetMs = 450
   return { posted, skipped: done.size, done: true, note: posts.length ? "all of it is in Buzz" : "no messages from people in that time" };
 }
 
-/** For the test page: how far each channel's backfill has got. */
-export async function backfillStatus(): Promise<{ name: string; days: number }[]> {
-  const { data } = await serviceClient().from("app_state").select("key").like("key", "slack_day:%");
+/** For the test page: how far each channel's backfill has got, and since when its live mirror has been posting. */
+export async function backfillStatus(): Promise<{ name: string; days: number; liveSince: number | null }[]> {
+  const sb = serviceClient();
+  const [{ data }, { data: live }] = await Promise.all([
+    sb.from("app_state").select("key").like("key", "slack_day:%"),
+    sb.from("app_state").select("key, value").like("key", "slack_mirror_since:%")
+  ]);
   const count = new Map<string, Set<string>>();
   for (const r of (data || []) as { key: string }[]) {
     const [, ch, d] = r.key.split(":");
     count.set(ch, (count.get(ch) || new Set()).add(d));
   }
-  return MIRROR.map((m) => ({ name: m.name, days: count.get(m.slack)?.size || 0 }));
+  const since = new Map(((live || []) as { key: string; value: string }[]).map((r) => [r.key.split(":")[1], Number(r.value)]));
+  return MIRROR.map((m) => ({ name: m.name, days: count.get(m.slack)?.size || 0, liveSince: since.get(m.slack) ?? null }));
 }

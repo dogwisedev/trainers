@@ -1,12 +1,12 @@
 import { getViewer } from "@/lib/data";
-import { buzzFingerprint, buzzOn, postToBuzzDetailed, type BuzzRoom } from "@/lib/buzz";
+import { buzzFingerprint, buzzOn, hookFingerprint, postToBuzzDetailed, type BuzzRoom } from "@/lib/buzz";
 import { buzzAlert } from "@/lib/adminAlert";
 import { digestMessage } from "@/lib/digest";
 import { replayRecentCharges } from "@/lib/paymentAlert";
 import { replayRecentWins } from "@/lib/salesWin";
 import { replayRecentLeads } from "@/lib/leadAlert";
 import { replayRecentNotion } from "@/lib/notionAlert";
-import { backfillStatus, MIRROR, mirrorOn, mirrorWorkflowYaml } from "@/lib/slackMirror";
+import { backfillStatus, MIRROR, mirrorHooks, mirrorOn, postToMirror } from "@/lib/slackMirror";
 import { serviceClient } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
@@ -30,7 +30,7 @@ export async function GET(req: Request) {
   const q = new URL(req.url).searchParams;
   const send = q.get("send") || "";
   const n = Math.min(10, Math.max(1, Number(q.get("n")) || 3));
-  const sending = (room: BuzzRoom) => send === "all" || send === room;
+  const sending = (room: BuzzRoom | "mirror") => send === "all" || send === room;
   const out: string[] = [send ? `Buzz test: sending to ${send === "all" ? "every channel" : `the ${send} channel`}` : "Buzz test: PREVIEW ONLY, nothing sent. Add ?send=office, ?send=payments, ?send=sales, ?send=leads, ?send=notion, ?send=mirror or ?send=all to post these, marked TEST.", ""];
 
   const deliver = async (room: BuzzRoom, message: string) => {
@@ -39,7 +39,7 @@ export async function GET(req: Request) {
     const r = await postToBuzzDetailed(room, message);
     out.push(r.ok ? "→ sent ✓ (it shows in Buzz a moment later)" : `→ NOT SENT: ${r.result}${/^HTTP 404/.test(r.result) ? "\n  Buzz says \"not found\" for all of these: the secret doesn't match, the URL is wrong, the workflow is off, or its creator left the channel." : ""}`, "");
   };
-  const fingerprints = Object.fromEntries(await Promise.all((["office", "payments", "sales", "leads", "notion", "mirror"] as BuzzRoom[]).map(async (r) => [r, await buzzFingerprint(r)])));
+  const fingerprints = Object.fromEntries(await Promise.all((["office", "payments", "sales", "leads", "notion"] as BuzzRoom[]).map(async (r) => [r, await buzzFingerprint(r)])));
   const section = (room: BuzzRoom, title: string) => {
     const key = room.toUpperCase();
     out.push("════════════════════════", `${title}: ${buzzOn(room) ? `ON · ${fingerprints[room]}` : `OFF (set BUZZ_${key}_URL and BUZZ_${key}_SECRET in Vercel, then redeploy)`}`, "");
@@ -102,23 +102,25 @@ export async function GET(req: Request) {
     for (const [i, x] of list.entries()) { out.push(`${i + 1}. ${x.id}`, ""); await deliver("notion", x.message); }
   } catch (e) { out.push(`Couldn't read Notion: ${(e as Error).message}`, ""); }
 
-  section("mirror", "SLACK MIRROR");
-  const since = await serviceClient().from("app_state").select("value").eq("key", "slack_mirror_since").maybeSingle();
+  out.push("════════════════════════", "SLACK MIRROR (one Buzz webhook workflow per channel, listed in BUZZ_MIRROR_HOOKS)", "");
   out.push(
     `Slack app token (SLACK_MIRROR_TOKEN): ${process.env.SLACK_MIRROR_TOKEN ? "set" : "NOT SET"} · Signing secret (SLACK_MIRROR_SIGNING_SECRET): ${process.env.SLACK_MIRROR_SIGNING_SECRET ? "set" : "NOT SET"} · ${mirrorOn() ? "mirroring" : "not mirroring"}${process.env.SLACK_MIRROR_OFF === "1" ? " (SLACK_MIRROR_OFF=1)" : ""}`,
-    since.data?.value ? `Live since ${new Date(Number(since.data.value) * 1000).toLocaleString("en-US", { timeZone: "America/New_York" })} ET: older messages come from the backfill` : "Not started: it starts with the first message or the first backfill.",
     ""
   );
-  const status = new Map((await backfillStatus()).map((x) => [x.name, x.days]));
-  out.push("Backfill, one channel at a time (safe to open again; it never posts a day twice):");
-  for (const m of MIRROR) out.push(`  #${m.name} · ${status.get(m.name) || 0} days in Buzz · ${site()}/api/slack/mirror/backfill?channel=${m.name}`);
-  out.push("");
+  const hooks = mirrorHooks(), status = new Map((await backfillStatus()).map((x) => [x.name, x]));
+  const et = (ts: number) => new Date(ts * 1000).toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  out.push("Each channel: its hook, live since (older messages come from the backfill), the backfill so far, and its link (safe to open again; it never posts a day twice):");
   for (const m of MIRROR) {
-    if (!sending("mirror")) break;
-    const r = await postToBuzzDetailed("mirror", `🧪 **TEST**: the Slack mirror reaches #${m.name}. Nothing to do.`, { target: m.name });
-    out.push(`  #${m.name}: ${r.ok ? "sent ✓" : `NOT SENT: ${r.result}`}`);
+    const h = hooks.get(m.name), st = status.get(m.name);
+    out.push(`  #${m.name} · ${h ? await hookFingerprint(h.url, h.secret) : "NO HOOK in BUZZ_MIRROR_HOOKS"} · ${st?.liveSince ? `live since ${et(st.liveSince)} ET` : "not live yet"} · ${st?.days || 0} days in Buzz · ${site()}/api/slack/mirror/backfill?channel=${m.name}`);
+    if (sending("mirror") && h) {
+      const r = await postToMirror(m.name, `🧪 **TEST**: the Slack mirror reaches #${m.name}. Nothing to do.`);
+      out.push(`      test: ${r.ok ? "sent ✓" : `NOT SENT: ${r.result}`}`);
+    }
   }
-  out.push("", "The Buzz workflow for the mirror (create it in Systems Channel, then paste this in the editor's YAML tab):", "", mirrorWorkflowYaml(), "");
+  const unknown = [...hooks.keys()].filter((k) => !MIRROR.some((m) => m.name === k));
+  if (unknown.length) out.push(`  ⚠ In BUZZ_MIRROR_HOOKS but not mirrored (check the spelling): ${unknown.join(", ")}`);
+  out.push("", "BUZZ_MIRROR_HOOKS: one line per channel, the name then its workflow's URL then its secret, e.g.", "  general https://dogwise-academy.communities.buzz.xyz/hooks/<workflow id> <secret>", "");
 
   out.push("════════════════════════", "In Buzz, ** shows as bold and [text](link) as a tappable link.");
   return new Response(out.join("\n"), { headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" } });
