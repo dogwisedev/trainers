@@ -13,15 +13,24 @@ import { commsOverview, NarrowDown, recentMessages, trainerComms } from "./claud
 import { PULSE_RANGES, PULSE_VIEWS, pulseForClaude, pulseOnConnector } from "./claudePulse";
 import type { View } from "./pulse";
 import { nudgeReport } from "./nudges";
+import { BUZZ_TOOLS } from "./buzzTools";
+import { BuzzInput, BuzzRelayError, BuzzSetupError } from "./buzzAgent";
 
 // The tools behind the app's Claude connector (app/api/mcp/route.ts). Claude calls them through MCP with the
 // CLAUDE_MCP_KEY. Each tool reads with the service key, like the admin To do list and the daily email do, so whoever
-// holds that key sees what an admin sees. Read only. Every call goes in the activity log as done through Claude.
+// holds that key sees what an admin sees. The app's own tools only read. The buzz_ tools (lib/buzzTools.ts) read and
+// write in Buzz as the app's Buzz account; those that write say so (write, destructive). Every call goes in the
+// activity log as done through Claude.
 
 type Args = Record<string, unknown>;
 type Field = { type: "string" | "number" | "boolean"; description: string; optional?: boolean; pattern?: string; min?: number; max?: number };
-/** seconds: how long the tool may take (default TOOL_SECONDS). enabled: when it returns false the tool isn't offered. */
-export type ClaudeTool = { name: string; title: string; description: string; input: Record<string, Field>; run: (a: Args) => Promise<unknown>; seconds?: number; enabled?: () => boolean };
+/** seconds: how long the tool may take (default TOOL_SECONDS). enabled: when it returns false the tool isn't offered.
+ *  write: it changes something (otherwise it only reads); destructive: what it changes may not be undoable; openWorld: it
+ *  reaches outside the app (Buzz). These become the MCP annotations Claude sees. */
+export type ClaudeTool = {
+  name: string; title: string; description: string; input: Record<string, Field>; run: (a: Args) => Promise<unknown>; seconds?: number; enabled?: () => boolean;
+  write?: boolean; destructive?: boolean; openWorld?: boolean;
+};
 
 /** A problem with the request (bad date, nothing to search for...): the message goes back to Claude as it is. */
 class Ask extends Error {}
@@ -402,7 +411,7 @@ export const CLAUDE_TOOLS: ClaudeTool[] = [
 ];
 
 /** The tools on offer right now (a tool can be switched off in Vercel, like Pulse with PULSE_CONNECTOR=off). */
-export const activeTools = () => CLAUDE_TOOLS.filter((t) => !t.enabled || t.enabled());
+export const activeTools = () => [...CLAUDE_TOOLS, ...BUZZ_TOOLS].filter((t) => !t.enabled || t.enabled());
 
 /** JSON Schema for a tool's arguments, as MCP's tools/list wants it. */
 export function toolInputSchema(t: ClaudeTool) {
@@ -446,10 +455,11 @@ export async function runClaudeTool(name: string, args: Args): Promise<{ ok: tru
     out = { ok: true, result: await inTime(tool.run(args), tool.seconds) };
   } catch (e) {
     const detail = (e as Error)?.message || String(e);
-    const slow = name === "availability" && text(args, "zip") ? "the app's database or the ZIP lookup" : name === "pulse" ? "Pulse (the app's database, HubSpot or Stripe)" : "the app's database";
+    const slow = name.startsWith("buzz_") ? "Buzz" : name === "availability" && text(args, "zip") ? "the app's database or the ZIP lookup" : name === "pulse" ? "Pulse (the app's database, HubSpot or Stripe)" : "the app's database";
     out = {
       ok: false, detail,
-      error: e instanceof Ask || e instanceof NarrowDown ? detail
+      error: e instanceof Ask || e instanceof NarrowDown || e instanceof BuzzInput || e instanceof BuzzSetupError ? detail
+        : e instanceof BuzzRelayError ? (e.status === 0 ? `Buzz: ${detail} Try again in a minute; buzz_status shows whether the connection works.` : `Buzz said (HTTP ${e.status}): ${detail}`)
         : e instanceof TooSlow ? `No answer: ${slow} is slow right now. Try again in a minute; if it keeps happening, tell Alma.`
         : "The app couldn't answer that just now (the error is in the app's activity log). Try again in a minute; if it keeps happening, tell Alma."
     };
