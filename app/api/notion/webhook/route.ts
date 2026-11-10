@@ -22,16 +22,21 @@ export async function POST(req: Request) {
   let j: Record<string, unknown>;
   try { j = JSON.parse(body); } catch { return NextResponse.json({ error: "not JSON" }, { status: 400 }); }
 
-  // The one-time setup request: keep the token for the admin to copy (it does nothing until it's in Vercel too)
-  if (typeof j.verification_token === "string" && !req.headers.get("x-notion-signature")) {
-    const { error } = await serviceClient().from("app_state").upsert({ key: "notion_verification_token", value: j.verification_token, updated_at: new Date().toISOString() });
+  // The one-time setup request: a body with a verification_token and no event in it (whatever its headers say). Keep the
+  // token for the admin to copy from /api/buzz/test (it does nothing until it's in Vercel too), and answer 200 as Notion needs.
+  const vt = typeof j.verification_token === "string" ? j.verification_token : null;
+  if (vt && !j.type && !j.entity) {
+    const { error } = await serviceClient().from("app_state").upsert({ key: "notion_verification_token", value: vt, updated_at: new Date().toISOString() });
     console.log("notion webhook: verification token received", error ? `(couldn't save: ${error.message})` : "(see /api/buzz/test)");
     return NextResponse.json({ ok: true });
   }
 
   const token = (process.env.NOTION_WEBHOOK_TOKEN || "").trim();
-  if (!token) return NextResponse.json({ error: "NOTION_WEBHOOK_TOKEN isn't set" }, { status: 503 });
-  if (!signedByNotion(body, req.headers.get("x-notion-signature"), token)) return NextResponse.json({ error: "bad signature" }, { status: 401 });
+  if (!token || !signedByNotion(body, req.headers.get("x-notion-signature"), token)) {
+    // Kept so /api/buzz/test can show what arrived (Notion's events carry ids, not content)
+    await serviceClient().from("app_state").upsert({ key: "notion_last_refused", value: JSON.stringify({ at: new Date().toISOString(), why: token ? "bad signature" : "NOTION_WEBHOOK_TOKEN isn't set", signed: !!req.headers.get("x-notion-signature"), body: body.slice(0, 800) }), updated_at: new Date().toISOString() });
+    return token ? NextResponse.json({ error: "bad signature" }, { status: 401 }) : NextResponse.json({ error: "NOTION_WEBHOOK_TOKEN isn't set" }, { status: 503 });
+  }
 
   let result: string;
   try { result = await handleNotionEvent(j as unknown as NotionEvent); }

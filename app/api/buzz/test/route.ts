@@ -82,6 +82,11 @@ export async function GET(req: Request) {
   out.push(
     `Notion integration secret (NOTION_TOKEN): ${process.env.NOTION_TOKEN ? "set" : "NOT SET"}`,
     `Webhook token (NOTION_WEBHOOK_TOKEN): ${process.env.NOTION_WEBHOOK_TOKEN ? "set" : "NOT SET"}`,
+    ...(await (async () => {
+      const last = await serviceClient().from("app_state").select("value").eq("key", "notion_last_refused").maybeSingle();
+      if (!last.data?.value) return [];
+      try { const x = JSON.parse(last.data.value); return [`Last request the app refused: ${x.at} (${x.why}${x.signed ? ", it was signed" : ", unsigned"}): ${String(x.body).slice(0, 300)}`]; } catch { return []; }
+    })()),
     vt.data?.value ? `Verification token Notion sent on ${new Date(vt.data.updated_at).toLocaleString("en-US", { timeZone: "America/New_York" })} ET (paste it into Notion's Verify box, and into Vercel as NOTION_WEBHOOK_TOKEN):\n  ${vt.data.value}` : "No verification token received from Notion yet (it arrives when you create the webhook subscription).",
     ""
   );
