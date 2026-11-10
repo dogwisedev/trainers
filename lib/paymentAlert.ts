@@ -114,6 +114,8 @@ const clientName = (ctx: Ctx, stripeName?: string | null, email?: string | null)
 /** A decline in plain words for the office. Unknown reasons fall back to Stripe's own sentence. */
 function declineReason(ch: StripeCharge) {
   const code = String(ch.outcome?.reason || ch.failure_code || "").toLowerCase();
+  if (/session (has )?expired|did not complete the payment in time/i.test(`${ch.failure_message || ""} ${ch.outcome?.seller_message || ""}`))
+    return "The client didn't finish paying in time, so the checkout expired. No money moved.";
   const provider = code.match(/^([a-z]+)_checkout_cancel+ed/)?.[1];
   if (provider) return `The client cancelled the ${provider[0].toUpperCase()}${provider.slice(1)} checkout. No money moved.`;
   const plain: [RegExp, string][] = [
@@ -172,7 +174,9 @@ async function chargeMessage(succeeded: boolean, ch: StripeCharge, dealIdKnown?:
   if (succeeded) return block(`💰 **${amount} paid** · ${who}`, [...dogLines(ctx, email), salesLine(ctx, sale)], linkLine(ctx));
   const code = String(ch.outcome?.reason || ch.failure_code || "").toLowerCase();
   const link = ctx.deal?.remaining_balance_link || null;
-  const next = /_checkout_cancel+ed/.test(code) ? "ask if they'd like to finish it or pay another way"
+  const expired = /session (has )?expired|did not complete the payment in time/i.test(`${ch.failure_message || ""} ${ch.outcome?.seller_message || ""}`);
+  const next = expired ? `send them the payment link again${link ? " (the balance link below)" : ""}`
+    : /_checkout_cancel+ed/.test(code) ? "ask if they'd like to finish it or pay another way"
     : link ? "ask the client to pay again with the balance link" : "ask the client to try again or use another card";
   return block(`🛎️ **${amount} failed** · ${who}`, [
     `Why: ${declineReason(ch)}`,

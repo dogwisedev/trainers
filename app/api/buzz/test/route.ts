@@ -39,7 +39,7 @@ export async function GET(req: Request) {
     const r = await postToBuzzDetailed(room, message);
     out.push(r.ok ? "→ sent ✓ (it shows in Buzz a moment later)" : `→ NOT SENT: ${r.result}${/^HTTP 404/.test(r.result) ? "\n  Buzz says \"not found\" for all of these: the secret doesn't match, the URL is wrong, the workflow is off, or its creator left the channel." : ""}`, "");
   };
-  const fingerprints = Object.fromEntries(await Promise.all((["office", "payments", "sales", "leads", "notion"] as BuzzRoom[]).map(async (r) => [r, await buzzFingerprint(r)])));
+  const fingerprints = Object.fromEntries(await Promise.all((["office", "payments", "sales", "leads", "notion", "mirror"] as BuzzRoom[]).map(async (r) => [r, await buzzFingerprint(r)])));
   const section = (room: BuzzRoom, title: string) => {
     const key = room.toUpperCase();
     out.push("════════════════════════", `${title}: ${buzzOn(room) ? `ON · ${fingerprints[room]}` : `OFF (set BUZZ_${key}_URL and BUZZ_${key}_SECRET in Vercel, then redeploy)`}`, "");
@@ -89,7 +89,10 @@ export async function GET(req: Request) {
       if (!last.data?.value) return [];
       try { const x = JSON.parse(last.data.value); return [`Last request the app refused: ${x.at} (${x.why}${x.signed ? ", it was signed" : ", unsigned"}): ${String(x.body).slice(0, 300)}`]; } catch { return []; }
     })()),
-    vt.data?.value ? `Verification token Notion sent on ${new Date(vt.data.updated_at).toLocaleString("en-US", { timeZone: "America/New_York" })} ET (paste it into Notion's Verify box, and into Vercel as NOTION_WEBHOOK_TOKEN):\n  ${vt.data.value}` : "No verification token received from Notion yet (it arrives when you create the webhook subscription).",
+    // The token is shown only until it's in Vercel: after that it's a secret like any other
+    !vt.data?.value ? "No verification token received from Notion yet (it arrives when you create the webhook subscription)."
+      : process.env.NOTION_WEBHOOK_TOKEN ? `Verification token: received ${new Date(vt.data.updated_at).toLocaleString("en-US", { timeZone: "America/New_York" })} ET and in Vercel ${process.env.NOTION_WEBHOOK_TOKEN.trim() === vt.data.value ? "(they match ✓)" : "(⚠ Vercel's doesn't match the one Notion sent last)"}. Hidden now.`
+      : `Verification token Notion sent on ${new Date(vt.data.updated_at).toLocaleString("en-US", { timeZone: "America/New_York" })} ET (paste it into Notion's Verify box, and into Vercel as NOTION_WEBHOOK_TOKEN):\n  ${vt.data.value}`,
     ""
   );
   out.push(`Posting: every Notion database Dogwise Buzz is connected to${process.env.NOTION_QUIET ? `, except NOTION_QUIET: ${process.env.NOTION_QUIET}` : ""}`, "", `The last ${n} edited database items the integration can see, as Buzz would show a change`, "");
