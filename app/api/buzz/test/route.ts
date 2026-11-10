@@ -17,7 +17,7 @@ export const maxDuration = 60;
 //   /api/buzz/test?send=payments   the last 3 real Stripe payments as Buzz would show them, marked TEST (&n=1..10)
 //   /api/buzz/test?send=sales      the last 3 Closed Won deals as the sales channel would show them, marked TEST (&n=1..10)
 //   /api/buzz/test?send=leads      the last 3 Bark leads as the leads channel would show them, marked TEST (&n=1..10)
-//   /api/buzz/test?send=notion     the last 3 edited Back Office items in Notion as the Notion channel would show them (&n=1..10)
+//   /api/buzz/test?send=notion     the last 3 edited Notion database items as the Notion channel would show them (&n=1..10)
 //   /api/buzz/test?send=all        all five
 // Nothing here touches Stripe, HubSpot or the To do list: it only reads them.
 const site = () => (process.env.NEXT_PUBLIC_SITE_URL || "").replace(/\/$/, "");
@@ -90,10 +90,10 @@ export async function GET(req: Request) {
     vt.data?.value ? `Verification token Notion sent on ${new Date(vt.data.updated_at).toLocaleString("en-US", { timeZone: "America/New_York" })} ET (paste it into Notion's Verify box, and into Vercel as NOTION_WEBHOOK_TOKEN):\n  ${vt.data.value}` : "No verification token received from Notion yet (it arrives when you create the webhook subscription).",
     ""
   );
-  out.push(`The last ${n} edited Back Office items, as Buzz would show a change`, "");
+  out.push(`Posting: every Notion database Dogwise Buzz is connected to${process.env.NOTION_QUIET ? `, except NOTION_QUIET: ${process.env.NOTION_QUIET}` : ""}`, "", `The last ${n} edited database items the integration can see, as Buzz would show a change`, "");
   try {
     const list = await replayRecentNotion(n);
-    if (!list.length) out.push("No items found (is the integration connected to Back Office Workstream?).", "");
+    if (!list.length) out.push("No database items found: connect Dogwise Buzz to the pages in Notion (⋯ → Connections).", "");
     for (const [i, x] of list.entries()) { out.push(`${i + 1}. ${x.id}`, ""); await deliver("notion", x.message); }
   } catch (e) { out.push(`Couldn't read Notion: ${(e as Error).message}`, ""); }
 

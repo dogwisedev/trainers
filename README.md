@@ -215,12 +215,12 @@ Setup (about 10 minutes):
    The app can only read deals. Anything the webhook posts is in the Vercel logs as `hubspot webhook`; a wrong secret answers HubSpot 401.
 Turn a channel off by removing its two variables.
 
-**Notion channel** (Back Office Workstream, side by side with Sean's Slack automation): a post when an item is added, or when its Status, Owner, Next step, Latest update, Due or Priority changes, with who changed it and a link. Typing in a page, or other fields, stays quiet; Notion bundles quick edits into one post. Comes from the **Dogwise Buzz** Notion integration (`lib/notionAlert.ts`; more databases can be added to `BOARDS` there). Setup, once:
+**Notion channel** (side by side with Sean's Slack automation): every Notion database **Dogwise Buzz** is connected to (connect a teamspace's top page and everything under it counts). A post for each new item, and for changes to fields worth a ping: in Back Office Workstream, Status, Owner, Next step, Latest update, Due or Priority; in any other database, its status, select, people, date, checkbox or title fields. Text fields and typing in a page stay quiet; a new standalone page posts once. Notion bundles quick edits into one post. To quiet a database, list its name in Vercel `NOTION_QUIET` (comma-separated) and redeploy. Comes from the **Dogwise Buzz** Notion integration (`lib/notionAlert.ts`). Setup, once:
 1. In Buzz, a channel for it with the same webhook workflow → Vercel `BUZZ_NOTION_URL`, `BUZZ_NOTION_SECRET`.
 2. Notion → Settings → Connections → **Develop or manage integrations** → **New integration**: name **Dogwise Buzz**, this workspace, Internal. Capabilities: **Read content** and **Read user information without email** only. Save, copy the **Internal Integration Secret** → Vercel `NOTION_TOKEN`. Redeploy.
-3. In Notion, open the **Back Office Workstream** database → **⋯ → Connections** → add **Dogwise Buzz**. (It sees only what it's added to.)
+3. In Notion, on the top page of each teamspace (and any private page) to cover → **⋯ → Connections** → add **Dogwise Buzz**. Everything under a page is included; it sees nothing else.
 4. In the integration → **Webhooks** → create a subscription: URL `https://trainers-seven.vercel.app/api/notion/webhook`, events **page.created** and **page.properties_updated**. Notion sends a verification token to the app: open `/api/buzz/test`, copy it from the NOTION section, paste it into Notion's **Verify** box, and into Vercel as `NOTION_WEBHOOK_TOKEN`. Redeploy.
-5. `/api/buzz/test?send=notion` replays the last 3 edited items, marked TEST. Live posts are in the Vercel logs as `notion webhook`.
+5. `/api/buzz/test?send=notion` replays the last 3 edited database items, marked TEST. Live posts are in the Vercel logs as `notion webhook`.
 
 Try it without waiting for a real alert or payment (signed in as an admin, in the browser):
 - `/api/buzz/test` shows what each channel would get, and sends nothing: a connection test, today's To do list as the 8 AM message would show it, and the last 3 real Stripe payments, Closed Won deals and Bark leads as Buzz would show them.
