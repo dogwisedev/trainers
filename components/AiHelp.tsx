@@ -5,6 +5,7 @@ import { aiSettings } from "@/lib/aiSettings";
 import { formCheckStats } from "@/lib/formCheck";
 import { handoverDraftStats } from "@/lib/handoverDraft";
 import { vaccineCheckStats } from "@/lib/vaccineCheck";
+import { needsStats } from "@/lib/clientNeeds";
 import { AutoSwitch, CheckModeSwitch, OnOff, RatePill } from "@/components/AiSwitches";
 import { aiFlags, aiRates, AUTO_MIN_DECISIONS, AUTO_MIN_RATE, SPOT_EVERY, WEEKS, type Feature } from "@/lib/aiTrust";
 
@@ -17,7 +18,7 @@ export async function AiHelp({ from, label }: { from: string; label: string }) {
     sb.from("ai_voice").select("mode, user_id, seconds, fields_set").gte("created_at", since).limit(5000).then((r) => (r.error ? null : (r.data || []) as { mode: string; user_id: string | null; seconds: number | null; fields_set: number | null }[]), () => null),
     vaccineCheckStats(sb, since).catch(() => null)
   ]);
-  const [rates, flags] = await Promise.all([aiRates(sb).catch(() => null), aiFlags(sb).catch(() => null)]);
+  const [rates, flags, msgs] = await Promise.all([aiRates(sb).catch(() => null), aiFlags(sb).catch(() => null), needsStats(sb, since).catch(() => null)]);
   const pill = (f: Feature) => rates ? <RatePill rate={rates[f].rate} decided={rates[f].decided} what={rates[f].what} weeks={WEEKS} /> : null;
   const vChat = (voice || []).filter((x) => x.mode === "chat"), vForm = (voice || []).filter((x) => x.mode === "form");
   const used = (caps || []).filter((c) => c.used_at), asIs = used.filter((c) => (c.final || "").trim() === c.suggested.trim()).length;
@@ -51,8 +52,9 @@ export async function AiHelp({ from, label }: { from: string; label: string }) {
         {row("Speak", "A Speak button in chats and on forms: the person talks, it's turned into text and tidied into a message in their own way of talking, or into the form's answers. Never a voice message: they check the text and send it themselves.",
           <OnOff name="voice" on={cfg.voice} label="Speak" />,
           voice === null ? "Run migration 056 in Supabase to count uses." : voice.length ? `${vChat.length} chat message${vChat.length === 1 ? "" : "s"} and ${vForm.length} form fill${vForm.length === 1 ? "" : "s"} spoken (${vForm.reduce((n, x) => n + (x.fields_set || 0), 0)} answers filled in) by ${new Set(voice.map((x) => x.user_id)).size} ${new Set(voice.map((x) => x.user_id)).size === 1 ? "person" : "people"}, ${Math.round(voice.reduce((n, x) => n + (x.seconds || 0), 0) / 60)} minutes of talking.` : "Nobody has used it in this range yet.", "speak")}
-        {row("Reading client messages", "Each client message is labelled: for the trainer, for the office, no reply needed, or urgent. That's what decides who is reminded and what goes on To do. It runs on its own already; a person correcting a label (No reply needed) counts against it.",
-          null, "", "messages")}
+        {row("Reading client messages", "Each new client message is labelled: for the trainer, for the office, no reply needed, or urgent. That decides who is reminded and what goes on To do. Off: no labels, and a client who wrote last counts as waiting, as before.",
+          <OnOff name="messages" on={cfg.messages} label="Reading client messages" />,
+          msgs ? (msgs.labelled ? `${msgs.labelled} labelled (${msgs.byClaude} by Claude, ${msgs.byRules} by the simple rules): ${msgs.reply} for the trainer, ${msgs.office} for the office, ${msgs.none} no reply needed, ${msgs.urgent} urgent. ${msgs.changedByPeople} changed by a person.` : "None labelled in this range yet.") : "Run migration 052 in Supabase.")}
       </ul>
       <p className="mt-2 text-small text-ink-soft"><b>How Auto works:</b> it can only be switched on when people have agreed with the AI on at least {AUTO_MIN_RATE}% of {AUTO_MIN_DECISIONS}+ decisions in the last {WEEKS} weeks. Small edits (a typo, a word) count as agreeing. While it&apos;s on, 1 in {SPOT_EVERY} still goes to a person as a spot check, and if they disagree too often it switches itself off and tells the admins.</p>
       {flags && flags.length > 0 && (

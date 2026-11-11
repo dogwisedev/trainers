@@ -27,7 +27,7 @@ export function CheckModeSwitch({ mode }: { mode: CheckMode }) {
   );
 }
 
-export function OnOff({ name, on, label }: { name: "handoverDrafts" | "captions" | "voice" | "vaccineChecks" | "vaccineAuto"; on: boolean; label: string }) {
+export function OnOff({ name, on, label }: { name: "handoverDrafts" | "captions" | "voice" | "vaccineChecks" | "vaccineAuto" | "messages"; on: boolean; label: string }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [err, setErr] = useState("");

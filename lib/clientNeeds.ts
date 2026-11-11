@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { serviceClient } from "./supabase";
 import { answeredUpTo } from "./chatRules";
 import { aiOn, claude, jsonFrom } from "./ai";
+import { aiSettings } from "./aiSettings";
 
 // Who has to act on each client message (migration 052), so only real questions chase the trainer:
 //   reply   the trainer answers it: a question or request about the dog, pickup, training
@@ -20,6 +21,8 @@ type Msg = { id: string; chat_id: string; created_at: string; sender_role: strin
 type ChatLike = { id: string; last_reply_at?: string | null; last_trainer_at?: string | null; last_admin_at?: string | null; reply_waived_at?: string | null };
 
 export const needsOn = () => (process.env.CLIENT_NEEDS || "").trim().toLowerCase() !== "off";
+/** On: CLIENT_NEEDS isn't "off" in Vercel and the switch on Pulse → Office → AI help is on. */
+async function active(sb: SupabaseClient) { return needsOn() && (await aiSettings(sb).catch(() => ({ messages: true }))).messages; }
 const ms = (v: string | null | undefined) => (v ? Date.parse(v) : 0);
 const clip = (s: string | null | undefined, n: number) => { const t = String(s || "").replace(/\s+/g, " ").trim(); return t.length > n ? `${t.slice(0, n - 1)}…` : t; };
 const NEEDS: Needs[] = ["reply", "office", "none", "urgent"];
@@ -67,7 +70,7 @@ async function aiNeeds(context: Msg[], targets: Msg[]): Promise<Map<string, { ne
 /** The 10-minute chat check: labels client messages from the last 7 days that don't have one yet (up to 40 a run). Never throws. */
 export async function classifyNew(sb: SupabaseClient = serviceClient(), now = new Date()) {
   const out = { labelled: 0, byClaude: 0, errors: [] as string[] };
-  if (!needsOn()) return out;
+  if (!(await active(sb))) return out;
   try {
     const since = new Date(now.getTime() - 7 * 864e5).toISOString();
     const { data: recent, error } = await sb.from("chat_messages").select("id, chat_id, created_at, sender_role, sender_name, sender_id, body, kind").eq("sender_role", "client").gte("created_at", since).order("created_at", { ascending: false }).limit(300);
@@ -107,7 +110,7 @@ export async function pendingFor(sb: SupabaseClient, chatId: string, after: stri
 }
 /** Leaves out messages labelled none or office. */
 export async function dropNotForTrainer<T extends { id: string }>(sb: SupabaseClient, msgs: T[]): Promise<T[]> {
-  if (!msgs.length || !needsOn()) return msgs;
+  if (!msgs.length || !(await active(sb))) return msgs;
   const { data, error } = await sb.from("message_needs").select("message_id, needs").in("message_id", msgs.map((m) => m.id));
   if (error) return msgs;
   const skip = new Set(((data || []) as { message_id: string; needs: Needs }[]).filter((x) => x.needs === "none" || x.needs === "office").map((x) => x.message_id));
@@ -117,7 +120,7 @@ export async function dropNotForTrainer<T extends { id: string }>(sb: SupabaseCl
 /** Office questions nobody in the office has answered in the chat, and urgent messages nobody has answered, per chat (last 14 days). */
 export async function openFlags(sb: SupabaseClient, chats: ChatLike[], now = new Date()): Promise<Map<string, { office: Flag[]; urgent: Flag[] }>> {
   const out = new Map<string, { office: Flag[]; urgent: Flag[] }>();
-  if (!needsOn() || !chats.length) return out;
+  if (!chats.length || !(await active(sb))) return out;
   const since = new Date(now.getTime() - 14 * 864e5).toISOString();
   const { data, error } = await sb.from("message_needs").select("message_id, chat_id, sent_at, needs, why").in("needs", ["office", "urgent"]).is("handled_at", null).gte("sent_at", since);
   if (error) return out;

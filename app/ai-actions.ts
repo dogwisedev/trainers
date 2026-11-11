@@ -13,7 +13,7 @@ import type { Kind } from "@/lib/reports";
 type R = { ok: boolean; message: string };
 const admin = async () => { const v = await getViewer(); if (!v || v.role !== "admin") throw new Error("Admins only."); return v.name === "Dogwise team" || v.name === "Dogwise Admin" ? (v.email || v.name).split("@")[0] : v.name; };
 
-export async function setAiSettingAction(key: "formCheck" | "handoverDrafts" | "captions" | "voice" | "vaccineChecks" | "vaccineAuto", value: CheckMode | boolean): Promise<R> {
+export async function setAiSettingAction(key: "formCheck" | "handoverDrafts" | "captions" | "voice" | "vaccineChecks" | "vaccineAuto" | "messages", value: CheckMode | boolean): Promise<R> {
   return audited("setAiSettingAction", { key, value }, async () => {
     try {
       if (isDemo()) return { ok: false, message: "Demo mode." };
