@@ -104,7 +104,7 @@ export async function checkForm(reportId: string, sb: SupabaseClient = serviceCl
 }
 
 /** The 20-minute forms job: checks forms submitted in the last 14 days that haven't been checked since they came in. */
-export async function runFormChecks(sb: SupabaseClient = serviceClient(), limit = 8) {
+export async function runFormChecks(sb: SupabaseClient = serviceClient(), limit = 8, until = Infinity) {
   const out = { checked: 0, auto: 0 };
   if (!aiOn()) return out;
   const since = new Date(Date.now() - 14 * 864e5).toISOString();
@@ -114,7 +114,7 @@ export async function runFormChecks(sb: SupabaseClient = serviceClient(), limit 
   const { data: done, error: e } = await sb.from("ai_form_checks").select("report_id, created_at").in("report_id", reps.map((r) => r.id));
   if (e) return out; // migration 055 not run yet
   const todo = reps.filter((r) => !((done || []) as { report_id: string; created_at: string }[]).some((c) => c.report_id === r.id && c.created_at >= r.submitted_at)).slice(0, limit);
-  for (const r of todo) { const c = await checkForm(r.id, sb); if (c) { out.checked++; if (c.outcome === "auto") out.auto++; } }
+  for (const r of todo) { if (Date.now() > until) break; const c = await checkForm(r.id, sb); if (c) { out.checked++; if (c.outcome === "auto") out.auto++; } }
   return out;
 }
 

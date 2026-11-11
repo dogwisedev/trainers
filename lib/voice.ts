@@ -94,7 +94,7 @@ export async function fillForm(o: { kind: Kind; week?: number; dog: string; answ
   const qs = formQuestions(o.kind);
   const now: Record<string, unknown> = {};
   for (const q of qs) { const v = o.answers[q.key]; if (v !== undefined && v !== "" && !(Array.isArray(v) && !v.length)) now[q.key] = v; if (s(o.answers[`${q.key}_detail`])) now[`${q.key}_detail`] = o.answers[`${q.key}_detail`]; }
-  const out = jsonFrom<{ set?: Record<string, unknown>; questions?: string[] }>(await claude({ maxTokens: 2200, timeoutMs: 30000,
+  const out = jsonFrom<{ set?: Record<string, unknown>; questions?: string[] }>(await claude({ maxTokens: 3500, timeoutMs: 40000,
     system: `A dog trainer at Dogwise Academy (a dog board-and-train business) is filling in a form by talking through it. You get the form's questions, the answers so far, and what the trainer just said (speech turned into text: expect filler words and a few mis-heard words). Fill in only what they actually said.
 
 Rules:
@@ -109,8 +109,18 @@ ${VOICE}
 - Remove swearing and anything unprofessional. Fix names and words the speech-to-text clearly got wrong.
 
 Answer with JSON only: {"set":{"<key>":<value>},"questions":["..."]}`,
-    user: `Form: ${kindName(o.kind)}${o.kind === "weekly" && o.week ? ` (week ${o.week})` : ""} for ${o.dog || "the dog"}.\n\nThe questions:\n${qs.map((q) => `- ${q.key} [${q.type}${q.options ? `: ${q.options.join(" | ")}` : ""}${q.required ? ", required" : ""}${q.detail ? ", needs detail" : ""}]: ${q.label}`).join("\n")}\n\nAnswers so far:\n${JSON.stringify(now).slice(0, 9000)}\n\nWhat the trainer just said:\n${clip(o.heard, 6000)}` }));
+    user: `Form: ${kindName(o.kind)}${o.kind === "weekly" && o.week ? ` (week ${o.week})` : ""} for ${o.dog || "the dog"}.\n\nThe questions:\n${qs.map((q) => `- ${q.key} [${q.type}${q.options ? `: ${q.options.join(" | ")}` : ""}${q.required ? ", required" : ""}${q.detail ? ", needs detail" : ""}]: ${q.label}`).join("\n")}\n\nAnswers so far:\n${JSON.stringify(now).slice(0, 40000)}\n\nWhat the trainer just said:\n${clip(o.heard, 6000)}` }));
   if (!out) return null;
   const { set, filled } = cleanFill(o.kind, (out.set || {}) as Record<string, unknown>);
+  // Training and homework lists: an item already on the form is never dropped. What came back replaces the item with the
+  // same name, anything new is added, and the rest stay as they were (even if Claude left them out).
+  for (const q of qs) {
+    if (q.type !== "items" || !Array.isArray(set[q.key])) continue;
+    const had = items(o.answers[q.key]).filter((i) => i.title || i.text), got = set[q.key] as Item[];
+    const key = (i: Item) => i.title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    const used = new Set<number>();
+    const merged = had.map((h) => { const n = got.findIndex((g, x) => !used.has(x) && key(g) && key(g) === key(h)); if (n < 0) return h; used.add(n); return got[n]; });
+    set[q.key] = [...merged, ...got.filter((_, x) => !used.has(x))].slice(0, 12);
+  }
   return { set, filled, questions: (out.questions || []).map((q) => clip(q, 220)).filter(Boolean).slice(0, 4) };
 }

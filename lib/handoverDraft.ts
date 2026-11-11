@@ -83,19 +83,22 @@ const cleanItems = (v: unknown, max: number): Item[] => items(v).filter((i) => i
 export async function draftHandover(sb: SupabaseClient, b: Booking, trainerName: string): Promise<"drafted" | "skipped" | "thin" | "failed"> {
   const id = await ensureReport(sb, b, trainerName, "handover", 0, false);
   const { data: r } = await sb.from("reports").select("status, answers, ai_draft").eq("id", id).maybeSingle();
-  if (!r || r.status !== "draft" || r.ai_draft || !empty((r.answers || {}) as Answers)) return "skipped";
+  const started = (d: unknown) => !!d && !("tries" in (d as object) && Object.keys(d as object).length === 1); // a real draft (or given up), not just a count of tries
+  if (!r || r.status !== "draft" || started(r.ai_draft) || !empty((r.answers || {}) as Answers)) return "skipped";
   const m = await material(sb, b);
   const stamp = { at: new Date().toISOString(), model: writerModel() };
   if (m.trainerNotes < 3) { await sb.from("reports").update({ ai_draft: { fields: {}, missing: [], thin: true, ...stamp } }).eq("id", id); return "thin"; } // not enough to go on: don't guess
-  const out = jsonFrom<Fields & { missing?: string[] }>(await claude({ system: SYSTEM, maxTokens: 2200, timeoutMs: 45000,
+  const out = jsonFrom<Fields & { missing?: string[] }>(await claude({ system: SYSTEM, maxTokens: 3500, timeoutMs: 48000,
     user: `Dog: ${b.dog_name || "the dog"}. Owner: ${b.client_name}. Trainer: ${trainerName}. Program: ${(b as { program?: string | null }).program || "board and train"}, ${b.start_date} to ${b.end_date}.\n\n${m.text}` }));
-  if (!out) return "failed";
+  // Claude didn't answer, or was cut off: one more try on a later run, then the trainer starts it themselves as before
+  const tries = Number(((r.ai_draft || {}) as { tries?: number }).tries || 0) + 1;
+  if (!out) { await sb.from("reports").update({ ai_draft: tries >= 2 ? { fields: {}, missing: [], failed: true, tries, ...stamp } : { tries } }).eq("id", id).eq("status", "draft"); return "failed"; }
   const fields: Fields = { goals: clip(out.goals, 900), training: cleanItems(out.training, 6), homework: cleanItems(out.homework, 5), overall: clip(out.overall, 1500), extra: clip(out.extra, 900) };
   const has = !!(fields.goals || fields.overall || fields.training?.length || fields.homework?.length);
   if (!has) return "failed";
   // Only into the draft as it still is: the trainer may have started typing while this ran
   const { data: now } = await sb.from("reports").select("status, answers, ai_draft").eq("id", id).maybeSingle();
-  if (!now || now.status !== "draft" || now.ai_draft || !empty((now.answers || {}) as Answers)) return "skipped";
+  if (!now || now.status !== "draft" || started(now.ai_draft) || !empty((now.answers || {}) as Answers)) return "skipped";
   const answers: Answers = { ...((now.answers || {}) as Answers) };
   if (fields.goals) answers.goals = fields.goals;
   if (fields.training?.length) answers.training = fields.training;
@@ -123,7 +126,8 @@ export async function runHandoverDrafts(sb: SupabaseClient = serviceClient(), no
     const list = (bks as (Booking & { followup_only?: boolean })[]).filter((b) => !b.followup_only);
     const { data: have, error: e } = await sb.from("reports").select("booking_id, status, ai_draft").eq("kind", "handover").in("booking_id", list.map((b) => b.id));
     if (e) return out; // migration 055 not run yet (no ai_draft column)
-    const skip = new Set(((have || []) as { booking_id: string; status: string; ai_draft: unknown }[]).filter((r) => r.status !== "draft" || r.ai_draft).map((r) => r.booking_id));
+    const tried = (d: unknown) => !!d && !("tries" in (d as object) && Object.keys(d as object).length === 1);
+    const skip = new Set(((have || []) as { booking_id: string; status: string; ai_draft: unknown }[]).filter((r) => r.status !== "draft" || tried(r.ai_draft)).map((r) => r.booking_id));
     const todo = list.filter((b) => !skip.has(b.id)).slice(0, limit);
     if (!todo.length) return out;
     const { data: trs } = await sb.from("trainers").select("id, name").in("id", todo.map((b) => b.trainer_id));
@@ -158,8 +162,8 @@ export async function handoverDraftStats(sb: SupabaseClient, sinceIso: string) {
   const { data, error } = await sb.from("reports").select("status, ai_draft").eq("kind", "handover").not("ai_draft", "is", null).gte("created_at", sinceIso).limit(2000);
   if (error) return null;
   const rows = ((data || []) as { status: string; ai_draft: HandoverDraft & { thin?: boolean } }[]);
-  const made = rows.filter((r) => !r.ai_draft.thin), sent = made.filter((r) => r.ai_draft.result);
+  const made = rows.filter((r) => r.ai_draft.fields && Object.values(r.ai_draft.fields).some((v) => (typeof v === "string" ? v : Array.isArray(v) && v.length))), sent = made.filter((r) => r.ai_draft.result);
   const parts = sent.flatMap((r) => Object.values(r.ai_draft.result || {}));
   const pct = (k: string) => (parts.length ? Math.round((parts.filter((x) => x === k).length / parts.length) * 100) : null);
-  return { drafted: made.length, tooThin: rows.length - made.length, sent: sent.length, keptPct: pct("kept"), editedPct: pct("edited"), rewrittenPct: pct("rewritten") };
+  return { drafted: made.length, tooThin: rows.filter((r) => r.ai_draft.thin).length, sent: sent.length, keptPct: pct("kept"), editedPct: pct("edited"), rewrittenPct: pct("rewritten") };
 }

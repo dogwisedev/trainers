@@ -89,7 +89,14 @@ export function ReportForm(p: Props) {
 
   // "Speak": the answers the trainer talked about are filled in (speech to text, tidied), and what's still missing is asked
   const [voice, setVoice] = useState<VoiceResult | null>(null);
-  const applyVoice = (r: VoiceResult) => { for (const [k, v] of Object.entries(r.set || {})) set(k, v); setVoice(r); };
+  const [voiceBefore, setVoiceBefore] = useState<Record<string, unknown> | null>(null);
+  const applyVoice = (r: VoiceResult) => {
+    const keys = Object.keys(r.set || {});
+    setVoiceBefore(keys.length ? Object.fromEntries(keys.map((k) => [k, latest.current.answers[k]])) : null); // what was there, for Undo
+    for (const [k, v] of Object.entries(r.set || {})) set(k, v);
+    setVoice(r);
+  };
+  const undoVoice = () => { if (voiceBefore) for (const [k, v] of Object.entries(voiceBefore)) set(k, v === undefined ? "" : v); setVoiceBefore(null); setVoice(null); };
   // A handover the app started: the parts still exactly as drafted need a tick that they've been read
   const [aiRead, setAiRead] = useState(false);
   const norm = (v: unknown) => JSON.stringify(typeof v === "string" ? v.trim() : rawItems(v).map((i) => [i.title.trim(), i.text.trim()]));
@@ -269,7 +276,7 @@ export function ReportForm(p: Props) {
             <button type="button" className="text-small font-semibold text-ink-soft underline" onClick={() => setVoice(null)}>Close</button>
           </div>
           {!!voice.filled?.length && <><ul className="mt-1.5 flex flex-wrap gap-1.5">{voice.filled.map((x, i) => <li key={i} className="rounded-full bg-mint-wash px-2.5 py-1 text-small font-semibold text-fern">{x}</li>)}</ul>
-            <p className="mt-2 text-small text-ink-soft">Check them in the form above and change anything that isn&apos;t right. It&apos;s your form.</p></>}
+            <p className="mt-2 text-small text-ink-soft">Check them in the form above and change anything that isn&apos;t right. It&apos;s your form. {voiceBefore && <button type="button" className="font-semibold text-ink underline" onClick={undoVoice}>Undo these changes</button>}</p></>}
           {!!voice.questions?.length && <><p className="mt-3 font-bold">Still to tell us</p><ul className="mt-1 list-disc space-y-0.5 pl-5">{voice.questions.map((q, i) => <li key={i}>{q}</li>)}</ul>
             <p className="mt-2 text-small text-ink-soft">Tap Speak again and answer these, or type them in.</p></>}
           <details className="mt-3 text-small text-ink-soft"><summary className="cursor-pointer font-semibold">What we heard</summary><p className="mt-1 whitespace-pre-wrap">{voice.heard}</p></details>
