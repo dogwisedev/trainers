@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getViewer } from "@/lib/data";
 import { isDemo, serviceClient } from "@/lib/supabase";
-import { aiOn } from "@/lib/ai";
+import { aiErrorText, aiLastError, aiOn } from "@/lib/ai";
 import { aiSettings } from "@/lib/aiSettings";
 import { etParts } from "@/lib/chatRules";
 import { fillForm, sttOn, tailorChat, transcribe } from "@/lib/voice";
@@ -15,9 +15,10 @@ export const dynamic = "force-dynamic";
 // GET says which of the two this deployment uses, so the button knows whether to listen in the browser or record.
 export async function GET() {
   const v = await getViewer().catch(() => null);
-  if (!v || (v.role !== "trainer" && v.role !== "admin")) return NextResponse.json({ on: false, stt: false }, { status: 401 });
-  const on = !isDemo() && aiOn() && (await aiSettings(serviceClient()).catch(() => ({ voice: true }))).voice;
-  return NextResponse.json({ on, stt: sttOn() });
+  if (!v || (v.role !== "trainer" && v.role !== "admin")) return NextResponse.json({ on: false, stt: false, ai: false }, { status: 401 });
+  // on: the Speak switch (Pulse → Office → AI help). ai: Claude is set up (ANTHROPIC_API_KEY), so words get tidied and forms filled.
+  const on = !isDemo() && (await aiSettings(serviceClient()).catch(() => ({ voice: true }))).voice;
+  return NextResponse.json({ on, stt: sttOn(), ai: aiOn() });
 }
 const fail = (message: string, status = 400) => NextResponse.json({ ok: false, message }, { status });
 
@@ -26,9 +27,8 @@ export async function POST(req: Request) {
     if (isDemo()) return fail("Demo mode.");
     const v = await getViewer();
     if (!v || (v.role !== "trainer" && v.role !== "admin")) return fail("Sign in again.", 401);
-    if (!aiOn()) return fail("Speaking isn't switched on yet. Type it for now.");
     const sb = serviceClient();
-    if (!(await aiSettings(sb)).voice) return fail("Speaking is switched off. Type it for now.");
+    if (!(await aiSettings(sb)).voice) return fail("Speaking is switched off. An admin can turn it on: Pulse, Office, AI help.");
     const f = await req.formData();
     const audio = f.get("audio"), mode = String(f.get("mode") || "");
     // The words the phone heard (or typed in the box when it couldn't listen), or a recording to turn into words here
@@ -52,12 +52,16 @@ export async function POST(req: Request) {
       const t = await hear([chat.title, chat.client_name, chat.trainer_name]);
       if (!t.ok) return fail(t.error, 502);
       if (t.text.split(" ").length < 2) return fail("Couldn't hear anything to write. Try again a little closer to the phone.");
-      const text = await tailorChat(sb, { userId: v.userId, role: v.role, chatId, heard: t.text });
+      // Without the Claude key the words go back exactly as said: plain speech to text, still theirs to check and send
+      const text = aiOn() ? await tailorChat(sb, { userId: v.userId, role: v.role, chatId, heard: t.text }) : null;
       await sb.from("ai_voice").insert({ user_id: v.userId, role: v.role, mode: "chat", chat_id: chatId, seconds, heard_chars: t.text.length }).then(() => null, () => null);
-      return NextResponse.json({ ok: true, heard: t.text, text: text || t.text, tidied: !!text });
+      // Not tidied (no key, or Claude didn't answer): the exact words, and for an admin, why
+      const why = text ? "" : !aiOn() ? "The Claude key (ANTHROPIC_API_KEY) isn't set in Vercel." : aiErrorText(aiLastError());
+      return NextResponse.json({ ok: true, heard: t.text, text: text || t.text, tidied: !!text, why: v.role === "admin" ? why : "" });
     }
 
     if (mode === "form") {
+      if (!aiOn()) return fail("Filling in a form by talking isn't set up yet: it needs the Claude key (ANTHROPIC_API_KEY) in Vercel. Type the answers for now.");
       const reportId = String(f.get("reportId") || "");
       const { data: r } = await sb.from("reports").select("id, kind, week_number, trainer_id, status, booking_id").eq("id", reportId).maybeSingle();
       if (!r || (v.role === "trainer" && r.trainer_id !== v.trainerId)) return fail("Form not found.", 404);
@@ -68,7 +72,7 @@ export async function POST(req: Request) {
       if (!t.ok) return fail(t.error, 502);
       if (t.text.split(" ").length < 2) return fail("Couldn't hear anything to fill in. Try again a little closer to the phone.");
       const fill = await fillForm({ kind: r.kind as Kind, week: r.week_number, dog: b?.dog_name || "", answers, heard: t.text, today: etParts(new Date()).date });
-      if (!fill) return fail("Heard you, but couldn't work out the answers just now. Try again, or type them.", 502);
+      if (!fill) return fail(`Heard you, but couldn't work out the answers just now. Try again, or type them.${v.role === "admin" && aiLastError() ? ` (${aiErrorText(aiLastError())})` : ""}`, 502);
       await sb.from("ai_voice").insert({ user_id: v.userId, role: v.role, mode: "form", report_id: reportId, seconds, heard_chars: t.text.length, fields_set: Object.keys(fill.set).length, questions: fill.questions.length }).then(() => null, () => null);
       return NextResponse.json({ ok: true, heard: t.text, ...fill });
     }

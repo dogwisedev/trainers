@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Mic, Square, X } from "lucide-react";
 
-export type VoiceResult = { heard: string; text?: string; tidied?: boolean; set?: Record<string, unknown>; filled?: string[]; questions?: string[] };
+export type VoiceResult = { heard: string; text?: string; tidied?: boolean; why?: string; set?: Record<string, unknown>; filled?: string[]; questions?: string[] };
 type Props = {
   mode: "chat" | "form"; chatId?: string; reportId?: string;
   getAnswers?: () => Record<string, unknown>;      // forms: the answers as they are on screen now
@@ -27,10 +27,10 @@ const recognizer = (): (new () => SR) | null => {
 
 // Which way this deployment listens: the phone's own recognition (default), or a recording sent to a transcription
 // service when one is set up in Vercel. Asked once, ahead of the first tap, so the tap itself can start listening at once.
-let setup: { on: boolean; stt: boolean } | null = null;
+let setup: { on: boolean; stt: boolean; ai?: boolean } | null = null;
 const loadSetup = async () => {
   if (setup) return setup;
-  try { const r = await fetch("/api/voice"); if (r.ok) setup = (await r.json()) as { on: boolean; stt: boolean }; } catch { /* offline: decided at the tap */ }
+  try { const r = await fetch("/api/voice"); if (r.ok) setup = (await r.json()) as { on: boolean; stt: boolean; ai?: boolean }; } catch { /* offline: decided at the tap */ }
   return setup;
 };
 
@@ -203,7 +203,8 @@ export function VoiceButton({ mode, chatId, reportId, getAnswers, onResult, labe
     if (state === "recording") { try { rec.current?.stop(); } catch { release(); setState("idle"); } return; }
     if (state !== "idle") return;
     setErr(""); started.current = 0;
-    if (setup && !setup.on) { setErr("Speaking is switched off. Type it for now."); return; }
+    if (setup && !setup.on) { setErr("Speaking is switched off. An admin can turn it on: Pulse, Office, AI help."); return; }
+    if (setup && setup.ai === false && mode === "form") { setErr("Filling in a form by talking isn't set up yet: it needs the Claude key (ANTHROPIC_API_KEY) in Vercel. Type the answers for now."); return; }
     if (setup?.stt && typeof MediaRecorder !== "undefined" && !!navigator.mediaDevices && "getUserMedia" in navigator.mediaDevices) { void record(); return; }
     if (!listen()) openBox("This phone can't listen inside the app. Tap the microphone on your keyboard and talk, or type, then tap Write it up.");
   };

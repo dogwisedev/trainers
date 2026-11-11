@@ -25,7 +25,8 @@ export async function AiHelp({ from, label }: { from: string; label: string }) {
   return (
     <section className="mt-6" aria-label="AI help">
       <h2 className="mb-2 text-lead font-extrabold">AI help <span className="text-small font-normal text-ink-soft">{label}</span></h2>
-      {!aiOn() && <p className="mb-2 rounded-xl bg-biscuit-wash px-3 py-2 text-small font-semibold text-warn">Not running: add ANTHROPIC_API_KEY in Vercel.</p>}
+      {!aiOn() && <p className="mb-2 rounded-xl bg-biscuit-wash px-3 py-2 text-small font-semibold text-warn">Not running: add ANTHROPIC_API_KEY in Vercel, then redeploy.</p>}
+      {aiOn() && <p className="mb-2 text-small text-ink-soft">Not doing what you expect? <a href="/api/ai/test" target="_blank" rel="noopener" className="font-semibold underline">Test the connection to Claude</a>: it shows exactly what Claude answers.</p>}
       {(checks === null || drafts === null || caps === null) && <p className="mb-2 rounded-xl bg-biscuit-wash px-3 py-2 text-small font-semibold text-warn">Run migration 055 in Supabase to switch this on.</p>}
       <ul className="panel divide-y divide-line">
         {row("Form checks", "Each submitted form is checked against its checklist: \"fits the standard\" or what to look at. \"Approve clean ones\" lets weekly checks and intake forms with nothing to look at approve themselves; handover reports always come to a person.",

@@ -2,6 +2,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { serviceClient } from "./supabase";
 import { answeredUpTo } from "./chatRules";
+import { aiOn, claude, jsonFrom } from "./ai";
 
 // Who has to act on each client message (migration 052), so only real questions chase the trainer:
 //   reply   the trainer answers it: a question or request about the dog, pickup, training
@@ -49,29 +50,18 @@ Answer with JSON only, no other text: [{"ref":"<ref>","needs":"reply|office|none
 const who = (m: Msg) => m.sender_role === "client" ? `Client${m.sender_name ? ` (${m.sender_name})` : ""}` : m.sender_role === "trainer" ? `Trainer${m.sender_name ? ` (${m.sender_name})` : ""}` : m.sender_role === "admin" && m.sender_id ? "Office" : "App (automatic)";
 
 async function aiNeeds(context: Msg[], targets: Msg[]): Promise<Map<string, { needs: Needs; why: string }> | null> {
-  const key = process.env.ANTHROPIC_API_KEY;
-  if (!key) return null;
+  if (!aiOn()) return null;
   const ref = (m: Msg) => m.id.slice(0, 8);
   const transcript = context.map((m) => `[${ref(m)}] ${new Date(m.created_at).toISOString().slice(0, 16).replace("T", " ")} ${who(m)}: ${m.body ? clip(m.body, 600) : m.kind === "media" ? "(a photo, video or file)" : "(no text)"}`).join("\n");
-  const ctrl = new AbortController(), timer = setTimeout(() => ctrl.abort(), 15000);
-  try {
-    const r = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST", signal: ctrl.signal,
-      headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-      body: JSON.stringify({ model: process.env.ANTHROPIC_MODEL || "claude-haiku-5-5", max_tokens: 600, system: SYSTEM,
-        messages: [{ role: "user", content: `The chat, oldest first:\n${transcript}\n\nThe client messages to decide: ${targets.map(ref).join(", ")}` }] })
-    });
-    if (!r.ok) return null;
-    const data = (await r.json()) as { content?: { type: string; text?: string }[] };
-    const text = (data.content || []).filter((c) => c.type === "text").map((c) => c.text || "").join("").replace(/```json|```/g, "").trim();
-    const arr = JSON.parse(text.slice(text.indexOf("["), text.lastIndexOf("]") + 1)) as { ref: string; needs: string; why?: string }[];
-    const out = new Map<string, { needs: Needs; why: string }>();
-    for (const x of arr) {
-      const m = targets.find((t) => ref(t) === x.ref);
-      if (m && NEEDS.includes(x.needs as Needs)) out.set(m.id, { needs: x.needs as Needs, why: clip(x.why || "", 120) });
-    }
-    return out;
-  } catch { return null; } finally { clearTimeout(timer); }
+  const arr = jsonFrom<{ ref: string; needs: string; why?: string }[]>(await claude({ fast: true, maxTokens: 600, timeoutMs: 15000, system: SYSTEM,
+    user: `The chat, oldest first:\n${transcript}\n\nThe client messages to decide: ${targets.map(ref).join(", ")}` }));
+  if (!Array.isArray(arr)) return null;
+  const out = new Map<string, { needs: Needs; why: string }>();
+  for (const x of arr) {
+    const m = targets.find((t) => ref(t) === x.ref);
+    if (m && NEEDS.includes(x.needs as Needs)) out.set(m.id, { needs: x.needs as Needs, why: clip(x.why || "", 120) });
+  }
+  return out;
 }
 
 /** The 10-minute chat check: labels client messages from the last 7 days that don't have one yet (up to 40 a run). Never throws. */

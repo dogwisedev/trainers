@@ -1,25 +1,79 @@
 import "server-only";
 
-// One place that talks to Claude for the "AI help" features (form checks, handover drafts, update captions).
-// Vercel: ANTHROPIC_API_KEY (already used to read client messages). ANTHROPIC_WRITER_MODEL changes the model these use.
+// One place that talks to Claude for the app's AI help (reading client messages, form checks, handover drafts, update
+// captions, Speak). Vercel: ANTHROPIC_API_KEY. The model is picked by itself: the newest name first, then older ones if
+// this account doesn't have it (ANTHROPIC_WRITER_MODEL / ANTHROPIC_MODEL put your own choice first). When a call fails,
+// the reason is kept (aiLastError) and /api/ai/test shows exactly what Claude answered, instead of failing silently.
 export const aiOn = () => !!process.env.ANTHROPIC_API_KEY;
-export const writerModel = () => process.env.ANTHROPIC_WRITER_MODEL || "claude-sonnet-5-5";
+const MODELS = {
+  writer: () => [process.env.ANTHROPIC_WRITER_MODEL, "claude-sonnet-5-5", "claude-sonnet-4-6", "claude-sonnet-4-5"],   // writing and judging
+  fast: () => [process.env.ANTHROPIC_MODEL, "claude-haiku-5-5", "claude-haiku-4-5"]                                     // labelling messages
+};
+type Family = keyof typeof MODELS;
+const works: Partial<Record<Family, string>> = {};  // the model that answered last time, tried first
+const order = (f: Family) => [...new Set([works[f], ...MODELS[f]()].map((m) => (m || "").trim()).filter(Boolean))];
+export const writerModel = () => works.writer || order("writer")[0];
 
-/** Claude's answer as text, or null (no key, an error, or too slow). Never throws. */
-export async function claude(o: { system: string; user: string; maxTokens?: number; timeoutMs?: number; model?: string }): Promise<string | null> {
-  const key = process.env.ANTHROPIC_API_KEY;
-  if (!key) return null;
+export type AiError = { at: string; model: string; status: number; message: string };
+let lastError: AiError | null = null;
+/** Why the last call to Claude failed (in this server instance), or null. */
+export const aiLastError = () => lastError;
+/** The error in plain words, for an admin. */
+export const aiErrorText = (e: AiError | null) => !e ? "" : e.status === 401 ? "Claude didn't accept the API key (check ANTHROPIC_API_KEY in Vercel)."
+  : /credit balance|billing/i.test(e.message) ? "The Claude account has no credit: add a payment method or credits in the Claude Console."
+  : e.status === 404 ? `Claude doesn't know the model "${e.model}" on this account.`
+  : e.status === 429 ? "Claude is rate-limiting this account just now." : e.status === 0 ? `Claude didn't answer (${e.message}).` : `Claude answered ${e.status}: ${e.message}`;
+
+type CallResult = { ok: true; text: string } | { ok: false; status: number; message: string };
+async function call(model: string, o: { system: string; user: string; maxTokens?: number; timeoutMs?: number }): Promise<CallResult> {
   const ctrl = new AbortController(), timer = setTimeout(() => ctrl.abort(), o.timeoutMs || 25000);
   try {
     const r = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST", signal: ctrl.signal,
-      headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-      body: JSON.stringify({ model: o.model || writerModel(), max_tokens: o.maxTokens || 1200, system: o.system, messages: [{ role: "user", content: o.user }] })
+      headers: { "x-api-key": process.env.ANTHROPIC_API_KEY || "", "anthropic-version": "2023-06-01", "content-type": "application/json" },
+      body: JSON.stringify({ model, max_tokens: o.maxTokens || 1200, system: o.system, messages: [{ role: "user", content: o.user }] })
     });
-    if (!r.ok) return null;
-    const data = (await r.json()) as { content?: { type: string; text?: string }[] };
-    return (data.content || []).filter((c) => c.type === "text").map((c) => c.text || "").join("").trim() || null;
-  } catch { return null; } finally { clearTimeout(timer); }
+    const body = await r.text();
+    if (!r.ok) {
+      let message = body.slice(0, 300);
+      try { message = (JSON.parse(body) as { error?: { message?: string } }).error?.message || message; } catch { /* not JSON */ }
+      return { ok: false, status: r.status, message };
+    }
+    const data = JSON.parse(body) as { content?: { type: string; text?: string }[] };
+    const text = (data.content || []).filter((c) => c.type === "text").map((c) => c.text || "").join("").trim();
+    return text ? { ok: true, text } : { ok: false, status: r.status, message: "An empty answer." };
+  } catch (e) {
+    return { ok: false, status: 0, message: (e as Error).name === "AbortError" ? "it took too long" : (e as Error).message };
+  } finally { clearTimeout(timer); }
+}
+
+/** Claude's answer as text, or null (no key, an error, or too slow: see aiLastError). Never throws. `fast`: the small model. */
+export async function claude(o: { system: string; user: string; maxTokens?: number; timeoutMs?: number; fast?: boolean }): Promise<string | null> {
+  if (!aiOn()) return null;
+  const family: Family = o.fast ? "fast" : "writer";
+  for (const model of order(family)) {
+    const r = await call(model, o);
+    if (r.ok) { works[family] = model; lastError = null; return r.text; }
+    lastError = { at: new Date().toISOString(), model, status: r.status, message: r.message };
+    // Only a model this account doesn't have is worth trying the next name for; anything else (key, credit, timeout) is the same for all
+    if (!(r.status === 404 || (r.status === 400 && /model/i.test(r.message)))) break;
+  }
+  return null;
+}
+
+/** For /api/ai/test: one tiny question to each kind of model, with exactly what came back. */
+export async function aiTest() {
+  const one = async (family: Family) => {
+    const tried: { model: string; ok: boolean; status?: number; answer?: string; error?: string }[] = [];
+    for (const model of order(family)) {
+      const r = await call(model, { system: "Answer with the single word OK.", user: "Are you there?", maxTokens: 10, timeoutMs: 15000 });
+      tried.push(r.ok ? { model, ok: true, answer: r.text } : { model, ok: false, status: r.status, error: r.message });
+      if (r.ok) { works[family] = model; break; }
+      if (!(r.status === 404 || (r.status === 400 && /model/i.test(r.message)))) break;
+    }
+    return { working: tried.find((t) => t.ok)?.model || null, tried };
+  };
+  return { keySet: aiOn(), writing: await one("writer"), labelling: await one("fast") };
 }
 
 /** The JSON object or array in Claude's answer (fences and stray words around it are ignored), or null. */
