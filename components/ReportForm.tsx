@@ -9,6 +9,7 @@ import { FormUpload } from "@/components/FormUpload";
 import { Answers, Field, HANDOVER_AFTER, HANDOVER_ROUTE, HANDOVER_SIMPLE, INTAKE_SECTIONS, Item, Kind, MEDIA_ADVICE, MediaItem, Status, WEEKLY_SECTIONS, arr, deadlineHint, hasTrainerPhoto, raw, rawItems, s, validate } from "@/lib/reports";
 import { buildReport, reportHtml } from "@/lib/reportDoc";
 import { WaiveButton } from "@/components/WaiveButton";
+import { VoiceButton, type VoiceResult } from "@/components/VoiceButton";
 
 type Props = {
   id: string; kind: Kind; mode: "trainer" | "admin"; status: Status; bookingId: string; week?: number;
@@ -86,6 +87,9 @@ export function ReportForm(p: Props) {
     return () => clearTimeout(t);
   }, [answers, media, dirty, editable, p.demo, p.id, p.status, editing]);
 
+  // "Speak": the answers the trainer talked about are filled in (speech to text, tidied), and what's still missing is asked
+  const [voice, setVoice] = useState<VoiceResult | null>(null);
+  const applyVoice = (r: VoiceResult) => { for (const [k, v] of Object.entries(r.set || {})) set(k, v); setVoice(r); };
   // A handover the app started: the parts still exactly as drafted need a tick that they've been read
   const [aiRead, setAiRead] = useState(false);
   const norm = (v: unknown) => JSON.stringify(typeof v === "string" ? v.trim() : rawItems(v).map((i) => [i.title.trim(), i.text.trim()]));
@@ -258,9 +262,23 @@ export function ReportForm(p: Props) {
           <span>I&apos;ve read the parts the app drafted and they&apos;re right for {s(answers.dogName) || "this dog"}.</span>
         </label>
       )}
+      {voice && editable && (
+        <div className="rounded-[18px] border border-line bg-white p-4 text-body">
+          <div className="flex items-start justify-between gap-3">
+            <p className="font-bold">{voice.filled?.length ? "Filled in from what you said" : "Nothing to fill in from that"}</p>
+            <button type="button" className="text-small font-semibold text-ink-soft underline" onClick={() => setVoice(null)}>Close</button>
+          </div>
+          {!!voice.filled?.length && <><ul className="mt-1.5 flex flex-wrap gap-1.5">{voice.filled.map((x, i) => <li key={i} className="rounded-full bg-mint-wash px-2.5 py-1 text-small font-semibold text-fern">{x}</li>)}</ul>
+            <p className="mt-2 text-small text-ink-soft">Check them in the form above and change anything that isn&apos;t right. It&apos;s your form.</p></>}
+          {!!voice.questions?.length && <><p className="mt-3 font-bold">Still to tell us</p><ul className="mt-1 list-disc space-y-0.5 pl-5">{voice.questions.map((q, i) => <li key={i}>{q}</li>)}</ul>
+            <p className="mt-2 text-small text-ink-soft">Tap Speak again and answer these, or type them in.</p></>}
+          <details className="mt-3 text-small text-ink-soft"><summary className="cursor-pointer font-semibold">What we heard</summary><p className="mt-1 whitespace-pre-wrap">{voice.heard}</p></details>
+        </div>
+      )}
       <div className="sticky bottom-[calc(76px+env(safe-area-inset-bottom))] z-10 rounded-[20px] border border-line bg-white/95 p-2 backdrop-blur md:bottom-4">
         {editable && <p className="px-2 pb-1 text-caption text-ink-faint" aria-live="polite">{p.demo ? "Demo: nothing saves." : saved === "saving" ? "Saving…" : saved === "saved" ? "Saved" : saved === "error" ? "Couldn't save: check your signal" : "Your answers save as you go."}{missing.length > 0 ? ` ${missing.length} thing${missing.length > 1 ? "s" : ""} still needed.` : " Ready to send."}</p>}
         <div className="flex gap-2">
+          {editable && !p.demo && <VoiceButton mode="form" reportId={p.id} getAnswers={() => latest.current.answers} onResult={applyVoice} label="Speak" maxSeconds={170} />}
           {p.mode === "trainer" && editable && <button type="button" className="btn-ink flex-1" disabled={pending} onClick={submit}>{pending ? "Submitting…" : "Submit for review"}</button>}
           {p.mode === "admin" && editable && (
             <>

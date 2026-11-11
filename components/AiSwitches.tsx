@@ -26,7 +26,7 @@ export function CheckModeSwitch({ mode }: { mode: CheckMode }) {
   );
 }
 
-export function OnOff({ name, on, label }: { name: "handoverDrafts" | "captions"; on: boolean; label: string }) {
+export function OnOff({ name, on, label }: { name: "handoverDrafts" | "captions" | "voice"; on: boolean; label: string }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [err, setErr] = useState("");

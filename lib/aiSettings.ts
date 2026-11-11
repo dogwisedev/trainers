@@ -6,7 +6,7 @@ import type { Kind } from "./reports";
 // The switches for the AI help and the checklists submitted forms are checked against (migration 055). Changed on
 // Pulse → Office by any admin; kept in app_settings. Before the migration: the defaults below, forms checked as "suggest".
 export type CheckMode = "off" | "suggest" | "auto";
-export type AiSettings = { formCheck: CheckMode; handoverDrafts: boolean; captions: boolean; checklists: Record<Kind, string> };
+export type AiSettings = { formCheck: CheckMode; handoverDrafts: boolean; captions: boolean; voice: boolean; checklists: Record<Kind, string> };
 
 export const DEFAULT_CHECKLISTS: Record<Kind, string> = {
   weekly: `- Every question is answered, and every "yes" (skin, body, eyes, potty, appetite) says what was seen, where, and since when.
@@ -28,7 +28,7 @@ export const DEFAULT_CHECKLISTS: Record<Kind, string> = {
 - Reads well for a client: no typos that change meaning, no notes meant for the office, no placeholder text.
 - Nothing contradicts the chat or the weekly health checks.`
 };
-const DEFAULTS: AiSettings = { formCheck: "suggest", handoverDrafts: true, captions: true, checklists: DEFAULT_CHECKLISTS };
+const DEFAULTS: AiSettings = { formCheck: "suggest", handoverDrafts: true, captions: true, voice: true, checklists: DEFAULT_CHECKLISTS };
 
 export async function aiSettings(sb: SupabaseClient = serviceClient()): Promise<AiSettings> {
   const { data, error } = await sb.from("app_settings").select("key, value").like("key", "ai.%");
@@ -38,7 +38,7 @@ export async function aiSettings(sb: SupabaseClient = serviceClient()): Promise<
   const list = (k: Kind) => { const x = v.get(`ai.checklist.${k}`); return typeof x === "string" && x.trim() ? x : DEFAULT_CHECKLISTS[k]; };
   return {
     formCheck: mode === "off" || mode === "auto" || mode === "suggest" ? mode : DEFAULTS.formCheck,
-    handoverDrafts: v.get("ai.handoverDrafts") !== false, captions: v.get("ai.captions") !== false,
+    handoverDrafts: v.get("ai.handoverDrafts") !== false, captions: v.get("ai.captions") !== false, voice: v.get("ai.voice") !== false,
     checklists: { weekly: list("weekly"), intake: list("intake"), handover: list("handover") }
   };
 }

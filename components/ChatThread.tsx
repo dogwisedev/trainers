@@ -7,6 +7,7 @@ import { ScheduleButton, ScheduledStrip, type ScheduledLite } from "@/components
 import { deleteMessageAction } from "@/app/chat-actions";
 import { notifyChatAction } from "@/app/chat-actions";
 import { captionAction, captionUsedAction } from "@/app/ai-actions";
+import { VoiceButton } from "@/components/VoiceButton";
 import { uploadToDrive } from "@/lib/driveUpload";
 import { allowedType, deviceLabel, fileType, mediaKind, newId, shrinkPhoto } from "@/lib/uploadPrep";
 import { ChatMsg, MediaRef } from "@/lib/chatTypes";
@@ -58,7 +59,7 @@ export function ChatThread(p: { chatId: string; me: Me; initial: ChatMsg[]; hasM
   const [text, setText] = useState("");
   const [err, setErr] = useState("");
   // Trainers: a few words → a suggested update in their own voice (app/ai-actions.ts). cap = the suggestion now in the box.
-  const [cap, setCap] = useState<{ id?: string; words: string } | null>(null);
+  const [cap, setCap] = useState<{ id?: string; words: string; spoken?: boolean } | null>(null);
   const [capBusy, setCapBusy] = useState(false);
   const [capMsg, setCapMsg] = useState("");
   const suggest = async () => {
@@ -350,9 +351,10 @@ export function ChatThread(p: { chatId: string; me: Me; initial: ChatMsg[]; hasM
       )}
 
       {p.open && p.me.role !== "client" && p.scheduled && <ScheduledStrip items={p.scheduled} canCancelAll={p.me.role === "admin"} />}
-      {p.open && p.me.role === "trainer" && (cap || capMsg) && (
+      {p.open && p.me.role !== "client" && (cap || capMsg) && (
         <p role="status" className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-2xl bg-mint-wash px-3.5 py-2 text-small text-fern">
-          {cap ? <>Suggested from your words. Change anything before you send.<button type="button" className="font-bold underline" onClick={() => { setText(cap.words); setCap(null); }}>Use my words</button></> : capMsg}
+          {cap ? <>{cap.spoken ? "Written from what you said (speech to text, not a voice message). Nothing is sent yet: change anything, then send or schedule it." : "Suggested from your words. Change anything before you send."}
+            <button type="button" className="font-bold underline" onClick={() => { setText(cap.words); setCap(null); }}>{cap.spoken ? "Use exactly what I said" : "Use my words"}</button></> : capMsg}
         </p>
       )}
       {p.open ? (
@@ -365,6 +367,9 @@ export function ChatThread(p: { chatId: string; me: Me; initial: ChatMsg[]; hasM
           <textarea ref={box} id="chat-msg" rows={1} value={text} onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !coarse) { e.preventDefault(); send(); } }}
             placeholder="Write a message" className="max-h-[180px] min-h-[44px] flex-1 resize-none bg-transparent px-1.5 py-2.5 text-input focus:outline-none md:text-body" />
+          {p.me.role !== "client" && !demo && !text.trim() && (
+            <VoiceButton mode="chat" chatId={p.chatId} onResult={(r) => { setCap({ words: r.heard, spoken: true }); setCapMsg(""); setText(r.text || r.heard); box.current?.focus(); }} />
+          )}
           {p.me.role === "trainer" && !cap && !demo && text.trim().split(/\s+/).length >= 2 && (
             <button type="button" onClick={suggest} disabled={capBusy} className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-ink-soft hover:bg-paper" aria-label="Suggest an update from my words" title="Suggest an update from my words">
               <Sparkles size={19} className={capBusy ? "animate-pulse" : ""} />
