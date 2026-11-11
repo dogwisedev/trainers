@@ -44,7 +44,7 @@ export function TodoRow({ t, mode, poc }: { t: Todo & { trainerName?: string }; 
         <p className="truncate text-small text-ink-soft">{mode === "admin" && t.trainerName ? `${t.trainerName}, ` : ""}{t.booking.client_name}</p>
       </div>
       <TodoPill t={t} />
-      {mode === "admin" && t.state !== "waiting" && <WaiveButton bookingId={t.booking.id} kind={t.window.kind} week={t.window.week} reportId={t.report?.id} />}
+      {mode === "admin" && t.state !== "waiting" && <WaiveButton bookingId={t.booking.id} kind={t.window.kind} week={t.window.week} reportId={t.report?.id} late={t.state === "overdue"} />}
       {t.state !== "waiting" && <Link prefetch={false} href={href} className="btn-ink h-9 min-h-0 px-3 text-small">{verb}</Link>}
     </li>
   );

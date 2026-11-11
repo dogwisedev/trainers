@@ -11,6 +11,7 @@ import { AskDecision } from "@/components/AskDecision";
 import { TodoDone } from "@/components/TodoDone";
 import { ChaseActions } from "@/components/ChaseActions";
 import { ClientClose } from "@/components/ClientClose";
+import { MarkReadButton } from "@/components/MarkReadButton";
 import { IconTile } from "@/components/ui";
 
 const GROUPS: { key: TodoGroup; title: string; short: string; hint: string }[] = [
@@ -110,6 +111,7 @@ function Item({ i, canQuiet = false }: { i: TodoItem; canQuiet?: boolean }) {
           {i.hubspot && !i.primary?.external && <a href={i.hubspot} target="_blank" rel="noopener" className="btn-ghost h-9 min-h-0 px-3 text-small">HubSpot<ExternalLink size={13} /></a>}
           {canQuiet && i.quietChatId && <QuietChatButton chatId={i.quietChatId} quiet={false} />}
           {i.incidentId && i.clear && <ClientClose id={i.incidentId} mode={i.clear} />}
+          {i.readTrainer && <MarkReadButton trainerId={i.readTrainer} />}
           {i.incidentId && !i.deal && !i.ask && !i.chase && !i.clear && <span className="ml-auto"><TodoDone id={i.incidentId} label={i.doneLabel} /></span>}
           {i.ask && <AskDecision id={i.ask.id} kind={i.ask.kind} expired={i.ask.expired} trainer={i.ask.trainer} dealId={i.ask.dealId} />}
           {i.deal && <DealDecision dealId={i.deal} bookHref={`/a/bookings/new?deal=${i.deal}`} />}

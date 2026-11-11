@@ -272,6 +272,7 @@ function FormsTab({ b, reps, today }: { b: Booking; reps: { id: string; kind: Ki
           const late = today > w.deadline ? daysBetween(w.deadline, today) : 0;
           const st = r?.status === "approved" ? { t: "Done", tone: "mint" as const } : r?.status === "submitted" ? { t: "To review", tone: "biscuit" as const }
             : r?.status === "changes_requested" ? { t: "Sent back", tone: "biscuit" as const } : r?.status === "waived" ? { t: "Not needed", tone: "line" as const }
+            : r?.status === "missed" ? { t: "Missed (late)", tone: "heart" as const }
             : beforeApp(w) ? (w.kind === "handover" ? { t: "Needed for the certificate", tone: "biscuit" as const } : { t: "Before the app", tone: "line" as const })
             : today < w.opens ? { t: `Opens ${short(w.opens)}`, tone: "line" as const } : late ? { t: `${late} day${late > 1 ? "s" : ""} late`, tone: "heart" as const } : { t: `Due ${short(w.deadline)}`, tone: "mint" as const };
           const href = r ? `/a/reports/${r.id}` : `/a/reports/new?booking=${b.id}&kind=${w.kind}&week=${w.week}`;
@@ -280,7 +281,8 @@ function FormsTab({ b, reps, today }: { b: Booking; reps: { id: string; kind: Ki
             <li key={`${w.kind}-${w.week}`} className="flex flex-wrap items-center gap-3 p-3.5">
               <div className="min-w-0 flex-1"><p className="font-semibold">{name}</p><p className="text-small text-ink-soft">{short(w.opens)} to {short(w.deadline)}</p></div>
               <Pill tone={st.tone}>{st.t}</Pill>
-              {(!r || r.status === "draft" || r.status === "changes_requested") && today >= w.opens && <WaiveButton bookingId={b.id} kind={w.kind} week={w.week} reportId={r?.id} />}
+              {(!r || r.status === "draft" || r.status === "changes_requested") && today >= w.opens && <WaiveButton bookingId={b.id} kind={w.kind} week={w.week} reportId={r?.id} late={late > 0 && !beforeApp(w)} />}
+              {r?.status === "missed" && <WaiveButton bookingId={b.id} kind={w.kind} week={w.week} reportId={r.id} undo />}
               {(r || today >= w.opens) && <Link prefetch={false} href={href} className={`${r?.status === "submitted" ? "btn-ink" : "btn-ghost"} h-9 min-h-0 px-3 text-small`}>{verb}</Link>}
             </li>
           );

@@ -9,6 +9,8 @@ import { Avatar } from "@/components/ui";
 import { MileageCheck } from "@/components/MileageCheck";
 import { freerouteOn, mileageRows } from "@/lib/tripRoutes";
 import { isDemo, serverClient } from "@/lib/supabase";
+import { MissedForms, type MissedForm } from "@/components/MissedForms";
+import { kindName } from "@/lib/reports";
 
 export const maxDuration = 60; // "Check now" on the mileage check works out routes
 
@@ -35,6 +37,14 @@ export default async function PayslipPage({ params, searchParams }: { params: { 
       || routeLines.find((l) => !l.booking_id && String(l.program || "").startsWith(tag)); // a route line typed by hand
     return [m.tripId, line ? Number(line.amount) : null];
   })) as Record<string, number | null>;
+  // Forms marked "Missed (late)" for this trainer: the ones still to deduct, and those ticked on this run's dates
+  let missed: MissedForm[] = [];
+  if (!isDemo()) {
+    const { data } = await serverClient().from("reports").select("id, kind, week_number, due_by, waived_by, deducted_at, bookings(dog_name, client_name)").eq("trainer_id", p.slip.trainer_id).eq("status", "missed").order("due_by");
+    missed = ((data || []) as unknown as { id: string; kind: string; week_number: number; due_by: string | null; waived_by: string | null; deducted_at: string | null; bookings: { dog_name: string | null; client_name: string } | null }[])
+      .filter((r) => !r.deducted_at || (r.deducted_at.slice(0, 10) >= p!.run.period_start))
+      .map((r) => ({ id: r.id, dog: r.bookings?.dog_name || "Dog", client: r.bookings?.client_name || "", name: `${kindName(r.kind as Parameters<typeof kindName>[0])}${r.kind === "weekly" ? ` (week ${r.week_number})` : ""}`, due: r.due_by ? usDate(r.due_by.slice(0, 10)) : "", by: r.waived_by, deducted: !!r.deducted_at }));
+  }
   return (
     <>
       <div className="mb-4 flex items-center gap-3">
@@ -46,6 +56,7 @@ export default async function PayslipPage({ params, searchParams }: { params: { 
         </div>
       </div>
       {refreshError && <p role="alert" className="mb-4 rounded-xl bg-heart-wash px-3 py-2 text-body text-heart">Couldn&apos;t update this payslip from bookings and trips: {refreshError}. The lines below may be out of date.</p>}
+      {missed.length > 0 && <MissedForms forms={missed} />}
       {miles.length > 0 && <div className="mb-4"><MileageCheck rows={miles} payslipId={p.slip.id} setUp={freerouteOn()} onSlip={onSlip} /></div>}
       <PayslipEditor
         id={p.slip.id} approved={p.slip.status === "approved"}

@@ -63,7 +63,7 @@ export function ReportForm(p: Props) {
   const [note, setNote] = useState("");
   const [pending, start] = useTransition();
 
-  const waived = p.status === "waived";
+  const waived = p.status === "waived" || p.status === "missed";
   const editable = !waived && (p.mode === "trainer" ? p.status === "draft" || p.status === "changes_requested" : p.status !== "approved" || editing);
   const missing = useMemo(() => validate(p.kind, answers, media, p.mode === "admin" ? { skip: ["mileage"] } : {}), [p.kind, answers, media, p.mode]);
   const set = (k: string, v: unknown) => { setAnswers((a) => ({ ...a, [k]: v })); setDirty(true); };

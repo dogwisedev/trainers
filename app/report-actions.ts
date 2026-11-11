@@ -58,6 +58,7 @@ export async function saveReportAction(id: string, answers: Answers, media: Medi
     if (!b) return { ok: false, message: "Report not found." };
     const st = b.report.status;
     if (st === "waived") return { ok: false, message: "This form is marked not needed. Bring it back first." };
+    if (st === "missed") return { ok: false, message: "This form was marked missed (late, not needed any more). Bring it back first." };
     const can = v.role === "admin" ? st !== "approved" || editingApproved : v.trainerId === b.report.trainer_id && (st === "draft" || st === "changes_requested");
     if (!can) return { ok: false, message: st === "submitted" ? "It's with the Dogwise team for review now." : "This report can't be edited." };
     const { error } = await serverClient().from("reports").update({ answers: cleanAnswers(answers), media: cleanMedia(media, b.report.media, b.booking.id) }).eq("id", id);
@@ -272,14 +273,56 @@ export async function waiveReportAction(bookingId: string, kind: Kind, week: num
 });
 }
 
-/** Undo "not needed": back to a draft the trainer can fill in. */
+/** Admin: "Missed (late)". The form isn't needed any more (the next week's check is in), but it stays on record as late:
+ *  it leaves the trainer's list and reminders, shows as missing, and is listed on their payslip until it's deducted. */
+export async function missReportAction(bookingId: string, kind: Kind, week: number, reportId?: string | null): Promise<ReportResult> {
+  return audited("missReportAction", { bookingId, kind, week, reportId }, async () => {
+  if (isDemo()) return DEMO;
+  try {
+    const v = await who();
+    if (v.role !== "admin") return { ok: false, message: "Admins only." };
+    const sb = serverClient();
+    let id = reportId || null;
+    if (!id) {
+      const { data: b } = await sb.from("bookings").select("*").eq("id", bookingId).maybeSingle();
+      const { data: t } = b ? await sb.from("trainers").select("name").eq("id", b.trainer_id).maybeSingle() : { data: null };
+      if (!b || !t) return { ok: false, message: "Booking not found." };
+      id = await ensureReport(sb, b as Booking, t.name, kind, week, true);
+    }
+    const { data: r } = await sb.from("reports").select("status").eq("id", id).maybeSingle();
+    if (!r) return { ok: false, message: "Form not found." };
+    if (r.status === "submitted" || r.status === "approved") return { ok: false, message: "The trainer already submitted this one: review it instead." };
+    const { error } = await sb.from("reports").update({ status: "missed", waived_by: v.name === "Dogwise team" ? v.email || v.name : v.name, waived_at: new Date().toISOString() }).eq("id", id);
+    if (error) return { ok: false, message: /check constraint|reports_status/i.test(error.message) ? "Run migration 054 in Supabase first." : error.message };
+    await resolveIncidents({ kinds: ["intake_media_missing", "handover_photo_missing"], reportId: id }, v.name, "Form marked missed");
+    revalidatePath("/", "layout");
+    return { ok: true, message: "Marked missed. It's gone from the trainer's list, and it's listed on their payslip for the deduction." };
+  } catch (e) { return { ok: false, message: (e as Error).message }; }
+});
+}
+
+/** Payslip: a missed form's deduction is on the payslip (or not, undo). */
+export async function setDeductedAction(id: string, on: boolean): Promise<ReportResult> {
+  return audited("setDeductedAction", { id, on }, async () => {
+  if (isDemo()) return DEMO;
+  try {
+    const v = await who();
+    if (v.role !== "admin") return { ok: false, message: "Admins only." };
+    const { error } = await serverClient().from("reports").update(on ? { deducted_at: new Date().toISOString(), deducted_by: v.name === "Dogwise team" ? v.email || v.name : v.name } : { deducted_at: null, deducted_by: null }).eq("id", id).eq("status", "missed");
+    revalidatePath("/a/payroll", "layout");
+    return error ? { ok: false, message: error.message } : { ok: true, message: on ? "Ticked as deducted." : "Back on the list." };
+  } catch (e) { return { ok: false, message: (e as Error).message }; }
+});
+}
+
+/** Undo "not needed" or "missed": back to a draft the trainer can fill in. */
 export async function unwaiveReportAction(id: string): Promise<ReportResult> {
   return audited("unwaiveReportAction", { id }, async () => {
   if (isDemo()) return DEMO;
   try {
     const v = await who();
     if (v.role !== "admin") return { ok: false, message: "Admins only." };
-    const { error } = await serverClient().from("reports").update({ status: "draft", waived_by: null, waived_at: null }).eq("id", id).eq("status", "waived");
+    const { error } = await serverClient().from("reports").update({ status: "draft", waived_by: null, waived_at: null }).eq("id", id).in("status", ["waived", "missed"]);
     revalidatePath("/", "layout");
     return error ? { ok: false, message: error.message } : { ok: true, message: "Back on the trainer's list." };
   } catch (e) { return { ok: false, message: (e as Error).message }; }

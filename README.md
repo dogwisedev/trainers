@@ -245,3 +245,11 @@ Try it without waiting for a real alert or payment (signed in as an admin, in th
 - Each channel's line shows which hook the app is using: the end of the URL, and the secret's length and a 6-character tag (never the secret). To check a secret you hold matches, run this in PowerShell and paste it when asked; the tag it prints must match:
   `$s = (Read-Host "Secret") -replace '\s','' -replace '^["'']+|["'']+$',''; $h = [Security.Cryptography.SHA256]::Create().ComputeHash([Text.Encoding]::UTF8.GetBytes($s)); "tag " + (($h[0..2] | ForEach-Object { $_.ToString('x2') }) -join '') + ", $($s.Length) characters"`
 - Under each message it says whether Buzz took it. Buzz answers "not found" (404) for a wrong secret, a wrong URL, a workflow that's off, or a workflow whose creator left the channel.
+
+## Missed (late) forms
+On a late form, admins now have two choices (dog page Forms tab, and the late-forms list on To do):
+- **Not needed**: the form shouldn't exist (no penalty), as before.
+- **Missed (late)**: it's late and not needed any more (e.g. the next week's check is already in). It leaves the trainer's list and reminders, shows as missing (program strip, HubSpot), and is listed at the top of the trainer's payslip until someone adds the deduction and ticks **Deducted** (migration 054). **Bring it back** undoes either.
+
+## Trainer messages on To do
+A trainer's message is on To do until someone opens their thread (Reply) or taps **No reply needed**. A thumbs up, "ok" or "thanks" isn't a To do item at all: it stays unread in Messages only.

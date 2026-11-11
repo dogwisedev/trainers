@@ -12,6 +12,7 @@ import { cronProblems } from "./cronHealth";
 import { notAProgram, programFor } from "./programs";
 import { dayName, historyLines, openNudges, suggestCheckIn, type ChaseInfo, type Nudge, type NudgeKind } from "./nudges";
 import { quoConfigured, toE164 } from "./quo";
+import { ruleNeeds } from "./clientNeeds";
 
 // The admin "To do" list: everything that needs a person, in one place, most urgent first.
 // Sources: open incidents (chats, forms, bookings, HubSpot, before training), forms sent in for review,
@@ -30,7 +31,8 @@ export type TodoItem = {
   ask?: { id: string; kind: "offer" | "pedro"; expired: boolean; trainer: string; dealId: string }; // Assign or Ask: check with the trainer / Ask Pedro // a booked dog that didn't start / finish as planned: Mark / Postpone / Cancel
   poc?: string;         // the trainer's Point of Contact (from the trainer's profile), for the POC filter; none = not tied to a trainer
   chase?: ChaseInfo;
-  clear?: "noreply" | "handled"; // a client item a person can close: "No reply needed" (waiting) / "Handled" (office question, urgent)    // handed to the office by the reminder ladder: history, a suggested check-in, Send in app / Text / Call (no Done: it clears itself)
+  clear?: "noreply" | "handled";
+  readTrainer?: string; // a trainer's message: "No reply needed" marks their thread read // a client item a person can close: "No reply needed" (waiting) / "Handled" (office question, urgent)    // handed to the office by the reminder ladder: history, a suggested check-in, Send in app / Text / Call (no Done: it clears itself)
 };
 /** late: forms past their deadline. beforeApp: handover reports due before the app took over the forms (still needed for the certificate). */
 export type TodoData = { items: TodoItem[]; late: (Todo & { trainerName: string; poc?: string })[]; beforeApp: (Todo & { trainerName: string; poc?: string })[]; pocs: string[] };
@@ -204,12 +206,13 @@ async function buildTodoUncached(): Promise<TodoData> {
   }
 
   // ── Trainer messages ──
-  const byTrainer = new Map<string, { n: number; first: string; last: string }>();
+  // A 👍, "ok" or "thanks" isn't a task: it stays unread in Messages, but only threads with something to answer are on To do
+  const byTrainer = new Map<string, { n: number; first: string; last: string; real: boolean }>();
   for (const m of (msgs || []) as { trainer_id: string; created_at: string; body: string }[]) {
-    const x = byTrainer.get(m.trainer_id) || { n: 0, first: m.created_at, last: "" };
-    byTrainer.set(m.trainer_id, { n: x.n + 1, first: x.first, last: m.body });
+    const x = byTrainer.get(m.trainer_id) || { n: 0, first: m.created_at, last: "", real: false };
+    byTrainer.set(m.trainer_id, { n: x.n + 1, first: x.first, last: m.body, real: x.real || ruleNeeds(m.body, "text").needs !== "none" });
   }
-  for (const [id, x] of byTrainer) items.push({
+  for (const [id, x] of byTrainer) if (x.real) items.push({ readTrainer: id,
     key: `msg:${id}`, group: "now", tone: "heart", icon: "message", since: x.first, poc: pocOf(id), text: `${tName.get(id) || "A trainer"} sent you ${x.n > 1 ? `${x.n} messages` : "a message"}`,
     detail: x.last.slice(0, 140), primary: { label: "Reply", href: `/a/messages/${id}` }
   });
