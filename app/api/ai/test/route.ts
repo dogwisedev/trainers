@@ -10,6 +10,6 @@ export async function GET() {
   const v = await getViewer().catch(() => null);
   if (!v || v.role !== "admin") return NextResponse.json({ error: "Sign in as an admin first." }, { status: 401 });
   const r = await aiTest();
-  const ok = !!r.writing.working && !!r.labelling.working;
-  return NextResponse.json({ ok, summary: !r.keySet ? "ANTHROPIC_API_KEY isn't set in Vercel (or the app wasn't redeployed after adding it)." : ok ? "Claude is answering. The AI help can run." : "Claude isn't answering: see the errors below.", ...r }, { status: ok ? 200 : 502 });
+  const ok = !!r.writing.working && !!r.labelling.working && r.tidyUp.ok;
+  return NextResponse.json({ ok, summary: !r.keySet ? "ANTHROPIC_API_KEY isn't set in Vercel (or the app wasn't redeployed after adding it)." : ok ? "Claude is answering, and a real tidy-up came back. The AI help can run." : r.writing.working && !r.tidyUp.ok ? "Claude answers a one-word test, but a real tidy-up failed: see tidyUp below." : "Claude isn't answering: see the errors below.", ...r }, { status: ok ? 200 : 502 });
 }

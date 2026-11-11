@@ -25,26 +25,44 @@ export const aiErrorText = (e: AiError | null) => !e ? "" : e.status === 401 ? "
   : e.status === 429 ? "Claude is rate-limiting this account just now." : e.status === 0 ? `Claude didn't answer (${e.message}).` : `Claude answered ${e.status}: ${e.message}`;
 
 type CallResult = { ok: true; text: string } | { ok: false; status: number; message: string };
-async function call(model: string, o: { system: string; user: string; maxTokens?: number; timeoutMs?: number }): Promise<CallResult> {
+type Ask = { system: string; user: string; maxTokens?: number; timeoutMs?: number };
+// Newer models think before they answer, and that thinking comes out of the same word budget: a short budget can be used
+// up before any answer is written (the answer comes back empty). These are quick jobs, so thinking is switched off; a
+// model that won't take that setting is asked without it, with more room. An answer that still comes back empty because
+// it ran out of room is asked for once more with a lot more room.
+const noThinkingSetting = new Set<string>(); // models that refused the "thinking off" setting
+async function post(model: string, o: Ask, maxTokens: number, thinkingOff: boolean): Promise<CallResult & { stop?: string; ranOut?: boolean; refusedSetting?: boolean }> {
   const ctrl = new AbortController(), timer = setTimeout(() => ctrl.abort(), o.timeoutMs || 25000);
   try {
     const r = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST", signal: ctrl.signal,
       headers: { "x-api-key": process.env.ANTHROPIC_API_KEY || "", "anthropic-version": "2023-06-01", "content-type": "application/json" },
-      body: JSON.stringify({ model, max_tokens: o.maxTokens || 1200, system: o.system, messages: [{ role: "user", content: o.user }] })
+      body: JSON.stringify({ model, max_tokens: maxTokens, system: o.system, messages: [{ role: "user", content: o.user }], ...(thinkingOff ? { thinking: { type: "disabled" } } : {}) })
     });
     const body = await r.text();
     if (!r.ok) {
       let message = body.slice(0, 300);
       try { message = (JSON.parse(body) as { error?: { message?: string } }).error?.message || message; } catch { /* not JSON */ }
-      return { ok: false, status: r.status, message };
+      return { ok: false, status: r.status, message, refusedSetting: thinkingOff && r.status === 400 && /thinking/i.test(message) };
     }
-    const data = JSON.parse(body) as { content?: { type: string; text?: string }[] };
-    const text = (data.content || []).filter((c) => c.type === "text").map((c) => c.text || "").join("").trim();
-    return text ? { ok: true, text } : { ok: false, status: r.status, message: "An empty answer." };
+    const data = JSON.parse(body) as { content?: { type: string; text?: string }[]; stop_reason?: string };
+    const blocks = data.content || [], text = blocks.filter((c) => c.type === "text").map((c) => c.text || "").join("").trim();
+    if (text) return { ok: true, text };
+    const stop = data.stop_reason || "unknown";
+    return { ok: false, status: r.status, stop, ranOut: stop === "max_tokens",
+      message: stop === "refusal" ? "Claude declined to write this one." : `No text in the answer (it stopped with "${stop}"; it contained: ${blocks.map((c) => c.type).join(", ") || "nothing"}).` };
   } catch (e) {
     return { ok: false, status: 0, message: (e as Error).name === "AbortError" ? "it took too long" : (e as Error).message };
   } finally { clearTimeout(timer); }
+}
+async function call(model: string, o: Ask): Promise<CallResult> {
+  const want = o.maxTokens || 1200;
+  let off = !noThinkingSetting.has(model);
+  let r = await post(model, o, off ? want : Math.max(4000, want * 4), off);
+  if (r.ok) return r;
+  if (r.refusedSetting) { noThinkingSetting.add(model); off = false; r = await post(model, o, Math.max(4000, want * 4), false); if (r.ok) return r; }
+  if (r.ranOut) { const again = await post(model, o, Math.min(16000, Math.max(6000, want * 8)), off); if (again.ok) return again; r = again; }
+  return { ok: false, status: r.status, message: r.message };
 }
 
 /** Claude's answer as text, or null (no key, an error, or too slow: see aiLastError). Never throws. `fast`: the small model. */
@@ -73,7 +91,15 @@ export async function aiTest() {
     }
     return { working: tried.find((t) => t.ok)?.model || null, tried };
   };
-  return { keySet: aiOn(), writing: await one("writer"), labelling: await one("fast") };
+  const writing = await one("writer"), labelling = await one("fast");
+  // A real job, like Speak's tidy-up: a one-word answer can work while a real one comes back empty
+  let tidyUp: { ok: boolean; answer?: string; error?: string } = { ok: false, error: "Not tried: no model answered." };
+  if (writing.working) {
+    const t = await call(writing.working, { maxTokens: 300, timeoutMs: 20000, system: `${VOICE}\nTurn what the dog trainer said out loud into the short chat message they would type to the dog's owner. Drop filler words and swearing. Answer with the message only.`,
+      user: "um so yeah Jax did really good today on the uh leash, damn potatoes, he still pulls a bit near other dogs but yeah good day" });
+    tidyUp = t.ok ? { ok: true, answer: t.text } : { ok: false, error: `${t.status}: ${t.message}` };
+  }
+  return { keySet: aiOn(), writing, labelling, tidyUp };
 }
 
 /** The JSON object or array in Claude's answer (fences and stray words around it are ignored), or null. */
