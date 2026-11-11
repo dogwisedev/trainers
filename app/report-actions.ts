@@ -1,6 +1,7 @@
 "use server";
 import { confirmMove } from "@/lib/pickup";
 import { noteCheckOutcome } from "@/lib/formCheck";
+import { answersChange } from "@/lib/aiChange";
 import { draftResult, type HandoverDraft } from "@/lib/handoverDraft";
 import { audited } from "@/lib/audit";
 import { pushToAdmins } from "@/lib/push";
@@ -164,7 +165,8 @@ export async function approveReportAction(id: string, answers: Answers, media: M
       submitted_at: b.report.submitted_at || new Date().toISOString(), review_note: null
     }).eq("id", id);
     if (error) return { ok: false, message: error.message };
-    if (!corrected) await noteCheckOutcome(id, "approved", v.name, JSON.stringify(a) !== JSON.stringify(cleanAnswers(b.report.answers)));
+    const label = `${b.booking.dog_name || "Dog"}: ${kindName(b.report.kind).toLowerCase()}${b.report.kind === "weekly" ? ` (week ${b.report.week_number})` : ""}`;
+    if (!corrected) await noteCheckOutcome(id, "approved", v.name, answersChange(cleanAnswers(b.report.answers), a), label);
     if (b.report.kind === "intake" || b.report.kind === "handover") await saveFormTrip({ reportId: id, trainerId: b.trainer.id, bookingId: b.booking.id, kind: b.report.kind === "intake" ? "pickup" : "dropoff",
       date: b.report.kind === "intake" ? s(a.pickupDate) || b.booking.start_date : b.booking.end_date, miles: a.mileage, route: s(a.route), by: v.name }); // admin may have corrected the miles
     if (b.report.kind !== "handover") {
@@ -195,7 +197,7 @@ export async function sendBackAction(id: string, note: string): Promise<ReportRe
     const sb = serverClient();
     const { error } = await sb.from("reports").update({ status: "changes_requested", review_note: s(note) }).eq("id", id);
     if (error) return { ok: false, message: error.message };
-    await noteCheckOutcome(id, "sent_back", v.name, false);
+    await noteCheckOutcome(id, "sent_back", v.name, "none", `${b.booking.dog_name || "Dog"}: ${kindName(b.report.kind).toLowerCase()}${b.report.kind === "weekly" ? ` (week ${b.report.week_number})` : ""}`);
     if (b.trainer.email && mailConfigured()) {
       const link = `${site()}/t/reports/${id}`;
       await pushToTrainer(b.trainer.id, { title: `Changes needed: ${s(b.report.answers.dogName)}'s form`, body: s(note), url: `/t/reports/${id}`, tag: `report-${id}` });

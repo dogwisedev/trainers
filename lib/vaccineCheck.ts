@@ -6,6 +6,10 @@ import { aiSettings } from "./aiSettings";
 import { auditSystem } from "./audit";
 import { fileBytes, fileMeta, photoBytes } from "./drive";
 import { VACCINES, type VaccineAi, type VaccineState } from "./pretrainingFields";
+import { isSpotCheck, logDecision } from "./aiTrust";
+
+/** The name the app decides under when Auto is on (vaccines in order only). */
+export const AUTO_BY = "AI (automatic)";
 
 // AI vaccine checks (migration 057). When a dog's vaccine records are uploaded in the app, Claude reads the files (PDFs and
 // photos, from the dog's Drive folder) for Rabies, Bordetella and the distemper combination, and for each one the date
@@ -90,7 +94,7 @@ export async function checkVaccines(bookingId: string, sb: SupabaseClient = serv
     if (!cfg.vaccineChecks) return { ok: false, message: "Vaccine checks are switched off (Pulse, Office, AI help)." };
     const [{ data: d }, { data: b }] = await Promise.all([
       sb.from("pretraining_dogs").select("booking_id, vaccines").eq("booking_id", bookingId).maybeSingle(),
-      sb.from("bookings").select("id, dog_name, client_name, start_date, end_date").eq("id", bookingId).maybeSingle()
+      sb.from("bookings").select("id, dog_name, client_name, start_date, end_date, hubspot_deal_id").eq("id", bookingId).maybeSingle()
     ]);
     const row = d as DogRow | null;
     if (!row || !b) return { ok: false, message: "Dog not found." };
@@ -116,6 +120,13 @@ export async function checkVaccines(bookingId: string, sb: SupabaseClient = serv
     const line = vaccineSummary(ai, b.end_date);
     await sb.from("chat_incidents").update({ detail: `${b.dog_name || "The dog"}'s vaccine records are in (starts ${day(b.start_date)}). ${line}` }).eq("kind", "check_vaccines").eq("ref", `vax:${bookingId}`).neq("status", "resolved");
     await auditSystem("Checked vaccine records", `${b.dog_name || "Dog"} (${b.client_name}): ${line}`, { link: `/a/dogs/${bookingId}?tab=before#vaccines` }).catch(() => null);
+    // Auto (switched on once it has earned it): "all in order" is approved here. Never "missing" or "needs a person", and 1 in
+    // 10 still goes to a person as a spot check, so the approval rate keeps being measured.
+    if (cfg.vaccineAuto && ai.verdict === "ok" && b.hubspot_deal_id && !isSpotCheck(saved?.id || bookingId) && (now?.vaccines as VaccineState | null)?.status === "review") {
+      const { reviewVaccines } = await import("./pretraining");
+      const r = await reviewVaccines(b.hubspot_deal_id, bookingId, true, [], { name: AUTO_BY });
+      if (r.ok) return { ok: true, message: `${line.replace(" Confirm with All OK.", "")} Approved automatically.`, ai };
+    }
     return { ok: true, message: line, ai };
   } catch (e) { return { ok: false, message: (e as Error).message }; }
 }
@@ -134,15 +145,19 @@ export async function runVaccineChecks(sb: SupabaseClient = serviceClient(), lim
   return out;
 }
 
-/** What the admin decided (All OK, or which are missing), kept on the app's latest check of this dog. */
+/** What was decided (All OK, or which are missing), against the app's latest check of this dog: kept on the check the
+ *  first time, and logged every time (a decision changed back shows up on Pulse). */
 export async function noteVaccineOutcome(bookingId: string, ok: boolean, missing: string[], by: string, sb: SupabaseClient = serviceClient()) {
   try {
-    const { data } = await sb.from("ai_vaccine_checks").select("id, verdict, missing").eq("booking_id", bookingId).is("outcome", null).order("created_at", { ascending: false }).limit(1);
-    const c = (data || [])[0] as { id: string; verdict: string; missing: string[] } | undefined;
-    if (!c) return;
+    const { data } = await sb.from("ai_vaccine_checks").select("id, verdict, missing, outcome").eq("booking_id", bookingId).order("created_at", { ascending: false }).limit(1);
+    const c = (data || [])[0] as { id: string; verdict: string; missing: string[]; outcome: string | null } | undefined;
     const same = (x: string[], y: string[]) => x.length === y.length && [...x].sort().join() === [...y].sort().join();
-    const agreed = c.verdict === "unclear" ? null : c.verdict === "ok" ? ok : !ok && same(c.missing || [], missing);
-    await sb.from("ai_vaccine_checks").update({ outcome: ok ? "ok" : "missing", outcome_missing: ok ? [] : missing, agreed, outcome_by: by, outcome_at: new Date().toISOString() }).eq("id", c.id);
+    const agreed = !c || c.verdict === "unclear" ? null : c.verdict === "ok" ? ok : !ok && same(c.missing || [], missing);
+    const auto = by === AUTO_BY;
+    if (c && !c.outcome) await sb.from("ai_vaccine_checks").update({ outcome: ok ? "ok" : "missing", outcome_missing: ok ? [] : missing, agreed, outcome_by: by, outcome_at: new Date().toISOString() }).eq("id", c.id);
+    const { data: b } = await sb.from("bookings").select("dog_name, client_name").eq("id", bookingId).maybeSingle();
+    const { data: on } = await sb.from("app_settings").select("value").eq("key", "ai.vaccineAuto").maybeSingle();
+    await logDecision({ feature: "vaccines", itemId: bookingId, label: `${b?.dog_name || "Dog"} (${b?.client_name || "client"}): vaccines`, ai: c?.verdict || null, decision: ok ? "ok" : "missing", agreed: auto ? null : agreed, by, auto, spot: !auto && on?.value === true && !!c }, sb);
   } catch { /* the record never gets in the way of the decision */ }
 }
 

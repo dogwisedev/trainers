@@ -54,10 +54,10 @@ export async function POST(req: Request) {
       if (t.text.split(" ").length < 2) return fail("Couldn't hear anything to write. Try again a little closer to the phone.");
       // Without the Claude key the words go back exactly as said: plain speech to text, still theirs to check and send
       const text = aiOn() ? await tailorChat(sb, { userId: v.userId, role: v.role, chatId, heard: t.text }) : null;
-      await sb.from("ai_voice").insert({ user_id: v.userId, role: v.role, mode: "chat", chat_id: chatId, seconds, heard_chars: t.text.length }).then(() => null, () => null);
+      const { data: vrow } = await sb.from("ai_voice").insert({ user_id: v.userId, role: v.role, mode: "chat", chat_id: chatId, seconds, heard_chars: t.text.length, tidied: text || null }).select("id").maybeSingle().then((r) => r, () => ({ data: null }));
       // Not tidied (no key, or Claude didn't answer): the exact words, and for an admin, why
       const why = text ? "" : !aiOn() ? "The Claude key (ANTHROPIC_API_KEY) isn't set in Vercel." : aiErrorText(aiLastError());
-      return NextResponse.json({ ok: true, heard: t.text, text: text || t.text, tidied: !!text, why: v.role === "admin" ? why : "" });
+      return NextResponse.json({ ok: true, voiceId: (vrow as { id?: string } | null)?.id, heard: t.text, text: text || t.text, tidied: !!text, why: v.role === "admin" ? why : "" });
     }
 
     if (mode === "form") {

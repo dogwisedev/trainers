@@ -274,3 +274,9 @@ When a dog's vaccine records are uploaded in the app, Claude reads them (PDFs an
 - A person always confirms with **All OK** or **Save as missing**, as before; whether they agreed with the app is recorded (Pulse → Office → AI help → Vaccine checks, with the on/off switch). Nothing is approved by itself.
 - Only records uploaded in the app are read. Ones from the HubSpot form or by email are checked by hand, as before.
 - The rules (which names count, how "valid until" is worked out, what goes to a person) are on `/a/ai`, for any admin to change. **Check with AI** on the dog page reads the records again.
+
+## AI trust: approval rates, Auto, and "Worth a look"
+Every decision a person makes on something the AI did is logged (migration 058, `lib/aiTrust.ts`), and Pulse → Office → AI help shows, for each feature, **AI approval X% · 4 weeks · N decisions**.
+- **Small edits count as agreeing** (`lib/aiChange.ts`): a fixed typo, a swapped word or an added sentence keeps 85%+ of the AI's words. On forms, any change to a yes/no, a choice, a number or a date counts as a correction.
+- **Auto** (vaccine checks: approve "all in order"; form checks: approve clean weekly checks and intake forms) can only be switched on after 95%+ agreement over 30+ decisions in 4 weeks; the server checks. While on, 1 in 10 still goes to a person (a spot check); if people disagree with more than 1 in 10 of the last 20, Auto switches itself off and the admins get a notification. Switching Auto on or off is in the activity log.
+- **Worth a look** lists, neutrally: a decision changed back on the same item within a day; 5+ decisions on AI-checked items within 2 minutes; one person agreeing with the AI 25+ points less than the rest of the team (10+ decisions each).

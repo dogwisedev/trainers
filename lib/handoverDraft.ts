@@ -4,6 +4,7 @@ import { serviceClient } from "./supabase";
 import { VOICE, aiOn, claude, jsonFrom, writerModel } from "./ai";
 import { aiSettings } from "./aiSettings";
 import { auditSystem } from "./audit";
+import { sameness, textChange } from "./aiChange";
 import { etParts } from "./chatRules";
 import { dealKey } from "./chatTypes";
 import { addDays } from "./dates";
@@ -148,14 +149,14 @@ export function draftResult(draft: HandoverDraft, a: Answers): Record<string, "k
   for (const k of DRAFT_KEYS) {
     const d = words(draft.fields[k]); if (!d.length) continue;
     const f = words(a[k]);
-    if (d.join(" ") === f.join(" ")) { out[k] = "kept"; continue; }
-    const set = new Set(f), same = d.filter((w) => set.has(w)).length;
-    out[k] = same / Math.max(d.length, f.length || 1) >= 0.6 ? "edited" : "rewritten";
+    // kept: as drafted, or with small edits (a typo, a word, a sentence added: lib/aiChange.ts); edited: much of it kept; rewritten: little left
+    const keptShare = sameness(d.join(" "), f.join(" "));
+    out[k] = textChange(d.join(" "), f.join(" ")) !== "major" ? "kept" : keptShare >= 0.5 ? "edited" : "rewritten";
   }
   return out;
 }
 /** Parts of the form still exactly as drafted (the trainer is asked to confirm they've read them). */
-export const untouched = (draft: HandoverDraft | null | undefined, a: Answers) => (draft ? Object.entries(draftResult(draft, a)).filter(([, v]) => v === "kept").map(([k]) => k) : []);
+export const untouched = (draft: HandoverDraft | null | undefined, a: Answers) => (draft ? DRAFT_KEYS.filter((k) => words(draft.fields[k]).length && words(draft.fields[k]).join(" ") === words(a[k]).join(" ")) : []);
 
 /** For Pulse → Office: drafts made over the range and what trainers did with them. */
 export async function handoverDraftStats(sb: SupabaseClient, sinceIso: string) {

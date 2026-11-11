@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Mic, Square, X } from "lucide-react";
 
-export type VoiceResult = { heard: string; text?: string; tidied?: boolean; why?: string; set?: Record<string, unknown>; filled?: string[]; questions?: string[] };
+export type VoiceResult = { voiceId?: string; heard: string; text?: string; tidied?: boolean; why?: string; set?: Record<string, unknown>; filled?: string[]; questions?: string[] };
 type Props = {
   mode: "chat" | "form"; chatId?: string; reportId?: string;
   getAnswers?: () => Record<string, unknown>;      // forms: the answers as they are on screen now

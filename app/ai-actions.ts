@@ -5,19 +5,27 @@ import { getViewer } from "@/lib/data";
 import { isDemo, serviceClient } from "@/lib/supabase";
 import { VOICE, aiOn, claude } from "@/lib/ai";
 import { aiSettings, saveAiSetting, type CheckMode } from "@/lib/aiSettings";
+import { aiRates, WEEKS } from "@/lib/aiTrust";
+import { auditSystem } from "@/lib/audit";
 import type { Kind } from "@/lib/reports";
 
 // The AI help's switches and checklists (Pulse → Office, any admin), and the update-caption helper in a dog's chat (trainers).
 type R = { ok: boolean; message: string };
 const admin = async () => { const v = await getViewer(); if (!v || v.role !== "admin") throw new Error("Admins only."); return v.name === "Dogwise team" || v.name === "Dogwise Admin" ? (v.email || v.name).split("@")[0] : v.name; };
 
-export async function setAiSettingAction(key: "formCheck" | "handoverDrafts" | "captions" | "voice" | "vaccineChecks", value: CheckMode | boolean): Promise<R> {
+export async function setAiSettingAction(key: "formCheck" | "handoverDrafts" | "captions" | "voice" | "vaccineChecks" | "vaccineAuto", value: CheckMode | boolean): Promise<R> {
   return audited("setAiSettingAction", { key, value }, async () => {
     try {
       if (isDemo()) return { ok: false, message: "Demo mode." };
       const by = await admin();
       if (key === "formCheck" ? !["off", "suggest", "auto"].includes(String(value)) : typeof value !== "boolean") return { ok: false, message: "Not a setting." };
+      if ((key === "formCheck" && value === "auto") || (key === "vaccineAuto" && value === true)) {
+        const rates = await aiRates();
+        const r = rates?.[key === "vaccineAuto" ? "vaccines" : "forms"];
+        if (!r?.canAuto) return { ok: false, message: `Not yet: ${r?.need || "run migration 058 first"}. Auto is earned over ${WEEKS} weeks.` };
+      }
       const err = await saveAiSetting(key, value, by);
+      if (!err && (key === "vaccineAuto" || (key === "formCheck" && value === "auto"))) await auditSystem(value ? `AI Auto switched on: ${key === "vaccineAuto" ? "vaccine checks" : "form checks"}` : "AI Auto switched off: vaccine checks", `By ${by}.`, { link: "/a/pulse?view=office" }).catch(() => null);
       revalidatePath("/a/pulse");
       return err ? { ok: false, message: err } : { ok: true, message: "Saved." };
     } catch (e) { return { ok: false, message: (e as Error).message }; }
@@ -70,5 +78,14 @@ export async function captionUsedAction(id: string, final: string): Promise<void
     const v = await getViewer();
     if (!v?.trainerId || isDemo()) return;
     await serviceClient().from("ai_captions").update({ final: final.slice(0, 2000), used_at: new Date().toISOString() }).eq("id", id).eq("trainer_id", v.trainerId);
+  } catch { /* never in the way of sending */ }
+}
+
+/** Speak in a chat: the message that was finally sent, to compare with what the AI wrote (small edits count as agreeing). */
+export async function voiceUsedAction(id: string, final: string): Promise<void> {
+  try {
+    const v = await getViewer();
+    if (!v || isDemo() || !/^[0-9a-f-]{36}$/i.test(id)) return;
+    await serviceClient().from("ai_voice").update({ final: final.slice(0, 2000), sent_at: new Date().toISOString() }).eq("id", id).eq("user_id", v.userId);
   } catch { /* never in the way of sending */ }
 }

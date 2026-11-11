@@ -7,6 +7,7 @@ import { pushToTrainer } from "@/lib/push";
 import { fromFor, loadPocNumbers, quoNumber, sendText, toE164 } from "@/lib/quo";
 import type { NudgeKind } from "@/lib/nudges";
 import { answeredUpTo } from "@/lib/chatRules";
+import { logDecision } from "@/lib/aiTrust";
 
 // The office's check-in with a trainer, from an item the reminder ladder handed to To do (components/ChaseActions.tsx).
 // Each one is logged in `nudges` with what the app suggested and whether it was changed, so we can see how often the
@@ -106,9 +107,12 @@ export async function clientCloseAction(incidentId: string): Promise<R> {
       }
       await sb.from("chat_incidents").update({ status: "resolved", resolved_at: now, resolved_by: who, resolved_note: "No reply needed" }).eq("chat_id", inc.chat_id).in("kind", ["client_waiting", "client_pileup"]).neq("status", "resolved");
       await sb.from("nudges").update({ done_at: now, outcome: "gone" }).eq("chat_id", inc.chat_id).eq("kind", "client_waiting").is("done_at", null);
+      const { data: ch } = await sb.from("chats").select("title, client_name").eq("id", inc.chat_id).maybeSingle();
+      await logDecision({ feature: "messages", itemId: inc.chat_id, label: `${ch?.client_name || "Client"} about ${ch?.title || "their dog"}`, ai: "needs a reply", decision: "no reply needed", agreed: false, by: who }, sb);
     } else if (inc.kind === "client_office" || inc.kind === "client_urgent") {
       await sb.from("message_needs").update({ handled_at: now, handled_by: who }).eq("chat_id", inc.chat_id).eq("needs", inc.kind === "client_office" ? "office" : "urgent").is("handled_at", null);
       await sb.from("chat_incidents").update({ status: "resolved", resolved_at: now, resolved_by: who, resolved_note: "Handled" }).eq("id", inc.id);
+      await logDecision({ feature: "messages", itemId: inc.chat_id, label: inc.kind === "client_office" ? "Office question" : "Urgent message", ai: inc.kind === "client_office" ? "office" : "urgent", decision: "handled", agreed: true, by: who }, sb);
     } else return { ok: false, message: "This one clears by itself." };
     revalidatePath("/a");
     return { ok: true, message: inc.kind.startsWith("client_waiting") || inc.kind === "client_pileup" ? "Closed: no reply needed." : "Marked handled." };

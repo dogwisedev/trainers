@@ -4,6 +4,8 @@ import { serviceClient } from "./supabase";
 import { aiOn, claude, jsonFrom, writerModel } from "./ai";
 import { aiSettings } from "./aiSettings";
 import { auditSystem } from "./audit";
+import { logDecision, isSpotCheck } from "./aiTrust";
+import type { Change } from "./aiChange";
 import { dealKey } from "./chatTypes";
 import { Answers, Field, HANDOVER_AFTER, HANDOVER_ROUTE, HANDOVER_SIMPLE, INTAKE_SECTIONS, Kind, WEEKLY_SECTIONS, arr, healthFlags, items, kindName, s } from "./reports";
 import type { Booking } from "./types";
@@ -87,13 +89,14 @@ export async function checkForm(reportId: string, sb: SupabaseClient = serviceCl
     const { data: row, error } = await sb.from("ai_form_checks").insert({ report_id: rep.id, kind: rep.kind, trainer_id: rep.trainer_id, verdict, points: verdict === "ok" ? [] : points, model: writerModel() }).select("id, verdict, points, created_at, outcome").single();
     if (error || !row) return null;
     // Approve it itself? Only what stays internal, only when there is nothing at all to look at
-    if (cfg.formCheck === "auto" && verdict === "ok" && rep.kind !== "handover" && !healthFlags(rep.kind, a).length) {
+    if (cfg.formCheck === "auto" && verdict === "ok" && rep.kind !== "handover" && !healthFlags(rep.kind, a).length && !isSpotCheck(rep.id)) {
       const { data: inc } = await sb.from("chat_incidents").select("id").eq("report_id", rep.id).neq("status", "resolved").limit(1);
       if (!inc?.length) {
         const now = new Date().toISOString();
         const { error: e } = await sb.from("reports").update({ status: "approved", approved_by_name: "Checked automatically", approved_at: now, review_note: null }).eq("id", rep.id).eq("status", "submitted");
         if (!e) {
           await sb.from("ai_form_checks").update({ outcome: "auto", outcome_by: "app", outcome_at: now, edited: false }).eq("id", row.id);
+          await logDecision({ feature: "forms", itemId: rep.id, label: `${s(a.dogName) || b.dog_name || "Dog"}: ${kindName(rep.kind)}`, ai: "ok", decision: "approved", agreed: null, by: "app", auto: true }, sb);
           await auditSystem("Form checked and approved automatically", `${kindName(rep.kind)}${rep.kind === "weekly" ? ` (week ${rep.week_number})` : ""} for ${s(a.dogName) || b.dog_name || "the dog"}: fits the standard, nothing to look at.`, { link: `/a/reports/${rep.id}` }).catch(() => null);
           return { ...(row as FormCheck), outcome: "auto" };
         }
@@ -118,11 +121,18 @@ export async function runFormChecks(sb: SupabaseClient = serviceClient(), limit 
   return out;
 }
 
-/** What the admin did with a checked form: recorded on its latest check that has no outcome yet. */
-export async function noteCheckOutcome(reportId: string, outcome: "approved" | "sent_back", by: string, edited: boolean, sb: SupabaseClient = serviceClient()) {
+/** What the admin did with a checked form, recorded on its latest check that has no outcome yet, and logged for the approval
+ *  rate. `change`: how much they changed first (a typo or a word is "minor" and counts as agreeing, lib/aiChange.ts). */
+export async function noteCheckOutcome(reportId: string, outcome: "approved" | "sent_back", by: string, change: Change, label?: string, sb: SupabaseClient = serviceClient()) {
   try {
-    const { data } = await sb.from("ai_form_checks").select("id").eq("report_id", reportId).is("outcome", null).order("created_at", { ascending: false }).limit(1);
-    if (data?.length) await sb.from("ai_form_checks").update({ outcome, outcome_by: by, outcome_at: new Date().toISOString(), edited }).eq("id", data[0].id);
+    const { data } = await sb.from("ai_form_checks").select("id, verdict, created_at").eq("report_id", reportId).is("outcome", null).order("created_at", { ascending: false }).limit(1);
+    const c = (data || [])[0] as { id: string; verdict: "ok" | "check"; created_at: string } | undefined;
+    if (!c) return;
+    await sb.from("ai_form_checks").update({ outcome, outcome_by: by, outcome_at: new Date().toISOString(), edited: change === "major", change }).eq("id", c.id);
+    // Agreed: it said "fits" and it was approved without a real correction, or it said "check" and the admin sent it back or corrected it
+    const agreed = c.verdict === "ok" ? outcome === "approved" && change !== "major" : outcome === "sent_back" || change === "major";
+    const { data: spot } = await sb.from("app_settings").select("value").eq("key", "ai.formCheck").maybeSingle();
+    await logDecision({ feature: "forms", itemId: reportId, label, ai: c.verdict, decision: outcome, agreed, change, by, spot: spot?.value === "auto" }, sb);
   } catch { /* the record never gets in the way of the review */ }
 }
 
