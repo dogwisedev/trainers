@@ -1,18 +1,23 @@
 import Link from "next/link";
 import { HandoverTestEmail } from "@/components/HandoverTestEmail";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
 import { requireRole } from "@/lib/data";
 import { getReport } from "@/lib/reportData";
 import { isDemo } from "@/lib/supabase";
 import { ReportForm } from "@/components/ReportForm";
 import { kindName } from "@/lib/reports";
+import { checkForm, latestCheck } from "@/lib/formCheck";
+import { serviceClient } from "@/lib/supabase";
 
 export default async function AdminReport({ params }: { params: { id: string } }) {
   await requireRole("admin");
   const b = await getReport(decodeURIComponent(params.id));
   if (!b) notFound();
   const { report: r, booking, trainer } = b;
+  // The app's check of a submitted form (lib/formCheck.ts): shown above the form; made now if the 10-minute job hasn't yet
+  const check = isDemo() || r.status !== "submitted" ? null : (await latestCheck(serviceClient(), r.id, r.submitted_at)) || (await checkForm(r.id));
+  if (check?.outcome === "auto") redirect(`/a/reports/${r.id}`); // it fitted the standard and approved itself just now: show it as reviewed
   return (
     <>
       <div className="mb-4 flex items-center gap-3">
@@ -30,7 +35,7 @@ export default async function AdminReport({ params }: { params: { id: string } }
           <HandoverTestEmail id={r.id} />
         </div>
       )}
-      <ReportForm id={r.id} kind={r.kind} mode="admin" status={r.status} bookingId={booking.id} week={r.week_number} initialAnswers={r.answers} initialMedia={r.media}
+      <ReportForm aiCheck={check ? { verdict: check.verdict, points: check.points } : null} id={r.id} kind={r.kind} mode="admin" status={r.status} bookingId={booking.id} week={r.week_number} initialAnswers={r.answers} initialMedia={r.media}
         startDate={booking.start_date} endDate={booking.end_date} submittedAt={r.submitted_at} reviewNote={r.review_note} due={r.due_by} late={b.late} demo={isDemo()} chatId={b.chat?.id ?? null}
         meta={{ approvedBy: r.approved_by_name, approvedAt: r.approved_at, sentTo: r.sent_to, sentAt: r.sent_at, error: r.send_error, byAdmin: r.by_admin, waivedBy: r.waived_by, waivedAt: r.waived_at }} />
     </>

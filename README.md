@@ -253,3 +253,10 @@ On a late form, admins now have two choices (dog page Forms tab, and the late-fo
 
 ## Trainer messages on To do
 A trainer's message is on To do until someone opens their thread (Reply) or taps **No reply needed**. A thumbs up, "ok" or "thanks" isn't a To do item at all: it stays unread in Messages only.
+
+## AI help (form checks, handover drafts, update captions)
+All three use `ANTHROPIC_API_KEY` (migration 055; `ANTHROPIC_WRITER_MODEL` changes the model). Switches and numbers: Pulse → Office → **AI help**. Checklists: `/a/ai` (any admin).
+- **Form checks** (`lib/formCheck.ts`): each submitted form is read against its checklist and the dog's chat, and the review page says "fits the standard" or what to look at (up to 3 points, quoting the form). What the admin then does is recorded, so Pulse shows how often they agree. Modes: Off · Suggest · Approve clean ones (weekly checks and intake forms with nothing to look at approve themselves; handover reports always come to a person).
+- **Handover drafts** (`lib/handoverDraft.ts`): from 5 PM Eastern the evening before a dog goes home, the app starts the handover report from the chat, the weekly checks, the intake notes and the owner's answers: goals, training, homework, review. Never the health check, miles or photo. The trainer is told, changes anything, and ticks that they've read whatever is still as drafted. Dogs with fewer than 3 written updates aren't drafted. Kept / edited / rewritten is recorded per part.
+- **Update captions** (the sparkle button in a dog's chat, trainers only): a few words become a short update in the trainer's own voice, to change before sending.
+- A separate job runs them every 10 minutes (`/api/ai/cron`), so a slow answer never holds up reminders.

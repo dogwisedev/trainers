@@ -1,5 +1,7 @@
 "use server";
 import { confirmMove } from "@/lib/pickup";
+import { noteCheckOutcome } from "@/lib/formCheck";
+import { draftResult, type HandoverDraft } from "@/lib/handoverDraft";
 import { audited } from "@/lib/audit";
 import { pushToAdmins } from "@/lib/push";
 import { revalidatePath } from "next/cache";
@@ -81,6 +83,9 @@ export async function submitReportAction(id: string, answers: Answers, media: Me
     const pickup = b.report.kind === "intake" ? await pickupMedia(b.booking, s(a.pickupDate) || b.booking.start_date) : null;
     const { error } = await serverClient().from("reports").update({ answers: a, media: m, status: "submitted", submitted_at: new Date().toISOString(), review_note: null }).eq("id", id);
     if (error) return { ok: false, message: error.message };
+    // A handover the app started: what the trainer kept, edited or rewrote (for Pulse → Office)
+    const draft = (b.report as unknown as { ai_draft?: HandoverDraft | null }).ai_draft;
+    if (b.report.kind === "handover" && draft?.fields && !draft.result) await serviceClient().from("reports").update({ ai_draft: { ...draft, result: draftResult(draft, a) } }).eq("id", id).then(() => null, () => null);
     // The intake form confirms the pickup, the handover report the drop-off (if the trainer hadn't tapped the button yet)
     if (b.report.kind === "intake" || b.report.kind === "handover") await confirmMove(b.booking.id, b.report.kind === "intake" ? "pickup" : "dropoff", b.report.kind === "intake" ? "Intake form" : "Handover report").catch(() => null);
     const dog = s(a.dogName), flags = healthFlags(b.report.kind, a);
@@ -159,6 +164,7 @@ export async function approveReportAction(id: string, answers: Answers, media: M
       submitted_at: b.report.submitted_at || new Date().toISOString(), review_note: null
     }).eq("id", id);
     if (error) return { ok: false, message: error.message };
+    if (!corrected) await noteCheckOutcome(id, "approved", v.name, JSON.stringify(a) !== JSON.stringify(cleanAnswers(b.report.answers)));
     if (b.report.kind === "intake" || b.report.kind === "handover") await saveFormTrip({ reportId: id, trainerId: b.trainer.id, bookingId: b.booking.id, kind: b.report.kind === "intake" ? "pickup" : "dropoff",
       date: b.report.kind === "intake" ? s(a.pickupDate) || b.booking.start_date : b.booking.end_date, miles: a.mileage, route: s(a.route), by: v.name }); // admin may have corrected the miles
     if (b.report.kind !== "handover") {
@@ -189,6 +195,7 @@ export async function sendBackAction(id: string, note: string): Promise<ReportRe
     const sb = serverClient();
     const { error } = await sb.from("reports").update({ status: "changes_requested", review_note: s(note) }).eq("id", id);
     if (error) return { ok: false, message: error.message };
+    await noteCheckOutcome(id, "sent_back", v.name, false);
     if (b.trainer.email && mailConfigured()) {
       const link = `${site()}/t/reports/${id}`;
       await pushToTrainer(b.trainer.id, { title: `Changes needed: ${s(b.report.answers.dogName)}'s form`, body: s(note), url: `/t/reports/${id}`, tag: `report-${id}` });

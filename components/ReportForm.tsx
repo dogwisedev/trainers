@@ -14,6 +14,9 @@ type Props = {
   id: string; kind: Kind; mode: "trainer" | "admin"; status: Status; bookingId: string; week?: number;
   initialAnswers: Answers; initialMedia: MediaItem[]; startDate: string; endDate: string; submittedAt: string | null;
   reviewNote: string | null; due: string | null; late: number; demo: boolean; chatId: string | null;
+  /** Admin: the app's check of this submitted form. Trainer: the handover the app drafted from the chat. */
+  aiCheck?: { verdict: "ok" | "check"; points: { point: string; quote?: string }[] } | null;
+  aiDraft?: { fields?: Record<string, unknown>; missing?: string[]; thin?: boolean } | null;
   meta: { approvedBy: string | null; approvedAt: string | null; sentTo: string | null; sentAt: string | null; error: string | null; byAdmin: boolean; waivedBy?: string | null; waivedAt?: string | null };
 };
 
@@ -83,8 +86,14 @@ export function ReportForm(p: Props) {
     return () => clearTimeout(t);
   }, [answers, media, dirty, editable, p.demo, p.id, p.status, editing]);
 
+  // A handover the app started: the parts still exactly as drafted need a tick that they've been read
+  const [aiRead, setAiRead] = useState(false);
+  const norm = (v: unknown) => JSON.stringify(typeof v === "string" ? v.trim() : rawItems(v).map((i) => [i.title.trim(), i.text.trim()]));
+  const drafted = p.mode === "trainer" && p.kind === "handover" && p.aiDraft?.fields ? Object.entries(p.aiDraft.fields).filter(([, v]) => (typeof v === "string" ? v.trim() : Array.isArray(v) && v.length)) : [];
+  const asDrafted = drafted.filter(([k, v]) => norm(answers[k]) === norm(v)).map(([k]) => k);
   const run = (fn: () => Promise<ReportResult>, after?: (r: ReportResult) => void) => start(async () => { setRes(null); const r = await fn(); setRes(r); if (!r.missing?.length) setShowMissing(false); else setShowMissing(true); after?.(r); });
-  const submit = () => { if (missing.length) { setShowMissing(true); window.scrollTo({ top: 0, behavior: "smooth" }); return; } if (window.confirm("Submit this report for review?")) run(() => submitReportAction(p.id, answers, media), (r) => { if (r.ok) router.refresh(); }); };
+  const submit = () => { if (missing.length) { setShowMissing(true); window.scrollTo({ top: 0, behavior: "smooth" }); return; }
+    if (asDrafted.length && !aiRead) { setRes({ ok: false, message: "Some parts are still exactly as the app drafted them. Read them, change anything that isn't right, then tick the box above the Submit button." }); return; } if (window.confirm("Submit this report for review?")) run(() => submitReportAction(p.id, answers, media), (r) => { if (r.ok) router.refresh(); }); };
   const approve = () => { if (missing.length) { setShowMissing(true); window.scrollTo({ top: 0, behavior: "smooth" }); return; } if (p.kind !== "handover" || window.confirm(`Send this ${p.status === "approved" ? "corrected " : ""}report to ${s(answers.clientEmail)}?`)) run(() => approveReportAction(p.id, answers, media), (r) => { if (r.ok) { setEditing(false); router.push(r.nextId ? `/a/reports/${r.nextId}` : "/a"); router.refresh(); } else { window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" }); router.refresh(); } }); };
 
   const ro = !editable;
@@ -145,6 +154,24 @@ export function ReportForm(p: Props) {
         </div>
       )}
       {p.mode === "admin" && p.status === "submitted" && p.late > 0 && <div className="rounded-[18px] bg-heart-wash p-3 text-body text-heart">Submitted {p.late} day{p.late > 1 ? "s" : ""} after the deadline.</div>}
+      {p.mode === "admin" && p.status === "submitted" && p.aiCheck && (p.aiCheck.verdict === "ok" ? (
+        <div className="rounded-[18px] bg-mint-wash p-4 text-body text-fern"><p className="font-bold">Checked by the app: fits the standard</p><p>Nothing it would send back. Approve it if you agree. <Link prefetch={false} href="/a/ai" className="underline">What it checks</Link></p></div>
+      ) : (
+        <div className="rounded-[18px] border border-biscuit bg-biscuit-wash p-4 text-body text-warn">
+          <p className="font-bold">Checked by the app: look at this first <Link prefetch={false} href="/a/ai" className="text-small font-normal underline">What it checks</Link></p>
+          <ul className="mt-1.5 space-y-2">{p.aiCheck.points.map((x, i) => <li key={i}>{x.point}{x.quote && <span className="mt-0.5 block border-l-2 border-biscuit pl-2 text-small italic">&ldquo;{x.quote}&rdquo;</span>}</li>)}</ul>
+        </div>
+      ))}
+      {drafted.length > 0 && editable && (
+        <div className="rounded-[18px] bg-mint-wash p-4 text-body text-fern">
+          <p className="font-bold">We&apos;ve started this one for you</p>
+          <p className="mt-0.5">The goals, training, homework and review are drafted from your chat updates, the weekly checks and the owner&apos;s answers. Read each part and change anything: it&apos;s your report. The health check, miles and photo are yours to add.</p>
+          {!!p.aiDraft?.missing?.length && <ul className="mt-2 list-disc pl-5 text-small">{p.aiDraft.missing.map((m, i) => <li key={i}>{m}</li>)}</ul>}
+        </div>
+      )}
+      {p.mode === "trainer" && p.kind === "handover" && editable && p.aiDraft?.thin && (
+        <div className="rounded-[18px] bg-paper p-4 text-small text-ink-soft">The app starts handover reports from your updates in the dog&apos;s chat. There weren&apos;t enough for this dog, so this one starts empty.</div>
+      )}
       {p.mode === "admin" && p.meta.byAdmin && p.status !== "approved" && <div className="rounded-[18px] bg-paper p-3 text-small text-ink-soft">Started by an admin for the trainer.</div>}
       {p.mode === "admin" && editing && <div className="rounded-[18px] bg-biscuit-wash p-4 text-body text-warn"><p className="font-bold">{p.kind === "handover" ? "Correcting an approved report." : "Editing a reviewed form."}</p>{p.kind === "handover" && <p>The client keeps the version they have until you send the corrected one.</p>}</div>}
 
@@ -225,6 +252,12 @@ export function ReportForm(p: Props) {
         </div>
       )}
 
+      {asDrafted.length > 0 && editable && (
+        <label className="flex min-h-[48px] cursor-pointer items-start gap-3 rounded-2xl border border-line bg-white p-3.5 text-body">
+          <input type="checkbox" className="mt-0.5 h-5 w-5 shrink-0 accent-[#281870]" checked={aiRead} onChange={(e) => setAiRead(e.target.checked)} />
+          <span>I&apos;ve read the parts the app drafted and they&apos;re right for {s(answers.dogName) || "this dog"}.</span>
+        </label>
+      )}
       <div className="sticky bottom-[calc(76px+env(safe-area-inset-bottom))] z-10 rounded-[20px] border border-line bg-white/95 p-2 backdrop-blur md:bottom-4">
         {editable && <p className="px-2 pb-1 text-caption text-ink-faint" aria-live="polite">{p.demo ? "Demo: nothing saves." : saved === "saving" ? "Saving…" : saved === "saved" ? "Saved" : saved === "error" ? "Couldn't save: check your signal" : "Your answers save as you go."}{missing.length > 0 ? ` ${missing.length} thing${missing.length > 1 ? "s" : ""} still needed.` : " Ready to send."}</p>}
         <div className="flex gap-2">
