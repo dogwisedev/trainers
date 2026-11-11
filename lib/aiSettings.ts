@@ -6,7 +6,7 @@ import type { Kind } from "./reports";
 // The switches for the AI help and the checklists submitted forms are checked against (migration 055). Changed on
 // Pulse → Office by any admin; kept in app_settings. Before the migration: the defaults below, forms checked as "suggest".
 export type CheckMode = "off" | "suggest" | "auto";
-export type AiSettings = { formCheck: CheckMode; handoverDrafts: boolean; captions: boolean; voice: boolean; checklists: Record<Kind, string> };
+export type AiSettings = { formCheck: CheckMode; handoverDrafts: boolean; captions: boolean; voice: boolean; vaccineChecks: boolean; vaccineRules: string; checklists: Record<Kind, string> };
 
 export const DEFAULT_CHECKLISTS: Record<Kind, string> = {
   weekly: `- Every question is answered, and every "yes" (skin, body, eyes, potty, appetite) says what was seen, where, and since when.
@@ -28,7 +28,13 @@ export const DEFAULT_CHECKLISTS: Record<Kind, string> = {
 - Reads well for a client: no typos that change meaning, no notes meant for the office, no placeholder text.
 - Nothing contradicts the chat or the weekly health checks.`
 };
-const DEFAULTS: AiSettings = { formCheck: "suggest", handoverDrafts: true, captions: true, voice: true, checklists: DEFAULT_CHECKLISTS };
+/** What vaccine records are checked against (any admin can change it on /a/ai). */
+export const DEFAULT_VACCINE_RULES = `- Three vaccines are needed: Rabies, Bordetella (kennel cough), and the distemper combination. The combination goes by many names and any of them counts: DHPP, DHLPP, DAPP, DA2PP, DA2PPV, DHPPi, DAPPv, DHP, "distemper/parvo", "5-in-1", "6-in-1", "7-in-1". Leptospirosis is not required.
+- Each one must be valid through the last day of the dog's stay.
+- Valid until = the "due", "next due", "expires" or "valid until" date written on the record. If none is written, count 1 year from the date it was given.
+- The record must be for this dog: the dog's name on it, or the owner's name with a matching dog.
+- Not sure: a puppy too young for rabies, a vet's exemption letter, a titer test, a record that is handwritten or too blurred to read with confidence, dates that could be read two ways, or a different dog's name. Say so and leave it to a person.`;
+const DEFAULTS: AiSettings = { formCheck: "suggest", handoverDrafts: true, captions: true, voice: true, vaccineChecks: true, vaccineRules: DEFAULT_VACCINE_RULES, checklists: DEFAULT_CHECKLISTS };
 
 export async function aiSettings(sb: SupabaseClient = serviceClient()): Promise<AiSettings> {
   const { data, error } = await sb.from("app_settings").select("key, value").like("key", "ai.%");
@@ -39,6 +45,7 @@ export async function aiSettings(sb: SupabaseClient = serviceClient()): Promise<
   return {
     formCheck: mode === "off" || mode === "auto" || mode === "suggest" ? mode : DEFAULTS.formCheck,
     handoverDrafts: v.get("ai.handoverDrafts") !== false, captions: v.get("ai.captions") !== false, voice: v.get("ai.voice") !== false,
+    vaccineChecks: v.get("ai.vaccineChecks") !== false, vaccineRules: typeof v.get("ai.checklist.vaccines") === "string" && String(v.get("ai.checklist.vaccines")).trim() ? String(v.get("ai.checklist.vaccines")) : DEFAULT_VACCINE_RULES,
     checklists: { weekly: list("weekly"), intake: list("intake"), handover: list("handover") }
   };
 }

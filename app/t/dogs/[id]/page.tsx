@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { ChevronLeft, MessageCircle } from "lucide-react";
 import { requireRole } from "@/lib/data";
 import { isDemo, serviceClient } from "@/lib/supabase";
-import { loadProfile } from "@/lib/pretraining";
+import { loadProfile, withoutOfficeNotes } from "@/lib/pretraining";
 import { ensureChatsForBookings } from "@/lib/chat";
 import { range } from "@/lib/dates";
 import { contactFrom } from "@/lib/contactLinks";
@@ -46,7 +46,7 @@ export default async function DogInfo({ params, searchParams }: { params: { id: 
         {chatId && <Link prefetch={false} href={`/t/chats/${chatId}`} className="btn-ghost h-11 min-h-0 shrink-0 px-3"><MessageCircle size={17} />Chat</Link>}
       </div>
       {profile && chatId ? (
-        <DogProfile chatId={chatId} role="trainer" edit={false} open profile={profile} dogId={searchParams.dog || b.id} base={`/t/dogs/${b.id}`} />
+        <DogProfile chatId={chatId} role="trainer" edit={false} open profile={withoutOfficeNotes(profile)} dogId={searchParams.dog || b.id} base={`/t/dogs/${b.id}`} />
       ) : (
         <div className="space-y-4">
           <ClientCard c={contactFrom(null, b.client_name)} dogs={b.dog_name || undefined} chatHref={chatId ? `/t/chats/${chatId}` : null} />

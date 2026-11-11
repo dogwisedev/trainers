@@ -210,7 +210,18 @@ function Vaccines({ chatId, role, edit, dog, dealYes }: { chatId: string; role: 
   const [pending, start] = useTransition();
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState("");
-  const [miss, setMiss] = useState<string[]>(dog.vaccine.missing || []);
+  // The app's check of the records (lib/vaccineCheck.ts): what it thinks is missing starts ticked, for the admin to confirm or change
+  const ai = role === "admin" ? dog.vaccines.ai : undefined;
+  const [miss, setMiss] = useState<string[]>(dog.vaccine.missing?.length ? dog.vaccine.missing : dog.vaccines.status === "review" && ai?.verdict === "missing" ? ai.missing : []);
+  const [checking, setChecking] = useState(false);
+  const canRead = dog.files.some((f) => f.source !== "hubspot");
+  const recheck = async () => {
+    setChecking(true); setMsg("");
+    try { const r = await fetch("/api/ai/vaccines", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bookingId: dog.booking.id }) }); const d = await r.json().catch(() => ({})); setMsg(d.message || "Couldn't check just now."); router.refresh(); }
+    catch { setMsg("Couldn't check just now."); }
+    setChecking(false);
+  };
+  const dayOf = (iso?: string | null) => (iso ? new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" }) : "");
   const file = useRef<HTMLInputElement>(null);
   const upload = async (f: File) => {
     setMsg(""); setBusy("Uploading…");
@@ -247,6 +258,15 @@ function Vaccines({ chatId, role, edit, dog, dealYes }: { chatId: string; role: 
           {role === "client" && !dog.vaccine.ok && <p className="mt-1.5 text-caption text-ink-faint">A photo or PDF from your vet showing DHLPP, Bordetella and Rabies.</p>}
         </div>
       )}
+      {ai && (
+        <div className={`mt-4 rounded-xl p-3 text-body ${ai.verdict === "ok" ? "bg-mint-wash text-fern" : "border border-biscuit bg-biscuit-wash text-warn"}`}>
+          <p className="font-bold">{ai.verdict === "ok" ? "The app's check: all three in order for the whole stay" : ai.verdict === "missing" ? "The app's check: something is missing or runs out before the stay ends" : "The app's check: this one needs a person"}</p>
+          {ai.lines.length > 0 && <ul className="mt-1.5 space-y-0.5 text-small">{ai.lines.map((l, i) => <li key={i}><b>{l.vaccine}</b>: {l.status === "ok" ? "in order" : l.status === "expired" ? "runs out" : l.status === "missing" ? "not found" : "not sure"}{l.given ? `, given ${dayOf(l.given)}` : ""}{l.validUntil && l.status !== "expired" ? `, valid until ${dayOf(l.validUntil)}` : ""}{l.note ? `. ${l.note}` : ""}</li>)}</ul>}
+          {ai.note && <p className="mt-1.5 text-small">{ai.note}</p>}
+          <p className="mt-1.5 text-caption">Read by AI from {ai.files} file{ai.files === 1 ? "" : "s"}, {when(ai.at)}. Open the record and look yourself before you confirm.</p>
+        </div>
+      )}
+      {role === "admin" && canRead && <button type="button" className="btn-ghost mt-2 h-9 min-h-0 px-3 text-small" disabled={checking} onClick={recheck}>{checking ? "Reading the records…" : ai ? "Check again with AI" : "Check with AI"}</button>}
       {role === "admin" && (
         <div className="mt-4 rounded-xl bg-paper p-3">
           <p className="mb-2 text-small font-semibold">Check the records</p>

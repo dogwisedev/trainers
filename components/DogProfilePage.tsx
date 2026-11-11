@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
 import { isDemo } from "@/lib/supabase";
 import { profileAccess } from "@/lib/pretrainingAccess";
-import { loadProfile } from "@/lib/pretraining";
+import { loadProfile, withoutOfficeNotes } from "@/lib/pretraining";
 import { DogProfile } from "@/components/DogProfile";
 
 /** The Dog profile page (admin, trainer and client versions): before-training checklist and the client's answers. */
@@ -25,7 +25,7 @@ export async function DogProfilePage({ chatId, dog, back }: { chatId: string; do
       {!profile ? (
         <p className="panel p-6 text-ink-soft">{a.dealId ? "Couldn't load this dog's details from HubSpot. Try again in a minute." : "This booking has no HubSpot deal, so there are no client forms to show."}</p>
       ) : (
-        <DogProfile chatId={a.chat.id} role={role} edit={a.edit} open={a.chat.status === "open"} profile={profile} dogId={dog || profile.dogs[0]?.booking.id} base={`${back}/profile`} />
+        <DogProfile chatId={a.chat.id} role={role} edit={a.edit} open={a.chat.status === "open"} profile={role === "admin" ? profile : withoutOfficeNotes(profile)} dogId={dog || profile.dogs[0]?.booking.id} base={`${back}/profile`} />
       )}
     </>
   );

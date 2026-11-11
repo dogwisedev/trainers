@@ -11,7 +11,7 @@ import type { Kind } from "@/lib/reports";
 type R = { ok: boolean; message: string };
 const admin = async () => { const v = await getViewer(); if (!v || v.role !== "admin") throw new Error("Admins only."); return v.name === "Dogwise team" || v.name === "Dogwise Admin" ? (v.email || v.name).split("@")[0] : v.name; };
 
-export async function setAiSettingAction(key: "formCheck" | "handoverDrafts" | "captions" | "voice", value: CheckMode | boolean): Promise<R> {
+export async function setAiSettingAction(key: "formCheck" | "handoverDrafts" | "captions" | "voice" | "vaccineChecks", value: CheckMode | boolean): Promise<R> {
   return audited("setAiSettingAction", { key, value }, async () => {
     try {
       if (isDemo()) return { ok: false, message: "Demo mode." };
@@ -24,12 +24,12 @@ export async function setAiSettingAction(key: "formCheck" | "handoverDrafts" | "
   });
 }
 
-export async function saveChecklistAction(kind: Kind, text: string): Promise<R> {
+export async function saveChecklistAction(kind: Kind | "vaccines", text: string): Promise<R> {
   return audited("saveChecklistAction", { kind, text }, async () => {
     try {
       if (isDemo()) return { ok: false, message: "Demo mode." };
       const by = await admin();
-      if (!["weekly", "intake", "handover"].includes(kind)) return { ok: false, message: "Not a form." };
+      if (!["weekly", "intake", "handover", "vaccines"].includes(kind)) return { ok: false, message: "Not a form." };
       const t = text.trim().slice(0, 4000);
       const err = await saveAiSetting(`checklist.${kind}`, t, by); // empty = back to the built-in checklist
       revalidatePath("/a/ai");

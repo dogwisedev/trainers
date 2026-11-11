@@ -26,7 +26,7 @@ export function CheckModeSwitch({ mode }: { mode: CheckMode }) {
   );
 }
 
-export function OnOff({ name, on, label }: { name: "handoverDrafts" | "captions" | "voice"; on: boolean; label: string }) {
+export function OnOff({ name, on, label }: { name: "handoverDrafts" | "captions" | "voice" | "vaccineChecks"; on: boolean; label: string }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [err, setErr] = useState("");
@@ -40,7 +40,7 @@ export function OnOff({ name, on, label }: { name: "handoverDrafts" | "captions"
 }
 
 /** One form's checklist: what the app checks a submitted form against. Any admin can change it; empty = the built-in one. */
-export function ChecklistEditor({ kind, title, text, builtIn }: { kind: Kind; title: string; text: string; builtIn: string }) {
+export function ChecklistEditor({ kind, title, text, builtIn }: { kind: Kind | "vaccines"; title: string; text: string; builtIn: string }) {
   const [value, setValue] = useState(text);
   const [pending, start] = useTransition();
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);

@@ -1,5 +1,6 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { noteVaccineOutcome } from "./vaccineCheck";
 import { isDemo, serviceClient } from "./supabase";
 import { addDays, short } from "./dates";
 import { etParts } from "./chatRules";
@@ -403,6 +404,9 @@ export async function saveAnswers(dealId: string, bookingId: string, values: Rec
   return { ok: true, message: note };
 }
 
+/** The profile as a client or trainer gets it: without the office's AI check of the vaccine records. */
+export const withoutOfficeNotes = (p: Profile): Profile => ({ ...p, dogs: p.dogs.map((d) => ({ ...d, vaccines: { ...d.vaccines, ai: undefined } })) });
+
 /** A vaccine file uploaded in the app (it lives in the chat's Drive folder). The team then checks it. */
 export async function addVaccineFile(bookingId: string, file: { id: string; name: string }, who: Who) {
   const sb = serviceClient();
@@ -430,6 +434,7 @@ export async function reviewVaccines(dealId: string, bookingId: string, ok: bool
   const vac: VaccineState = { ...(d.vaccines || {}), status: ok ? "ok" : "missing", missing: ok ? [] : missing.filter((m) => (VACCINES as readonly string[]).includes(m)), reviewedBy: who.name, reviewedAt: new Date().toISOString() };
   await sb.from("pretraining_dogs").update({ vaccines: vac, updated_at: new Date().toISOString() }).eq("booking_id", bookingId);
   await resolveIncidents({ kinds: ["check_vaccines"], ref: `vax:${bookingId}` }, who.name, ok ? "All OK" : `Missing: ${vac.missing?.join(", ")}`, sb);
+  await noteVaccineOutcome(bookingId, ok, vac.missing || [], who.name, sb); // did the person agree with the app's check? (Pulse → Office)
   // The deal holds one answer for all its dogs: Yes only when every dog is approved
   const { data: row } = await sb.from("pretraining_deals").select("deal").eq("deal_id", dealId).maybeSingle();
   const dealYes = isYes((row?.deal as DealProps | undefined)?.vaccines_in_order_);

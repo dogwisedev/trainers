@@ -267,3 +267,10 @@ A **Speak** button in chats (the microphone, when the message box is empty; trai
 - Built to keep going and not lose words: it restarts itself after a pause, drops repeated phrases (Android), shows the words as they're heard, and if the phone stops or can't listen inside the app, a box opens with what was heard so far, to add to with the keyboard's own microphone or by typing. If the write-up fails, the words stay in the box.
 - Optional, not needed: with `STT_API_KEY` + `STT_API_URL` (any transcription service with OpenAI's API, e.g. hosted Whisper) or `OPENAI_API_KEY` in Vercel, it records and transcribes on the server instead.
 - Up to about 2.5 minutes at a time; longer forms are done in parts. Switch and numbers: Pulse → Office → AI help → Speak.
+
+## AI vaccine checks
+When a dog's vaccine records are uploaded in the app, Claude reads them (PDFs and photos, iPhone HEIC included) for **Rabies, Bordetella and the distemper combination** (DHPP, DHLPP, DAPP, DA2PP and its other names) and reports, for each, the date given and the date it's valid until. The app then decides: each must be valid **through the last day of the stay** (migration 057, `lib/vaccineCheck.ts`).
+- The dog's Vaccines section and the "Check vaccines" To do item show **all in order**, **what's missing or runs out** (those boxes come ticked), or **needs a person** (handwritten or unclear, a different dog's name, a puppy too young for rabies, an exemption or titer).
+- A person always confirms with **All OK** or **Save as missing**, as before; whether they agreed with the app is recorded (Pulse → Office → AI help → Vaccine checks, with the on/off switch). Nothing is approved by itself.
+- Only records uploaded in the app are read. Ones from the HubSpot form or by email are checked by hand, as before.
+- The rules (which names count, how "valid until" is worked out, what goes to a person) are on `/a/ai`, for any admin to change. **Check with AI** on the dog page reads the records again.

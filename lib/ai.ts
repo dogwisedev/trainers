@@ -25,7 +25,9 @@ export const aiErrorText = (e: AiError | null) => !e ? "" : e.status === 401 ? "
   : e.status === 429 ? "Claude is rate-limiting this account just now." : e.status === 0 ? `Claude didn't answer (${e.message}).` : `Claude answered ${e.status}: ${e.message}`;
 
 type CallResult = { ok: true; text: string } | { ok: false; status: number; message: string };
-type Ask = { system: string; user: string; maxTokens?: number; timeoutMs?: number };
+/** A PDF or a photo to read with the question (base64). */
+export type AiFile = { kind: "pdf" | "image"; mediaType: string; base64: string };
+type Ask = { system: string; user: string; maxTokens?: number; timeoutMs?: number; files?: AiFile[] };
 // Newer models think before they answer, and that thinking comes out of the same word budget: a short budget can be used
 // up before any answer is written (the answer comes back empty). These are quick jobs, so thinking is switched off; a
 // model that won't take that setting is asked without it, with more room. An answer that still comes back empty because
@@ -37,7 +39,7 @@ async function post(model: string, o: Ask, maxTokens: number, thinkingOff: boole
     const r = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST", signal: ctrl.signal,
       headers: { "x-api-key": process.env.ANTHROPIC_API_KEY || "", "anthropic-version": "2023-06-01", "content-type": "application/json" },
-      body: JSON.stringify({ model, max_tokens: maxTokens, system: o.system, messages: [{ role: "user", content: o.user }], ...(thinkingOff ? { thinking: { type: "disabled" } } : {}) })
+      body: JSON.stringify({ model, max_tokens: maxTokens, system: o.system, messages: [{ role: "user", content: o.files?.length ? [...o.files.map((f) => ({ type: f.kind === "pdf" ? "document" : "image", source: { type: "base64", media_type: f.mediaType, data: f.base64 } })), { type: "text", text: o.user }] : o.user }], ...(thinkingOff ? { thinking: { type: "disabled" } } : {}) })
     });
     const body = await r.text();
     if (!r.ok) {
@@ -66,7 +68,7 @@ async function call(model: string, o: Ask): Promise<CallResult> {
 }
 
 /** Claude's answer as text, or null (no key, an error, or too slow: see aiLastError). Never throws. `fast`: the small model. */
-export async function claude(o: { system: string; user: string; maxTokens?: number; timeoutMs?: number; fast?: boolean }): Promise<string | null> {
+export async function claude(o: { system: string; user: string; maxTokens?: number; timeoutMs?: number; fast?: boolean; files?: AiFile[] }): Promise<string | null> {
   if (!aiOn()) return null;
   const family: Family = o.fast ? "fast" : "writer";
   for (const model of order(family)) {

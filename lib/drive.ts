@@ -161,6 +161,16 @@ export async function photoBytes(fileId: string, size = 1600): Promise<Uint8Arra
   } catch { return null; }
 }
 
+/** A whole file from Drive (a PDF, say), or null if it can't be opened or is bigger than maxBytes. */
+export async function fileBytes(fileId: string, maxBytes = 12_000_000): Promise<Uint8Array | null> {
+  try {
+    const r = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media&supportsAllDrives=true`, { headers: { Authorization: `Bearer ${await accessToken()}` }, cache: "no-store" });
+    if (!r.ok) return null;
+    const b = new Uint8Array(await r.arrayBuffer());
+    return b.byteLength > maxBytes ? null : b;
+  } catch { return null; }
+}
+
 /** A file's name and type, if the app can open it (it can for anything shared "anyone with the link"). */
 export async function fileMeta(fileId: string): Promise<{ ok: boolean; name?: string; mimeType?: string; message?: string }> {
   const r = await api(`/drive/v3/files/${encodeURIComponent(fileId)}?fields=id,name,mimeType,trashed&supportsAllDrives=true`);

@@ -162,7 +162,9 @@ export const optionalMissingIn = (qs: Q[], a: Answers) => qs.filter((q) => q.req
 
 // ── Vaccines ─────────────────────────────────────────────────────────────────
 export type VaccineFile = { id: string; name: string; at: string; by: string; source?: "app" | "hubspot" };
-export type VaccineState = { status?: "ok" | "missing" | "review"; missing?: string[]; files?: VaccineFile[]; reviewedBy?: string; reviewedAt?: string; note?: string };
+/** What the app's check of the records said (lib/vaccineCheck.ts). A person still confirms. */
+export type VaccineAi = { verdict: "ok" | "missing" | "unclear"; missing: string[]; lines: { vaccine: string; status: string; given?: string | null; validUntil?: string | null; note?: string }[]; note?: string; at: string; files: number; checkId?: string };
+export type VaccineState = { status?: "ok" | "missing" | "review"; missing?: string[]; files?: VaccineFile[]; reviewedBy?: string; reviewedAt?: string; note?: string; ai?: VaccineAi };
 /** Where a dog's vaccines stand. The deal's "Vaccines in order? = Yes" (ticked in HubSpot) covers every dog on the deal. */
 export function vaccineStatus(v: VaccineState, dealSaysYes: boolean, hasFile: boolean, dealMissing: string[] = []): { ok: boolean; label: string; missing: string[]; toCheck: boolean } {
   if (v.status === "ok" || (dealSaysYes && v.status !== "missing")) return { ok: true, label: "Approved", missing: [], toCheck: false }; // approved in the app, or in HubSpot

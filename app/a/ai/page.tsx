@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ChevronLeft } from "lucide-react";
 import { requireRole } from "@/lib/data";
-import { aiSettings, DEFAULT_CHECKLISTS } from "@/lib/aiSettings";
+import { aiSettings, DEFAULT_CHECKLISTS, DEFAULT_VACCINE_RULES } from "@/lib/aiSettings";
 import { ChecklistEditor } from "@/components/AiSwitches";
 
 export const dynamic = "force-dynamic";
@@ -19,6 +19,7 @@ export default async function AiChecklists() {
         <ChecklistEditor kind="weekly" title="Weekly health check" text={cfg.checklists.weekly} builtIn={DEFAULT_CHECKLISTS.weekly} />
         <ChecklistEditor kind="intake" title="Intake form" text={cfg.checklists.intake} builtIn={DEFAULT_CHECKLISTS.intake} />
         <ChecklistEditor kind="handover" title="Handover report" text={cfg.checklists.handover} builtIn={DEFAULT_CHECKLISTS.handover} />
+        <ChecklistEditor kind="vaccines" title="Vaccine records" text={cfg.vaccineRules} builtIn={DEFAULT_VACCINE_RULES} />
       </div>
     </>
   );

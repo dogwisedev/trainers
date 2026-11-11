@@ -4,15 +4,17 @@ import { aiOn } from "@/lib/ai";
 import { aiSettings } from "@/lib/aiSettings";
 import { formCheckStats } from "@/lib/formCheck";
 import { handoverDraftStats } from "@/lib/handoverDraft";
+import { vaccineCheckStats } from "@/lib/vaccineCheck";
 import { CheckModeSwitch, OnOff } from "@/components/AiSwitches";
 
 /** Pulse → Office: the AI help's switches and how it's doing over the range (lib/formCheck.ts, lib/handoverDraft.ts, captions). */
 export async function AiHelp({ from, label }: { from: string; label: string }) {
   const sb = serviceClient(), since = `${from}T00:00:00Z`;
-  const [cfg, checks, drafts, caps, voice] = await Promise.all([
+  const [cfg, checks, drafts, caps, voice, vax] = await Promise.all([
     aiSettings(sb), formCheckStats(sb, since).catch(() => null), handoverDraftStats(sb, since).catch(() => null),
     sb.from("ai_captions").select("suggested, final, used_at").gte("created_at", since).limit(5000).then((r) => (r.error ? null : (r.data || []) as { suggested: string; final: string | null; used_at: string | null }[]), () => null),
-    sb.from("ai_voice").select("mode, user_id, seconds, fields_set").gte("created_at", since).limit(5000).then((r) => (r.error ? null : (r.data || []) as { mode: string; user_id: string | null; seconds: number | null; fields_set: number | null }[]), () => null)
+    sb.from("ai_voice").select("mode, user_id, seconds, fields_set").gte("created_at", since).limit(5000).then((r) => (r.error ? null : (r.data || []) as { mode: string; user_id: string | null; seconds: number | null; fields_set: number | null }[]), () => null),
+    vaccineCheckStats(sb, since).catch(() => null)
   ]);
   const vChat = (voice || []).filter((x) => x.mode === "chat"), vForm = (voice || []).filter((x) => x.mode === "form");
   const used = (caps || []).filter((c) => c.used_at), asIs = used.filter((c) => (c.final || "").trim() === c.suggested.trim()).length;
@@ -38,6 +40,9 @@ export async function AiHelp({ from, label }: { from: string; label: string }) {
         {row("Update captions", "In a dog's chat, a trainer types a few words and the app suggests a short update in their own voice. They can change it before sending.",
           <OnOff name="captions" on={cfg.captions} label="Update captions" />,
           caps && caps.length ? `${caps.length} suggested, ${used.length} sent (${asIs} as suggested, ${used.length - asIs} changed first).` : "None suggested in this range yet.")}
+        {row("Vaccine checks", "When vaccine records are uploaded in the app, they're read for Rabies, Bordetella and the distemper combination, each valid through the last day of the stay. The dog page and To do say \"all in order\", what's missing, or \"needs a person\". An admin always confirms.",
+          <OnOff name="vaccineChecks" on={cfg.vaccineChecks} label="Vaccine checks" />,
+          vax === null ? "Run migration 057 in Supabase to switch this on." : vax.checked ? `${vax.checked} checked: ${vax.inOrder} in order, ${vax.missing} missing or running out, ${vax.byHand} for a person. ${vax.agreedPct === null ? "No admin decisions yet." : `Admins agreed on ${vax.agreedPct}% (${vax.agreed} of ${vax.decided}).`}` : "None checked in this range yet.")}
         {row("Speak", "A Speak button in chats and on forms: the person talks, it's turned into text and tidied into a message in their own way of talking, or into the form's answers. Never a voice message: they check the text and send it themselves.",
           <OnOff name="voice" on={cfg.voice} label="Speak" />,
           voice === null ? "Run migration 056 in Supabase to count uses." : voice.length ? `${vChat.length} chat message${vChat.length === 1 ? "" : "s"} and ${vForm.length} form fill${vForm.length === 1 ? "" : "s"} spoken (${vForm.reduce((n, x) => n + (x.fields_set || 0), 0)} answers filled in) by ${new Set(voice.map((x) => x.user_id)).size} ${new Set(voice.map((x) => x.user_id)).size === 1 ? "person" : "people"}, ${Math.round(voice.reduce((n, x) => n + (x.seconds || 0), 0) / 60)} minutes of talking.` : "Nobody has used it in this range yet.")}
