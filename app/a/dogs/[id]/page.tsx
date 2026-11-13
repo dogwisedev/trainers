@@ -81,6 +81,8 @@ export default async function DogPageView({ params, searchParams }: { params: { 
 
   return (
     <>
+      {/* The dog's name, status and tabs stay pinned while the page scrolls (on a phone, just the tabs, under the top bar) */}
+      <div className="-mx-4 -mt-5 bg-canvas px-4 pt-5 md:sticky md:top-0 md:z-10 md:-mx-8 md:-mt-8 md:px-8 md:pt-8">
       <Link prefetch={false} href="/a/dogs" className="mb-2 inline-flex items-center gap-1 text-body font-semibold text-ink-soft hover:text-ink"><ChevronLeft size={17} />Dogs</Link>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex min-w-0 items-start gap-3">
@@ -100,7 +102,7 @@ export default async function DogPageView({ params, searchParams }: { params: { 
           : <span className="text-small text-ink-faint">No HubSpot deal linked</span>}
       </div>
 
-      <nav className="mt-4 flex gap-1 overflow-x-auto border-b border-line" aria-label="Dog page">
+      <nav className="sticky top-[calc(45px+env(safe-area-inset-top))] z-10 mt-4 flex gap-1 overflow-x-auto border-b border-line bg-canvas md:static" aria-label="Dog page">
         {TABS.map((t) => (
           <Link key={t.key} prefetch={false} href={dogPage(b.id, t.key === "overview" ? undefined : t.key)} aria-current={tab === t.key ? "page" : undefined}
             className={`-mb-px whitespace-nowrap border-b-2 px-3.5 py-2.5 text-body font-semibold ${tab === t.key ? "border-ink text-ink" : "border-transparent text-ink-soft hover:text-ink"}`}>
@@ -108,6 +110,7 @@ export default async function DogPageView({ params, searchParams }: { params: { 
           </Link>
         ))}
       </nav>
+      </div>
 
       <div className="mt-5">
         {tab === "overview" && (
