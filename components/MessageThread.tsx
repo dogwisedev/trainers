@@ -6,6 +6,9 @@ import { markRead, sendMessage } from "@/app/actions";
 import { Message } from "@/lib/types";
 import { timeAgo } from "@/lib/dates";
 
+/** "Wed Nov 11, 1:33 PM" in the viewer's own time: the moment they opened the thread (every unread message is marked at once). */
+const seenAt = (iso: string) => new Date(iso).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+
 export function MessageThread({ trainerId, initial, me, otherName }: { trainerId: string; initial: Message[]; me: "admin" | "trainer"; otherName: string }) {
   const [msgs, setMsgs] = useState(initial);
   const [text, setText] = useState("");
@@ -53,7 +56,7 @@ export function MessageThread({ trainerId, initial, me, otherName }: { trainerId
               <div className={`max-w-[82%] rounded-[20px] px-4 py-2.5 text-body leading-snug ${mine ? "rounded-br-md bg-ink text-white" : "rounded-bl-md border border-line bg-white"}`}>
                 {!mine && m.sender_name && <p className="mb-0.5 text-caption font-semibold text-fern">{m.sender_name}</p>}
                 <p className="whitespace-pre-wrap">{m.body}</p>
-                <p className={`mt-1 text-micro ${mine ? "text-white/60" : "text-ink-faint"}`}>{m.id.startsWith("local-") ? "Sending" : timeAgo(m.created_at)}{mine && m.read_at ? ", seen" : ""}</p>
+                <p className={`mt-1 text-micro ${mine ? "text-white/60" : "text-ink-faint"}`}>{m.id.startsWith("local-") ? "Sending" : timeAgo(m.created_at)}{mine && m.read_at ? `, seen ${seenAt(m.read_at)}` : ""}</p>
               </div>
             </div>
           );
