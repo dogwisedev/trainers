@@ -1,6 +1,7 @@
 "use server";
 import { confirmMove } from "@/lib/pickup";
 import { noteCheckOutcome } from "@/lib/formCheck";
+import { logReason } from "@/lib/work";
 import { answersChange } from "@/lib/aiChange";
 import { draftResult, type HandoverDraft } from "@/lib/handoverDraft";
 import { audited } from "@/lib/audit";
@@ -256,7 +257,7 @@ export type { Status, Kind };
 
 // ── Not needed (admin): a form made by mistake, or for days the dog wasn't in care ──
 /** Marks a form "not needed": it leaves every to-do list (admin and trainer), reminders and late counts. Works whether or not it was started. */
-export async function waiveReportAction(bookingId: string, kind: Kind, week: number, reportId?: string | null): Promise<ReportResult> {
+export async function waiveReportAction(bookingId: string, kind: Kind, week: number, reportId?: string | null, why = ""): Promise<ReportResult> {
   return audited("waiveReportAction", { bookingId, kind, week, reportId }, async () => {
   if (isDemo()) return DEMO;
   try {
@@ -277,6 +278,7 @@ export async function waiveReportAction(bookingId: string, kind: Kind, week: num
     if (error) return { ok: false, message: error.message };
     await resolveIncidents({ kinds: ["intake_media_missing", "handover_photo_missing"], reportId: id }, v.name, "Form marked not needed");
     revalidatePath("/", "layout");
+    await logReason({ action: "form:waive", item: id, label: `${kindName(kind)}${kind === "weekly" ? ` (week ${week})` : ""}`, who: v.name, reason: why });
     return { ok: true, message: "Marked not needed. It's gone from the trainer's list too." };
   } catch (e) { return { ok: false, message: (e as Error).message }; }
 });
@@ -284,7 +286,7 @@ export async function waiveReportAction(bookingId: string, kind: Kind, week: num
 
 /** Admin: "Missed (late)". The form isn't needed any more (the next week's check is in), but it stays on record as late:
  *  it leaves the trainer's list and reminders, shows as missing, and is listed on their payslip until it's deducted. */
-export async function missReportAction(bookingId: string, kind: Kind, week: number, reportId?: string | null): Promise<ReportResult> {
+export async function missReportAction(bookingId: string, kind: Kind, week: number, reportId?: string | null, why = ""): Promise<ReportResult> {
   return audited("missReportAction", { bookingId, kind, week, reportId }, async () => {
   if (isDemo()) return DEMO;
   try {
@@ -305,6 +307,7 @@ export async function missReportAction(bookingId: string, kind: Kind, week: numb
     if (error) return { ok: false, message: /check constraint|reports_status/i.test(error.message) ? "Run migration 054 in Supabase first." : error.message };
     await resolveIncidents({ kinds: ["intake_media_missing", "handover_photo_missing"], reportId: id }, v.name, "Form marked missed");
     revalidatePath("/", "layout");
+    await logReason({ action: "form:missed", item: id, label: `${kindName(kind)}${kind === "weekly" ? ` (week ${week})` : ""}`, who: v.name, reason: why });
     return { ok: true, message: "Marked missed. It's gone from the trainer's list, and it's listed on their payslip for the deduction." };
   } catch (e) { return { ok: false, message: (e as Error).message }; }
 });

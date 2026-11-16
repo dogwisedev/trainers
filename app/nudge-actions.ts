@@ -8,6 +8,7 @@ import { fromFor, loadPocNumbers, quoNumber, sendText, toE164 } from "@/lib/quo"
 import type { NudgeKind } from "@/lib/nudges";
 import { answeredUpTo } from "@/lib/chatRules";
 import { logDecision } from "@/lib/aiTrust";
+import { logReason } from "@/lib/work";
 
 // The office's check-in with a trainer, from an item the reminder ladder handed to To do (components/ChaseActions.tsx).
 // Each one is logged in `nudges` with what the app suggested and whether it was changed, so we can see how often the
@@ -85,7 +86,7 @@ export async function saveQuoNumberAction(_: R | null, f: FormData): Promise<R> 
 /** To do, on a client item: "No reply needed" (waiting / several messages) or "Handled" (an office question or urgent
  *  message dealt with by phone or email). It counts as the answer, so the item stays closed until the client writes again,
  *  and the messages' labels are corrected with your name (which is how we see how well the app reads them). */
-export async function clientCloseAction(incidentId: string): Promise<R> {
+export async function clientCloseAction(incidentId: string, why = ""): Promise<R> {
   return audited("clientCloseAction", { incidentId }, async () => {
     if (isDemo()) return { ok: false, message: "Demo mode." };
     const { who } = await admin();
@@ -114,6 +115,7 @@ export async function clientCloseAction(incidentId: string): Promise<R> {
       await sb.from("chat_incidents").update({ status: "resolved", resolved_at: now, resolved_by: who, resolved_note: "Handled" }).eq("id", inc.id);
       await logDecision({ feature: "messages", itemId: inc.chat_id, label: inc.kind === "client_office" ? "Office question" : "Urgent message", ai: inc.kind === "client_office" ? "office" : "urgent", decision: "handled", agreed: true, by: who }, sb);
     } else return { ok: false, message: "This one clears by itself." };
+    await logReason({ action: inc.kind === "client_waiting" || inc.kind === "client_pileup" ? "client:noreply" : "client:handled", item: inc.chat_id, who, reason: why });
     revalidatePath("/a");
     return { ok: true, message: inc.kind.startsWith("client_waiting") || inc.kind === "client_pileup" ? "Closed: no reply needed." : "Marked handled." };
   });

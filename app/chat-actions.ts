@@ -1,4 +1,5 @@
 "use server";
+import { logReason } from "@/lib/work";
 import { audited } from "@/lib/audit";
 import { revalidatePath } from "next/cache";
 import { getViewer } from "@/lib/data";
@@ -103,11 +104,13 @@ export async function takeIncidentAction(id: string): Promise<ChatResult> {
 });
 }
 export async function resolveIncidentAction(id: string, note: string): Promise<ChatResult> {
+  // The note is the one-tap reason from To do: kept on the item, and in the work log (Pulse → Where the work goes)
   return audited("resolveIncidentAction", { id, note }, async () => {
   if (isDemo()) return DEMO;
   try {
     const v = await adminOnly();
     const { error } = await serverClient().from("chat_incidents").update({ status: "resolved", resolved_at: new Date().toISOString(), resolved_by: v.email || v.name, resolved_note: note.trim() || null }).eq("id", id).neq("status", "resolved");
+    if (!error && note.trim()) await logReason({ action: "todo:done", item: id, who: v.name === "Dogwise team" ? (v.email || v.name) : v.name, reason: note });
     revalidatePath("/", "layout");
     return error ? { ok: false, message: error.message } : { ok: true, message: "Resolved." };
   } catch (e) { return { ok: false, message: (e as Error).message }; }

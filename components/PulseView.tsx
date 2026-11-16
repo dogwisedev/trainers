@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ArrowDownRight, ArrowUpRight, ChevronRight, Info } from "lucide-react";
 import { Pill } from "@/components/ui";
 import { AiHelp } from "@/components/AiHelp";
+import { WorkPanel } from "@/components/WorkPanel";
 import { PulseRefresh } from "@/components/PulseRefresh";
 import { MovesStrip } from "@/components/MovesStrip";
 import type { Card, OfficeView, Pulse, SalesView, Tile, TrainerRow, View } from "@/lib/pulse";
@@ -14,7 +15,7 @@ import { US_COLS, US_ROWS, US_TILES } from "@/lib/usTiles";
 
 type Q = { r?: string; from?: string; to?: string; v?: string; state?: string };
 const money = (n: number) => `$${Math.round(n).toLocaleString("en-US")}`;
-const VIEWS: { key: View; label: string }[] = [{ key: "office", label: "Office" }, { key: "trainers", label: "Trainers" }, { key: "sales", label: "Sales" }];
+const VIEWS: { key: View; label: string }[] = [{ key: "office", label: "Office" }, { key: "trainers", label: "Trainers" }, { key: "sales", label: "Sales" }, { key: "work", label: "Where the work goes" }];
 const href = (q: Q, patch: Partial<Q>) => { const p = new URLSearchParams(); const all = { ...q, ...patch }; for (const k of ["v", "r", "from", "to", "state"] as const) if (all[k]) p.set(k, all[k]!); const s = p.toString(); return s ? `/a/pulse?${s}` : "/a/pulse"; };
 function dlt(now: number, before: number, pctMode: boolean): { text: string; up: boolean | null } {
   if (before === 0) return { text: now ? "new" : "same", up: now ? true : null };
@@ -337,6 +338,7 @@ export function PulseView({ p, q }: { p: Pulse; q: Q }) {
       {keys.length > 0 && <section aria-label="The numbers" className={`mb-6 grid grid-cols-2 gap-3 ${keys.length === 5 ? "md:grid-cols-3 lg:grid-cols-5" : "md:grid-cols-4"}`}>{keys.map((k) => <TileCard key={k} t={tile(k)} />)}</section>}
       {p.view === "office" && p.office && <Office o={p.office} />}
       {p.view === "office" && <AiHelp from={p.range.from} label={p.range.label} />}
+      {p.view === "work" && <WorkPanel from={p.range.from} to={p.range.to} label={p.range.label} />}
       {p.view === "trainers" && (
         <section>
           <H>Trainers</H>
