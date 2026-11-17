@@ -292,3 +292,19 @@ export async function checkRoutesAction(payslipId: string): Promise<Result> {
   } catch (e) { return { ok: false, message: (e as Error).message }; }
 });
 }
+
+/** An automatic line deleted from a draft earlier stays off (skip_keys); this lets it back on at the next refresh. */
+export async function restoreLineAction(payslipId: string, lineKey: string): Promise<Result> {
+  try {
+    const v = await getViewer();
+    if (!v || v.role !== "admin") return { ok: false, message: "Admins only." };
+    if (isDemo()) return { ok: false, message: "Demo mode." };
+    const sb = serverClient();
+    const { data } = await sb.from("payslips").select("id, status, skip_keys").eq("id", payslipId).maybeSingle();
+    if (!data) return { ok: false, message: "Payslip not found." };
+    if (data.status !== "draft") return { ok: false, message: "This payslip is approved: add the line on a correction instead." };
+    const { error } = await sb.from("payslips").update({ skip_keys: ((data.skip_keys as string[] | null) || []).filter((k) => k !== lineKey) }).eq("id", payslipId);
+    revalidatePath(`/a/payroll/${payslipId}`);
+    return error ? { ok: false, message: error.message } : { ok: true, message: "It comes back when the payslip refreshes." };
+  } catch (e) { return { ok: false, message: (e as Error).message }; }
+}

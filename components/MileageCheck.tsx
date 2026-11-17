@@ -1,5 +1,6 @@
 import { ExternalLink } from "lucide-react";
 import { Pill } from "@/components/ui";
+import { RestoreLine } from "@/components/RestoreLine";
 import { CheckRoutesButton } from "@/components/CheckRoutesButton";
 import { TRIP_LABEL } from "@/lib/payroll";
 import type { MileageRow } from "@/lib/tripRoutes";
@@ -9,7 +10,7 @@ const SOURCE: Record<string, string> = { address: "address", profile: "map point
 
 /** On the payslip: each trip's declared miles next to the driving route, with a Google Maps link to check it by hand. */
 /** onSlip: each trip's pay line amount on this payslip, or null when the trip isn't on it (shown as a warning). */
-export function MileageCheck({ rows, payslipId, setUp, onSlip }: { rows: MileageRow[]; payslipId: string; setUp: boolean; onSlip?: Record<string, number | null> }) {
+export function MileageCheck({ rows, payslipId, setUp, onSlip, why }: { rows: MileageRow[]; payslipId: string; setUp: boolean; onSlip?: Record<string, number | null>; why?: Record<string, { text: string; key?: string }> }) {
   if (!rows.length) return null;
   const missing = onSlip ? rows.filter((r) => onSlip[r.tripId] === null).length : 0;
   const flagged = rows.filter((r) => r.check.paid).length, unchecked = rows.filter((r) => !r.route).length;
@@ -39,6 +40,7 @@ export function MileageCheck({ rows, payslipId, setUp, onSlip }: { rows: Mileage
                 {c.paid && <Pill tone="biscuit">Paid mileage: check it</Pill>}
                 {c.paid && !c.over && c.round != null && <Pill tone="mint">Matches the route</Pill>}
                 {onSlip && onSlip[r.tripId] === null && <Pill tone="heart">Not on the payslip</Pill>}
+                {onSlip && onSlip[r.tripId] === null && why?.[r.tripId] && <span className="text-caption text-ink-soft">{why[r.tripId].text}{why[r.tripId].key && <RestoreLine payslipId={payslipId} lineKey={why[r.tripId].key!} />}</span>}
                 {onSlip && onSlip[r.tripId] != null && <Pill tone="line">On the payslip: ${onSlip[r.tripId]!.toFixed(2)}</Pill>}
                 {route?.google_url && <a href={route.google_url} target="_blank" rel="noopener" className="btn-ghost h-9 min-h-0 px-3 text-small">Check on Google Maps<ExternalLink size={13} /></a>}
               </div>

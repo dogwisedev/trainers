@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
 import { requireRole } from "@/lib/data";
-import { buildDrafts, currentRunDate, getPayslip } from "@/lib/payrollData";
+import { buildDrafts, getPayslip } from "@/lib/payrollData";
 import { TRIP_LABEL, periodLabel, usDate } from "@/lib/payroll";
 import { PayslipEditor } from "@/components/PayslipEditor";
 import { Avatar } from "@/components/ui";
@@ -18,10 +18,11 @@ export default async function PayslipPage({ params, searchParams }: { params: { 
   await requireRole("admin");
   let p = await getPayslip(params.id);
   if (!p) notFound();
-  // A draft in the current run is brought up to date from bookings and trips when it opens (same rules as the Payslips
-  // list: hand edits kept, deleted lines stay deleted), so a trip saved since the list was last opened is on it.
+  // Any draft is brought up to date from bookings and trips when it opens (same rules as the Payslips list: hand edits
+  // kept, deleted lines stay deleted), so a trip saved since the list was last opened is on it. (It used to be only the
+  // "current" run's drafts: one forgotten draft in an older run then stopped every newer draft from refreshing.)
   let refreshError: string | null = null;
-  if (!isDemo() && p.slip.status === "draft" && p.run.submit_date === await currentRunDate()) {
+  if (!isDemo() && p.slip.status === "draft") {
     try {
       const b = await buildDrafts(serverClient(), p.run.submit_date, p.slip.trainer_id);
       if (b.changedNames.length) p = (await getPayslip(params.id)) || p;
@@ -31,10 +32,18 @@ export default async function PayslipPage({ params, searchParams }: { params: { 
   const miles = isDemo() ? [] : await mileageRows(p.slip.trainer_id, p.run.period_start, p.run.period_end).catch(() => []);
   // Each trip's pay line on this payslip ("Pickup 10/28: 310 mi, …"), or null if it isn't on it
   const routeLines = p.lines.filter((l) => l.kind === "route");
+  const skipKeys = new Set<string>(((p.slip as unknown as { skip_keys?: string[] }).skip_keys) || []);
+  const why: Record<string, { text: string; key?: string }> = {};
   const onSlip = Object.fromEntries(miles.map((m) => {
     const tag = `${TRIP_LABEL[m.kind]} ${m.date.slice(5).replace("-", "/")}`;
     const line = routeLines.find((l) => l.booking_id === m.bookingId && String(l.program || "").startsWith(tag))
       || routeLines.find((l) => !l.booking_id && String(l.program || "").startsWith(tag)); // a route line typed by hand
+    if (!line) {
+      const key = `route|${m.bookingId || ""}|${tag}`;
+      why[m.tripId] = p!.slip.status !== "draft" ? { text: "This payslip is approved, so nothing is added to it. Add the miles by hand on a correction." }
+        : skipKeys.has(key) ? { text: "Its mileage line was deleted from this payslip earlier, so it stays off.", key }
+        : refreshError ? { text: "The payslip couldn't be refreshed just now (see above)." } : { text: "Not earning mileage pay with this trainer's rates (no rate, or not over the threshold)." };
+    }
     return [m.tripId, line ? Number(line.amount) : null];
   })) as Record<string, number | null>;
   // Forms marked "Missed (late)" for this trainer: the ones still to deduct, and those ticked on this run's dates
@@ -57,7 +66,7 @@ export default async function PayslipPage({ params, searchParams }: { params: { 
       </div>
       {refreshError && <p role="alert" className="mb-4 rounded-xl bg-heart-wash px-3 py-2 text-body text-heart">Couldn&apos;t update this payslip from bookings and trips: {refreshError}. The lines below may be out of date.</p>}
       {missed.length > 0 && <MissedForms forms={missed} />}
-      {miles.length > 0 && <div className="mb-4"><MileageCheck rows={miles} payslipId={p.slip.id} setUp={freerouteOn()} onSlip={onSlip} /></div>}
+      {miles.length > 0 && <div className="mb-4"><MileageCheck rows={miles} payslipId={p.slip.id} setUp={freerouteOn()} onSlip={onSlip} why={why} /></div>}
       <PayslipEditor
         id={p.slip.id} approved={p.slip.status === "approved"}
         initial={p.lines.map((l) => ({ kind: l.kind, booking_id: l.booking_id, weeks_completed: l.weeks_completed, days: l.days ?? null, week_from: l.week_from, pct: l.pct, client: l.client, dog: l.dog, program: l.program, description: l.description, amount: Number(l.amount), auto: l.auto }))}
