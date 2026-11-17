@@ -48,11 +48,11 @@ export function PayRatesForm({ trainerId, rates }: { trainerId: string; rates: R
               <input name="mileage_rate" inputMode="decimal" defaultValue={rates.mileage_rate ?? ""} className="field pl-7" placeholder="No mileage pay" /></span>
           </label>
           <label className="block">
-            <span className="label">Paid over (miles per trip)</span>
+            <span className="label">Paid when a trip is over (miles)</span>
             <input name="mileage_free_miles" inputMode="decimal" defaultValue={rates.mileage_free_miles ?? 0} className="field" />
           </label>
         </div>
-        <p className="mt-2 text-caption text-ink-faint">Each pickup, drop-off and follow-up session: (miles − paid-over miles) × pay per mile. e.g. 40 miles, paid over 20, at $0.30 = $6.00. Added to the payslip for the pay period the trip falls in.</p>
+        <p className="mt-2 text-caption text-ink-faint">A pickup, drop-off or follow-up trip over this many miles is paid for all its miles at the pay per mile; a trip not over it pays nothing. e.g. over 200 miles at $0.30: a 334-mile trip = $100.20, a 180-mile trip = $0. Added to the payslip for the pay run the trip falls in.</p>
       </fieldset>
       <label className="block max-w-[220px]">
         <span className="label">Follow-up session pay</span>

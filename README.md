@@ -123,9 +123,11 @@ Migration 039. On a chat page (or a To do row for "hasn't posted" / "client wait
 - Must stay white in both themes (white documents with their own dark text): use `bg-[#fff] text-[#281870]`, as the payslip and report previews do.
 - The logo has a light version for dark mode (`public/brand-logo-dark.png`, via `components/BrandLogo.tsx`). Free kennels show as outlined boxes in dark mode, booked ones filled.
 
-## Mileage check (payslips)
+## Mileage pay and the mileage check (payslips)
+Mileage: a trip over the trainer's threshold (Pay rates → "Paid when a trip is over") is paid for **all** its miles at their rate; a trip not over it pays nothing. Before Nov 17, 2026 only the miles over the threshold were paid, which was wrong: payslips approved before then were worked out the old way.
+
 Each payslip has a **Mileage check**: every pickup, drop-off and follow-up trip in the period, the miles the trainer declared, the driving route from the trainer to the client (doubled for the round trip), and a **Check on Google Maps** link for the same trip.
-- Flags: more than 5% **or** 15 miles over the route, or any trip that earns mileage pay (over the trainer's free miles). Pay is still worked out from the declared miles; fix the line by hand if it's wrong. The payslip cards show how many trips to check.
+- Flags: more than 5% **or** 15 miles over the route, or any trip that earns mileage pay (over the trainer's threshold: all its miles are then paid). Pay is still worked out from the declared miles; fix the line by hand if it's wrong. The payslip cards show how many trips to check.
 - Routes come from FreeRoute (`FREEROUTE_API_KEY` in Vercel; free tier 1,000 requests a day, we use a few). Its address search can pick a same-name town in another state, so an address only counts when the result is in the same ZIP (or state); otherwise the ZIP's centre is used. If FreeRoute errors or doesn't answer, it's a straight-line estimate + 25% for roads, marked "estimate", tried again 6 hours later. No key = estimates only. FreeRoute doesn't report tolls; Google does, on the link.
 - One check per booking and trainer, kept in `trip_routes` (migration 038), redone only when an address changes. The 20-minute forms job checks a few at a time; **Check now** on the payslip does that trainer's trips straight away.
 

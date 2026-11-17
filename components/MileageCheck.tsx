@@ -51,7 +51,7 @@ export function MileageCheck({ rows, payslipId, setUp, onSlip }: { rows: Mileage
           );
         })}
       </ul>
-      <p className="border-t border-line px-4 py-2.5 text-caption text-ink-faint">Only trips that earn mileage pay are listed (over the free miles); the rest need no check. Flagged red when also more than 5% or 15 miles over the route. Pay is worked out from the declared miles either way; change the line below if it&apos;s wrong.</p>
+      <p className="border-t border-line px-4 py-2.5 text-caption text-ink-faint">Only trips that earn mileage pay are listed (over the trainer's threshold); the rest need no check. Flagged red when also more than 5% or 15 miles over the route. Pay is worked out from the declared miles either way; change the line below if it&apos;s wrong.</p>
     </section>
   );
 }

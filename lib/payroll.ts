@@ -122,13 +122,14 @@ export function periodLabel(start: string, end: string) {
 }
 
 // ── Mileage ─────────────────────────────────────────────────────────────
-// Per trip: (miles driven − the trainer's free miles) × their rate per mile. Nothing below the free miles.
-// e.g. 40 miles, paid over 20 miles, at $0.30 = 20 × 0.30 = $6.00. Trips come from the pickup and drop-off forms
-// and from follow-up sessions, and are paid in the pay run whose two weeks contain the trip date.
+// Per trip: a trip over the trainer's threshold is paid for ALL its miles at their rate per mile; a trip at or under it pays
+// nothing. e.g. threshold 200, rate $0.30: 334 miles = 334 × 0.30 = $100.20; 180 miles = $0. (Until Nov 2026 only the
+// miles over the threshold were paid, which was wrong.) Trips come from the pickup and drop-off forms and from follow-up
+// sessions, and are paid in the pay run whose two weeks contain the trip date.
 export type TripLike = { id: string; trainer_id: string; booking_id: string | null; kind: "pickup" | "dropoff" | "followup"; trip_date: string; miles: number | string; client?: string | null; dog?: string | null };
 export const TRIP_LABEL: Record<TripLike["kind"], string> = { pickup: "Pickup", dropoff: "Drop-off", followup: "Follow-up session" };
 export function mileagePay(miles: number, freeMiles: number, rate: number | null | undefined): { paidMiles: number; amount: number | null } {
-  const paidMiles = Math.max(0, Math.round((miles - (freeMiles || 0)) * 10) / 10);
+  const paidMiles = miles > (freeMiles || 0) ? Math.round(miles * 10) / 10 : 0;
   return { paidMiles, amount: rate == null ? null : round2(paidMiles * rate) };
 }
 export type RouteLine = { kind: "route"; booking_id: string | null; client: string; dog: string; program: string; amount: number; days: null; weeks_completed: null; week_from: null; missingRate: boolean; trip_id: string };
@@ -138,7 +139,7 @@ export function routeLines(trips: TripLike[], rates: Rates, periodStart: string,
     const miles = Number(t.miles), free = Number(rates.mileage_free_miles || 0), rate = rates.mileage_rate == null ? null : Number(rates.mileage_rate);
     const p = mileagePay(miles, free, rate);
     const what = `${TRIP_LABEL[t.kind]} ${t.trip_date.slice(5).replace("-", "/")}: ${miles} mi`;
-    const program = p.amount == null ? `${what} (no mileage rate set)` : p.paidMiles ? `${what}, ${p.paidMiles} paid at $${rate!.toFixed(2)}` : `${what}, under ${free} mi`;
+    const program = p.amount == null ? `${what} (no mileage rate set)` : p.paidMiles ? `${what}, over ${free} mi so all paid at $${rate!.toFixed(2)}` : `${what}, not over ${free} mi`;
     return { kind: "route", booking_id: t.booking_id, client: t.client || "", dog: t.dog || "", program, amount: p.amount ?? 0, days: null, weeks_completed: null, week_from: null, missingRate: p.amount == null, trip_id: t.id };
   });
 }
