@@ -264,7 +264,8 @@ export async function syncPretraining(opts: { dealIds?: string[]; sb?: SupabaseC
         else if (!opts.quietIncidents && await raiseVaccineCheck(dog, chatId, sb)) out.incidents.push(`Check vaccines: ${dog.name}`);
         const ref = `ready:${dog.booking.id}`, b = dog.booking;
         const due = addDays(b.start_date, -READY_DAYS) <= t && t <= b.end_date;
-        if (dog.ready.ready || t > b.end_date) { await resolveIncidents({ kinds: ["not_ready"], ref }, "automatic", "Everything is in", sb); continue; }
+        // Once the dog has started, "isn't ready to start" is moot (it used to stay, and even come back, during the whole program)
+        if (dog.ready.ready || t > b.start_date) { await resolveIncidents({ kinds: ["not_ready"], ref }, "automatic", dog.ready.ready ? "Everything is in" : "The dog has started", sb); continue; }
         if (!due || opts.quietIncidents) continue;
         const list = dog.ready.missing.map((i) => (i.detail ? `${i.label} (${i.detail})` : i.label)).join("; ");
         const soon = b.start_date <= addDays(t, 2);

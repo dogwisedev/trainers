@@ -120,3 +120,14 @@ export async function clientCloseAction(incidentId: string, why = ""): Promise<R
     return { ok: true, message: inc.kind.startsWith("client_waiting") || inc.kind === "client_pileup" ? "Closed: no reply needed." : "Marked handled." };
   });
 }
+
+/** "Worries adding up": someone has looked (a call, a chat with the trainer). Off To do for a week. */
+export async function patternSeenAction(chatId: string, why: string): Promise<R> {
+  try {
+    if (isDemo()) return { ok: false, message: "Demo mode." };
+    const { who } = await admin();
+    await logReason({ action: "pattern:seen", item: chatId, who, reason: why || "Looked into it" });
+    revalidatePath("/a");
+    return { ok: true, message: "Put aside for a week." };
+  } catch (e) { return { ok: false, message: (e as Error).message }; }
+}

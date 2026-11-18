@@ -3,6 +3,7 @@ import { ArrowDownRight, ArrowUpRight, ChevronRight, Info } from "lucide-react";
 import { Pill } from "@/components/ui";
 import { AiHelp } from "@/components/AiHelp";
 import { WorkPanel } from "@/components/WorkPanel";
+import { TodoAge } from "@/components/TodoAge";
 import { PulseRefresh } from "@/components/PulseRefresh";
 import { MovesStrip } from "@/components/MovesStrip";
 import type { Card, OfficeView, Pulse, SalesView, Tile, TrainerRow, View } from "@/lib/pulse";
@@ -337,6 +338,7 @@ export function PulseView({ p, q }: { p: Pulse; q: Q }) {
       {p.cards.length > 0 && <section aria-label="Needs a decision" className="-mx-4 mb-5 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-1 md:mx-0 md:grid md:grid-cols-2 md:overflow-visible md:px-0 lg:grid-cols-3">{p.cards.map((c, i) => <CardView key={i} c={c} />)}</section>}
       {keys.length > 0 && <section aria-label="The numbers" className={`mb-6 grid grid-cols-2 gap-3 ${keys.length === 5 ? "md:grid-cols-3 lg:grid-cols-5" : "md:grid-cols-4"}`}>{keys.map((k) => <TileCard key={k} t={tile(k)} />)}</section>}
       {p.view === "office" && p.office && <Office o={p.office} />}
+      {p.view === "office" && <TodoAge />}
       {p.view === "office" && <AiHelp from={p.range.from} label={p.range.label} />}
       {p.view === "work" && <WorkPanel from={p.range.from} to={p.range.to} label={p.range.label} />}
       {p.view === "trainers" && (

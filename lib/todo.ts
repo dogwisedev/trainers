@@ -33,7 +33,8 @@ export type TodoItem = {
   chase?: ChaseInfo;
   clear?: "noreply" | "handled";
   readTrainer?: string; // a trainer's message: "No reply needed" marks their thread read
-  decision?: boolean;   // a client question about money, a refund, cancelling or dates: a decision for Sean, shown first and owned by him // a client item a person can close: "No reply needed" (waiting) / "Handled" (office question, urgent)    // handed to the office by the reminder ladder: history, a suggested check-in, Send in app / Text / Call (no Done: it clears itself)
+  decision?: boolean;
+  pattern?: string;     // "worries adding up" on this chat: "Looked into it" puts it aside for a week   // a client question about money, a refund, cancelling or dates: a decision for Sean, shown first and owned by him // a client item a person can close: "No reply needed" (waiting) / "Handled" (office question, urgent)    // handed to the office by the reminder ladder: history, a suggested check-in, Send in app / Text / Call (no Done: it clears itself)
 };
 /** late: forms past their deadline. beforeApp: handover reports due before the app took over the forms (still needed for the certificate). */
 export type TodoData = { items: TodoItem[]; late: (Todo & { trainerName: string; poc?: string })[]; beforeApp: (Todo & { trainerName: string; poc?: string })[]; pocs: string[] };
@@ -217,13 +218,15 @@ async function buildTodoUncached(): Promise<TodoData> {
     const { data: mn } = await sb.from("message_needs").select("chat_id, needs, sent_at").in("needs", ["office", "urgent"]).gte("sent_at", new Date(Date.now() - 7 * 864e5).toISOString()).limit(3000);
     const perChat = new Map<string, { n: number; urgent: number; last: string }>();
     for (const r of (mn || []) as { chat_id: string; needs: string; sent_at: string }[]) { const x = perChat.get(r.chat_id) || { n: 0, urgent: 0, last: "" }; x.n++; if (r.needs === "urgent") x.urgent++; if (r.sent_at > x.last) x.last = r.sent_at; perChat.set(r.chat_id, x); }
-    const ids = [...perChat.entries()].filter(([, x]) => x.n >= 2).map(([id]) => id);
+    const { data: seen } = await sb.from("work_reasons").select("item").eq("action", "pattern:seen").gte("at", new Date(Date.now() - 7 * 864e5).toISOString()).limit(500);
+    const looked = new Set(((seen || []) as { item: string | null }[]).map((r) => r.item));
+    const ids = [...perChat.entries()].filter(([, x]) => x.n >= 2).map(([id]) => id).filter((id) => !looked.has(id));
     if (ids.length) {
       const { data: cs } = await sb.from("chats").select("id, title, client_name, trainer_name, trainer_id, status").in("id", ids).eq("status", "open");
       for (const c of (cs || []) as { id: string; title: string | null; client_name: string | null; trainer_name: string | null; trainer_id: string | null }[]) {
         const x = perChat.get(c.id)!;
         items.push({ key: `pattern:${c.id}`, group: "now", tone: "heart", icon: "message", since: x.last, poc: pocOf(c.trainer_id), text: `${c.client_name || "A client"}: ${x.n} worries or questions this week about ${c.title || "their dog"}${x.urgent ? ` (${x.urgent} urgent)` : ""}`,
-          detail: `Worth a call, not just replies. Trainer: ${c.trainer_name || "?"}.`, primary: { label: "Open chat", href: `/a/chats/${c.id}` } });
+          detail: `Worth a call, not just replies. Trainer: ${c.trainer_name || "?"}.`, primary: { label: "Open chat", href: `/a/chats/${c.id}` }, pattern: c.id });
       }
     }
   } catch { /* before migration 052: nothing to add */ }

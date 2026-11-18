@@ -12,6 +12,7 @@ import { TodoDone } from "@/components/TodoDone";
 import { ChaseActions } from "@/components/ChaseActions";
 import { ClientClose } from "@/components/ClientClose";
 import { MarkReadButton } from "@/components/MarkReadButton";
+import { PatternSeen } from "@/components/PatternSeen";
 import { IconTile } from "@/components/ui";
 
 const GROUPS: { key: TodoGroup; title: string; short: string; hint: string }[] = [
@@ -36,6 +37,13 @@ export function TodoList({ items, late, beforeApp = [], canQuiet = false, pocs =
   return (
     <>
       <div id="todo-list">
+      {(() => {
+        const old = items.filter((i) => i.since && Date.now() - new Date(i.since).getTime() >= 2 * 864e5);
+        if (!old.length) return null;
+        const by = new Map<string, number>();
+        for (const i of old) by.set(i.poc || "no owner", (by.get(i.poc || "no owner") || 0) + 1);
+        return <p className="mt-4 rounded-xl bg-heart-wash px-3.5 py-2.5 text-body font-semibold text-heart">{old.length} of {items.length} have waited on the office for 2 days or more: {[...by.entries()].sort((a, b) => b[1] - a[1]).map(([w, n]) => `${w} ${n}`).join(", ")}.</p>;
+      })()}
       <div className="mt-4 flex flex-wrap items-center gap-2">
         <TodoTypes pocs={pocs} />
         {counts.length > 1 && <nav className="-mx-1 flex min-w-0 gap-2 overflow-x-auto px-1 pb-1" aria-label="Jump to">
@@ -97,7 +105,11 @@ function Item({ i, canQuiet = false }: { i: TodoItem; canQuiet?: boolean }) {
       <div className="min-w-0 flex-1">
         <p className="font-bold leading-snug">{i.text}</p>
         {i.detail && <p className="mt-1 line-clamp-3 text-body leading-snug text-ink-soft">{i.detail}</p>}
-        {i.since && <p className="mt-1 text-caption text-ink-faint">{ago(i.since)}</p>}
+        {i.since && (() => { const d = (Date.now() - new Date(i.since).getTime()) / 864e5; return (
+          <p className="mt-1.5 flex flex-wrap items-center gap-1.5 text-caption">
+            <span className={`rounded-full px-2 py-0.5 font-semibold ${d >= 2 ? "bg-heart text-white" : "bg-paper text-ink-soft"}`}>{d >= 2 ? `Waiting on the office ${Math.floor(d)} days` : ago(i.since)}</span>
+            <span className={`rounded-full px-2 py-0.5 font-semibold ${i.poc ? "bg-mint-wash text-fern" : "bg-biscuit-wash text-warn"}`}>{i.poc ? `Owner: ${i.poc}` : "No owner"}</span>
+          </p>); })()}
         {!!i.chase?.history.length && (
           <ul className="mt-1.5 space-y-0.5 border-l-2 border-line pl-2.5 text-caption text-ink-soft" aria-label="What the app already did">
             {i.chase.history.map((h, k) => <li key={k}>{h}</li>)}
@@ -112,6 +124,7 @@ function Item({ i, canQuiet = false }: { i: TodoItem; canQuiet?: boolean }) {
           {canQuiet && i.quietChatId && <QuietChatButton chatId={i.quietChatId} quiet={false} />}
           {i.incidentId && i.clear && <ClientClose id={i.incidentId} mode={i.clear} />}
           {i.readTrainer && <MarkReadButton trainerId={i.readTrainer} />}
+          {i.pattern && <PatternSeen chatId={i.pattern} />}
           {i.incidentId && !i.deal && !i.ask && !i.chase && !i.clear && <span className="ml-auto"><TodoDone id={i.incidentId} label={i.doneLabel} /></span>}
           {i.ask && <AskDecision id={i.ask.id} kind={i.ask.kind} expired={i.ask.expired} trainer={i.ask.trainer} dealId={i.ask.dealId} />}
           {i.deal && <DealDecision dealId={i.deal} bookHref={`/a/bookings/new?deal=${i.deal}`} />}
