@@ -2,6 +2,7 @@ import "server-only";
 import { serviceClient } from "./supabase";
 import { buildTodo, type TodoItem } from "./todo";
 import { addDays, todayIso } from "./dates";
+import { watching, wins, notesOf } from "./clientCare";
 
 // The office brief: To do in the sections a post wants, with "new" or "still open, day N" on each item, so it can be
 // posted twice a day in one call with nothing to judge. `onlyNew` returns just what has appeared since that caller's last
@@ -35,7 +36,7 @@ export async function officeBrief(o: { onlyNew?: boolean; site: string; caller?:
   };
   // Going home within 3 days, with the handover's state
   const today = todayIso();
-  const { data: home } = await sb.from("bookings").select("id, dog_name, client_name, end_date, trainers(name)").neq("status", "cancelled").gte("end_date", today).lte("end_date", addDays(today, 3)).order("end_date");
+  const { data: home } = await sb.from("bookings").select("id, dog_name, client_name, end_date, hubspot_deal_id, trainers(name)").neq("status", "cancelled").gte("end_date", today).lte("end_date", addDays(today, 3)).order("end_date");
   const ids = ((home || []) as { id: string }[]).map((b) => b.id);
   const { data: hov } = ids.length ? await sb.from("reports").select("booking_id, status, ai_draft").eq("kind", "handover").in("booking_id", ids) : { data: [] };
   const goingHome = ((home || []) as unknown as { id: string; dog_name: string | null; client_name: string; end_date: string; trainers: { name: string } | null }[]).map((b) => {
@@ -43,14 +44,23 @@ export async function officeBrief(o: { onlyNew?: boolean; site: string; caller?:
     const state = !r ? "handover not started" : r.status === "approved" ? "handover approved" : r.status === "submitted" ? "handover in, to review" : r.ai_draft?.fields ? "handover drafted by the app, with the trainer" : r.ai_draft?.thin ? "handover empty (too few updates to draft)" : "handover started";
     return { dog: b.dog_name || "Dog", client: b.client_name, trainer: b.trainers?.name || "?", goesHome: b.end_date, state, link: `${o.site}/a/dogs/${b.id}?tab=forms` };
   });
+  // Client notes on the dogs going home (the handover should respect them)
+  for (const g of goingHome as (typeof goingHome[number] & { notes?: string[] })[]) {
+    const b = ((home || []) as { id: string }[]).find((x) => g.link.includes(x.id)) as { id: string; hubspot_deal_id?: string | null } | undefined;
+    if (b) g.notes = (await notesOf(b.hubspot_deal_id || b.id, true, sb).catch(() => [])).slice(0, 3).map((n) => n.text);
+  }
+  // Watched dogs, with what's happened since this caller's last brief, and the wins (clients praising the work)
+  const watched = await watching(lastAt, o.site, sb).catch(() => []);
+  const praise = await wins(lastAt, o.site, sb).catch(() => []);
   const { count: chasing } = await sb.from("nudges").select("id", { count: "exact", head: true }).is("done_at", null).lt("step", 3);
   const counts = { todo: d.items.length + (d.beforeApp.length ? 1 : 0), chasing: chasing || 0, lateForms: d.late.length };
   await sb.from("app_settings").upsert({ key, value: now, updated_by: "app", updated_at: now }, { onConflict: "key" }).then(() => null, () => null);
-  const empty = Object.values(sections).every((s) => s.length === 0);
+  const empty = Object.values(sections).every((s) => s.length === 0) && !watched.length && !praise.length;
   return {
     at: now, since: lastAt, caller: callerKey(o.caller || "default"), mode: o.onlyNew ? "new since this caller's last new-only call" : "everything open",
     how: "Each item is already on the app's To do with its owner (owner = the trainer's POC; decisions = Sean). Post the sections that have items; collapse 'still open' ones to one line with the day count; never ask anyone to chase a trainer the app is still reminding (counts.chasing). Nothing here needs judging: the app has read the messages.",
-    ...sections, goingHome: o.onlyNew ? goingHome.filter((g) => g.state === "handover not started" || g.state.startsWith("handover empty")) : goingHome, counts,
+    ...sections, goingHome: o.onlyNew ? goingHome.filter((g) => g.state === "handover not started" || g.state.startsWith("handover empty")) : goingHome,
+    watching: o.onlyNew ? watched.filter((w) => w.since !== "nothing new") : watched, wins: praise, counts,
     nothing: empty ? (o.onlyNew ? "Nothing new since the last call." : "Nothing needs a person right now.") : undefined
   };
 }

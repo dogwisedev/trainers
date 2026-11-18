@@ -292,3 +292,9 @@ For learning how the app is used and why, so the next automation picks itself (m
 - **The app posts the brief itself** (`lib/briefPost.ts`, no AI): to Buzz #flagged-ongoing at 6 AM and 4 PM Eastern, and a new-only post on the hour from 7 AM to 10 PM when something has come in. Off until switched on (Pulse → Office → Office brief in Buzz), for the move off Slack. `BRIEF_BUZZ_CHANNEL` to post elsewhere.
 - **Risk** counts as urgent: legal hints, chargebacks and disputes, bad reviews, welfare worries and politely worded complaints (Claude's prompt and the fallback rules). They're To do items until someone says how they were handled.
 - **Decisions for Sean** cover every money question (refunds, compensation, credit, money back, prorating, discounts, balance, fees, dates) and the app's own "refund or partial pay?" and "check pay and refund" items.
+
+## Watch list, client notes and wins (migration 060)
+- **Watch this dog** (dog page header, admins): with a one-tap reason. While watched, the dog is in the office brief with what's happened since the last brief (new messages, urgent ones, the latest client message). Stop watching on the same button; it drops off 7 days after the dog goes home.
+- **Client notes** (dog page, admins and the dog's trainer): standing things everyone should know about the client. Admins can mark a note office only. Shown on the trainer's dog page (not office-only ones) and with dogs going home in the brief.
+- **Wins**: client messages praising the trainer or the progress are picked up with the message labels (Claude, with a rules fallback). They're in the brief, and per trainer on Pulse → Trainers.
+- Also back in: vaccine and vet questions go to the office; Claude re-reads labels the simple rules made; a trainer isn't reminded about a waiting client once the office has it.

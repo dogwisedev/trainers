@@ -42,7 +42,9 @@ export function briefText(b: Brief, full: boolean): string {
     section("Worries adding up", b.worriesAddingUp as Item[]),
     section("Trainers' messages to the office", b.trainerInbox as Item[]),
     section("Starting soon", b.startingSoon as Item[]),
-    b.goingHome.length ? `**Going home**\n${b.goingHome.map((g) => `- ${g.dog} (${g.client}, ${g.trainer}), ${g.goesHome}: ${g.state} ([open](${g.link}))`).join("\n")}` : ""
+    b.goingHome.length ? `**Going home**\n${b.goingHome.map((g) => `- ${g.dog} (${g.client}, ${g.trainer}), ${g.goesHome}: ${g.state} ([open](${g.link}))${(g as { notes?: string[] }).notes?.length ? `\n  Notes: ${(g as { notes?: string[] }).notes!.join(" · ")}` : ""}`).join("\n")}` : "",
+    b.watching?.length ? `**Watching**\n${b.watching.map((w) => `- ${w.dog} (${w.client}, ${w.trainer}): ${w.reason}, day ${w.days}. ${w.since}${w.urgent ? `, ${w.urgent} urgent` : ""}${w.latest ? `: ${w.latest}` : ""} ([open](${w.link}))`).join("\n")}` : "",
+    b.wins?.length ? `**Wins**\n${b.wins.slice(0, 6).map((w) => `- ${w.dog} (${w.trainer}): ${w.quote}`).join("\n")}` : ""
   ].filter(Boolean);
   const head = full ? `**Office brief, ${when} ET**` : `**New since the last post, ${when} ET**`;
   const foot = full ? `Everything else is on the app's To do (${b.counts.todo}). The app is chasing trainers on ${b.counts.chasing} more.` : "";

@@ -29,9 +29,15 @@ const NEEDS: Needs[] = ["reply", "office", "none", "urgent"];
 
 // ── Rules: without an API key, or when Claude doesn't answer ──
 const URGENT_RE = /\b(bit|bites?|bitten|biting|attack(ed|ing)?|injur(y|ed|ies)|bleed(ing)?|blood|vomit(ing|ed)?|threw up|throwing up|diarrh?o?ea|limp(ing)?|emergency|hospital|escaped|ran away|seizures?|swollen|unhappy|disappointed|upset|angry|furious|unacceptable|complain(t|ing)?|lawyer|chargeback|attorney|sue|suing|legal action|small claims|dispute|disputing|bbb|better business|bad review|leave a review|negative review|google review|one star|1 star|yelp|trustpilot|scam|fraud|report you|police|neglect\w*|abus\w*|mistreat\w*|starv\w*|losing weight|lost weight|skinny|too thin|so thin|looks thin|not eating|won'?t eat|stopped eating|lethargic|limping)\b/i;
-const OFFICE_RE = /(\$\s?\d|\b\d{2,}\.\d{2}\b|\b(pay|paid|paying|payment|invoice|charged?|card|deposit|balance|price|cost|discount|financ\w*|installments?|receipt|refund|cancel\w*|reschedul\w*|postpone|extension|contract|certificate)\b)/i;
+const OFFICE_RE = /(\$\s?\d|\b\d{2,}\.\d{2}\b|\b(pay|paid|paying|payment|invoice|charged?|card|deposit|balance|price|cost|discount|financ\w*|installments?|receipt|refund|cancel\w*|reschedul\w*|postpone|extension|contract|certificate|vaccin\w*|shots?|rabies|bordetella|vet records?)\b)/i;
 const ACK_RE = /^(yes|yeah|yep|yup|ok(ay)?|k|sure|perfect|great|awesome|amazing|wonderful|cool|nice|lovely|good|sounds (good|great|perfect)|will do|got it|noted|thanks?|thank you|thx|ty|appreciate|see you|bye|have a (good|great|nice)|love (it|this|that)|so cute|aww+|haha+|lol)\b/i;
 const EMOJI_ONLY = /^[\p{Extended_Pictographic}\p{Emoji_Component}\s!.]+$/u;
+/** Without Claude: a message that clearly praises the trainer or the progress (a win). Never a question or a worry. */
+const PRAISE_RE = /\b(amazing|awesome|incredible|fantastic|wonderful|so happy|so proud|such a difference|huge difference|great job|good job|well done|thank you so much|grateful|love (it|this|him|her|seeing)|best (trainer|thing)|recommend|can'?t believe|blown away)\b/i;
+export function rulePraise(body: string | null): boolean {
+  const t = String(body || "").trim();
+  return !!t && !t.includes("?") && PRAISE_RE.test(t) && !URGENT_RE.test(t);
+}
 export function ruleNeeds(body: string | null, kind: string): { needs: Needs; why: string } {
   const t = String(body || "").replace(/\s+/g, " ").trim();
   if (!t) return { needs: "none", why: kind === "media" ? "A photo or file" : "Nothing written" };
@@ -45,24 +51,25 @@ export function ruleNeeds(body: string | null, kind: string): { needs: Needs; wh
 // ── Claude ──
 const SYSTEM = `You read a chat between a client of Dogwise Academy (a dog board-and-train business), their dog's trainer and the Dogwise office. For each client message you're asked about, decide who has to act on it:
 - reply: the trainer should answer it (a question or request about the dog, pickup or drop-off logistics, training, or news that deserves a response).
-- office: the office should answer it, not the trainer (payment, prices, invoices, deposits, refunds, cancelling or changing dates, contracts, certificates, or a message written to someone other than the trainer).
+- office: the office should answer it, not the trainer (payment, prices, invoices, deposits, refunds, cancelling or changing dates, contracts, certificates, vaccines, shots and vet visits before training, or a message written to someone other than the trainer).
 - none: nothing needs answering (thanks, an OK, a yes to something already arranged, an emoji, a goodbye, a message that closes the conversation).
 - urgent: a person must act now. That includes: a bite or attack; an injury or illness; the dog escaped or is lost; a worry about the dog's welfare (not eating, losing weight, seems unwell, hurt, scared, neglected), even when asked politely as a question; a client who is upset, disappointed or complaining, even when it's worded politely; a threat to cancel; any mention of a refund dispute, a chargeback, a lawyer, legal action or reporting the business; any mention of leaving a bad review or telling others. In "why", say which of these it is (for example "Welfare worry: not eating", "Bad review hinted", "Chargeback mentioned").
 Judge each message in the conversation's context: "Yes, that's perfect" answering the trainer's question is none. When a message is both, the order is urgent, then office, then reply.
-Answer with JSON only, no other text: [{"ref":"<ref>","needs":"reply|office|none|urgent","why":"<under 8 words>"}]`;
+Also say whether the message praises the trainer, the training or the dog's progress ("praise": true), for example "He's doing amazing, thank you!" or "We can see such a difference". A plain "thanks" or "ok" is not praise.
+Answer with JSON only, no other text: [{"ref":"<ref>","needs":"reply|office|none|urgent","why":"<under 8 words>","praise":true|false}]`;
 const who = (m: Msg) => m.sender_role === "client" ? `Client${m.sender_name ? ` (${m.sender_name})` : ""}` : m.sender_role === "trainer" ? `Trainer${m.sender_name ? ` (${m.sender_name})` : ""}` : m.sender_role === "admin" && m.sender_id ? "Office" : "App (automatic)";
 
-async function aiNeeds(context: Msg[], targets: Msg[]): Promise<Map<string, { needs: Needs; why: string }> | null> {
+async function aiNeeds(context: Msg[], targets: Msg[]): Promise<Map<string, { needs: Needs; why: string; praise?: boolean }> | null> {
   if (!aiOn()) return null;
   const ref = (m: Msg) => m.id.slice(0, 8);
   const transcript = context.map((m) => `[${ref(m)}] ${new Date(m.created_at).toISOString().slice(0, 16).replace("T", " ")} ${who(m)}: ${m.body ? clip(m.body, 600) : m.kind === "media" ? "(a photo, video or file)" : "(no text)"}`).join("\n");
-  const arr = jsonFrom<{ ref: string; needs: string; why?: string }[]>(await claude({ fast: true, maxTokens: 600, timeoutMs: 15000, system: SYSTEM,
+  const arr = jsonFrom<{ ref: string; needs: string; why?: string; praise?: boolean }[]>(await claude({ fast: true, maxTokens: 600, timeoutMs: 15000, system: SYSTEM,
     user: `The chat, oldest first:\n${transcript}\n\nThe client messages to decide: ${targets.map(ref).join(", ")}` }));
   if (!Array.isArray(arr)) return null;
-  const out = new Map<string, { needs: Needs; why: string }>();
+  const out = new Map<string, { needs: Needs; why: string; praise?: boolean }>();
   for (const x of arr) {
     const m = targets.find((t) => ref(t) === x.ref);
-    if (m && NEEDS.includes(x.needs as Needs)) out.set(m.id, { needs: x.needs as Needs, why: clip(x.why || "", 120) });
+    if (m && NEEDS.includes(x.needs as Needs)) out.set(m.id, { needs: x.needs as Needs, why: clip(x.why || "", 120), praise: x.praise === true });
   }
   return out;
 }
@@ -82,7 +89,17 @@ export async function classifyNew(sb: SupabaseClient = serviceClient(), now = ne
       if (e) return out; // migration 052 not run yet: nothing to do
       for (const x of (data || []) as { message_id: string }[]) have.add(x.message_id);
     }
-    const todo = msgs.filter((m) => !have.has(m.id)).slice(0, 40);
+    let todo = msgs.filter((m) => !have.has(m.id));
+    if (aiOn() && todo.length < 40) {
+      // Claude re-reads what the simple rules labelled before (or while) the key wasn't working: never a person's correction
+      const ruled: string[] = [];
+      for (let i = 0; i < msgs.length; i += 100) {
+        const { data } = await sb.from("message_needs").select("message_id").eq("by", "rules").in("message_id", msgs.slice(i, i + 100).map((m) => m.id));
+        for (const x of (data || []) as { message_id: string }[]) ruled.push(x.message_id);
+      }
+      todo = [...todo, ...msgs.filter((m) => ruled.includes(m.id))];
+    }
+    todo = todo.slice(0, 40);
     const byChat = new Map<string, Msg[]>();
     for (const m of todo) byChat.set(m.chat_id, [...(byChat.get(m.chat_id) || []), m]);
     for (const [chatId, targets] of byChat) {
@@ -90,11 +107,14 @@ export async function classifyNew(sb: SupabaseClient = serviceClient(), now = ne
       const { data: ctx } = await sb.from("chat_messages").select("id, chat_id, created_at, sender_role, sender_name, sender_id, body, kind").eq("chat_id", chatId).lte("created_at", newest).order("created_at", { ascending: false }).limit(16);
       const context = ((ctx || []) as Msg[]).reverse();
       const ai = await aiNeeds(context, targets);
-      const rows = targets.map((t) => {
+      const rows = targets.filter((t) => !have.has(t.id) || ai?.has(t.id)).map((t) => {
         const r = ai?.get(t.id) || ruleNeeds(t.body, t.kind);
-        return { message_id: t.id, chat_id: chatId, sent_at: t.created_at, needs: r.needs, why: r.why, by: ai?.has(t.id) ? "ai" : "rules", first: r.needs };
+        return { message_id: t.id, chat_id: chatId, sent_at: t.created_at, needs: r.needs, why: r.why, by: ai?.has(t.id) ? "ai" : "rules", first: r.needs, praise: "praise" in r ? !!r.praise : rulePraise(t.body) };
       });
-      const { error: e } = await sb.from("message_needs").upsert(rows, { onConflict: "message_id", ignoreDuplicates: true });
+      if (!rows.length) continue;
+      // New labels, or Claude's in place of the rules' (a person's correction is never in `rows`)
+      let { error: e } = await sb.from("message_needs").upsert(rows, { onConflict: "message_id" });
+      if (e && /praise/i.test(e.message)) ({ error: e } = await sb.from("message_needs").upsert(rows.map(({ praise: _p, ...r }) => r), { onConflict: "message_id" })); // before migration 060
       if (e) { out.errors.push(e.message); continue; }
       out.labelled += rows.length; out.byClaude += rows.filter((r) => r.by === "ai").length;
     }

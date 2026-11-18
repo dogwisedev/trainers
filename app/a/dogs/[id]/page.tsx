@@ -34,6 +34,8 @@ import { AdminChatPanel } from "@/components/AdminChatPanel";
 import { DogProfile } from "@/components/DogProfile";
 import { TodoDone } from "@/components/TodoDone";
 import { WaiveButton } from "@/components/WaiveButton";
+import { ClientNotes, WatchButton } from "@/components/ClientCare";
+import { notesOf, watchOf } from "@/lib/clientCare";
 import { Avatar, Pill } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
@@ -79,6 +81,8 @@ export default async function DogPageView({ params, searchParams }: { params: { 
     : b.start_date === today ? { label: "Pickup today", tone: "mint" as const } : { label: `Starts in ${daysBetween(today, b.start_date)} day${daysBetween(today, b.start_date) === 1 ? "" : "s"}`, tone: "mint" as const };
   const badge = (t: Tab) => t === "before" && missing ? missing : t === "forms" && toReview ? toReview : 0;
 
+  // Watch list and client notes (migration 060)
+  const [watch, notes] = isDemo() ? [null, []] : await Promise.all([watchOf(b.id), notesOf(b.hubspot_deal_id || b.id, true)]);
   return (
     <>
       {/* The dog's name, status and tabs stay pinned while the page scrolls (on a phone, just the tabs, under the top bar) */}
@@ -98,8 +102,11 @@ export default async function DogPageView({ params, searchParams }: { params: { 
           <p className="mt-1 text-body text-ink-soft">{b.client_name}, with {b.trainers ? <Link prefetch={false} href={`/a/trainers/${b.trainers.id}`} className="underline">{b.trainers.name}</Link> : "no trainer"}<span className="block text-body">{short(b.start_date)} to {short(b.end_date)}</span></p>
           </div>
         </div>
-        {deal ? <a href={deal} target="_blank" rel="noopener" className="btn-ink h-10 min-h-0 px-4">HubSpot deal<ExternalLink size={15} /></a>
-          : <span className="text-small text-ink-faint">No HubSpot deal linked</span>}
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {!isDemo() && b.status !== "cancelled" && <WatchButton bookingId={b.id} watch={watch} />}
+          {deal ? <a href={deal} target="_blank" rel="noopener" className="btn-ink h-10 min-h-0 px-4">HubSpot deal<ExternalLink size={15} /></a>
+            : <span className="text-small text-ink-faint">No HubSpot deal linked</span>}
+        </div>
       </div>
 
       <nav className="sticky top-[calc(45px+env(safe-area-inset-top))] z-10 mt-4 flex gap-1 overflow-x-auto border-b border-line bg-canvas md:static" aria-label="Dog page">
@@ -115,6 +122,7 @@ export default async function DogPageView({ params, searchParams }: { params: { 
       <div className="mt-5">
         {tab === "overview" && (
           <div className="space-y-5">
+            <ClientNotes dealKey={b.hubspot_deal_id || b.id} notes={notes} admin path={`/a/dogs/${b.id}`} />
             {((incs || []) as { id: string; kind: IncidentKind; detail: string | null }[]).length > 0 && (
               <section>
                 <h2 className="group-title">To do for {b.dog_name || "this dog"}</h2>

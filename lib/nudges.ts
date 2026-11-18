@@ -236,6 +236,11 @@ export async function runNudges(now = new Date(), sb: SupabaseClient = serviceCl
       const s1 = stepOf(ref, 1), s2 = stepOf(ref, 2), s3 = stepOf(ref, 3);
       const said = lastMsg.body ? `“${clip(lastMsg.body, 90)}”` : "sent a photo or file";
       const who = c.client_name || "A client", dog = dogsOf(c, bookingsOf(c)), line = `${who} about ${dog}, ${Math.floor(h)} h: ${said}`, one = `About ${dog}, waiting ${Math.floor(h)} h: ${said}`;
+      if (officeHas.has(c.id) && !s2) {
+        // Already on the office's To do (it waited 12+ waking hours, e.g. from before this trainer had the dog): the office's, not the trainer's
+        if (!s3 && (await claim(sb, [{ ref, kind: "client_waiting", step: 3, by: "app", trainer_id: t.id, chat_id: c.id, channels: ["office"], body: "On To do: client waiting" }])).length) out.toOffice++;
+        continue;
+      }
       if (!s1 && h >= LADDER.waiting[0]) waits.push({ ref, kind: "client_waiting", step: 1, trainer: t, chatId: c.id, line, url: `/t/chats/${c.id}`, who, one });
       else if (s1 && !s2 && h >= LADDER.waiting[1] && now.getTime() - ms(s1.sent_at) >= LADDER.gapHours * 3600e3) waits.push({ ref, kind: "client_waiting", step: 2, trainer: t, chatId: c.id, line, url: `/t/chats/${c.id}`, who, one });
       if (!s3 && officeHas.has(c.id)) {

@@ -4,6 +4,7 @@ import { Pill } from "@/components/ui";
 import { AiHelp } from "@/components/AiHelp";
 import { WorkPanel } from "@/components/WorkPanel";
 import { TodoAge } from "@/components/TodoAge";
+import { TrainerWins } from "@/components/TrainerWins";
 import { PulseRefresh } from "@/components/PulseRefresh";
 import { MovesStrip } from "@/components/MovesStrip";
 import type { Card, OfficeView, Pulse, SalesView, Tile, TrainerRow, View } from "@/lib/pulse";
@@ -339,6 +340,7 @@ export function PulseView({ p, q }: { p: Pulse; q: Q }) {
       {keys.length > 0 && <section aria-label="The numbers" className={`mb-6 grid grid-cols-2 gap-3 ${keys.length === 5 ? "md:grid-cols-3 lg:grid-cols-5" : "md:grid-cols-4"}`}>{keys.map((k) => <TileCard key={k} t={tile(k)} />)}</section>}
       {p.view === "office" && p.office && <Office o={p.office} />}
       {p.view === "office" && <TodoAge />}
+      {p.view === "trainers" && <TrainerWins from={p.range.from} label={p.range.label} />}
       {p.view === "office" && <AiHelp from={p.range.from} label={p.range.label} />}
       {p.view === "work" && <WorkPanel from={p.range.from} to={p.range.to} label={p.range.label} />}
       {p.view === "trainers" && (

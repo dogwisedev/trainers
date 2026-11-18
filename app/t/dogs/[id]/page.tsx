@@ -4,6 +4,8 @@ import { ChevronLeft, MessageCircle } from "lucide-react";
 import { requireRole } from "@/lib/data";
 import { isDemo, serviceClient } from "@/lib/supabase";
 import { loadProfile, withoutOfficeNotes } from "@/lib/pretraining";
+import { ClientNotes } from "@/components/ClientCare";
+import { notesOf } from "@/lib/clientCare";
 import { ensureChatsForBookings } from "@/lib/chat";
 import { range } from "@/lib/dates";
 import { contactFrom } from "@/lib/contactLinks";
@@ -34,6 +36,7 @@ export default async function DogInfo({ params, searchParams }: { params: { id: 
     if (!chatId) chatId = (await ensureChatsForBookings([b], { invite: false }).catch(() => []))[0]?.chatId || null;
   }
   const profile = deal ? await loadProfile(deal).catch(() => null) : null;
+  const notes = await notesOf(deal || b.id, false).catch(() => []);
 
   return (
     <>
@@ -45,6 +48,7 @@ export default async function DogInfo({ params, searchParams }: { params: { id: 
         </div>
         {chatId && <Link prefetch={false} href={`/t/chats/${chatId}`} className="btn-ghost h-11 min-h-0 shrink-0 px-3"><MessageCircle size={17} />Chat</Link>}
       </div>
+      <div className="mb-4"><ClientNotes dealKey={deal || b.id} notes={notes} admin={false} path={`/t/dogs/${b.id}`} /></div>
       {profile && chatId ? (
         <DogProfile chatId={chatId} role="trainer" edit={false} open profile={withoutOfficeNotes(profile)} dogId={searchParams.dog || b.id} base={`/t/dogs/${b.id}`} />
       ) : (
