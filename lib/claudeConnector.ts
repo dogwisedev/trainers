@@ -4,6 +4,7 @@ import { addDays, lastDay, toDate, toIso } from "./dates";
 import { etParts } from "./chatRules";
 import { kindName, todos, type BookingForReports, type RowLike, type Todo } from "./reports";
 import { buildTodo } from "./todo";
+import { officeBrief } from "./officeBrief";
 import { readinessFor } from "./pretraining";
 import { availability } from "./availability";
 import { dealKey } from "./chatTypes";
@@ -147,6 +148,12 @@ export const CLAUDE_TOOLS: ClaudeTool[] = [
         handoversBeforeApp: capped(d.beforeApp.map(formLine), "Use the forms tool with a trainer's name.")
       };
     }
+  },
+  {
+    name: "office_brief", title: "Office brief (To do in sections, one call)",
+    description: "What needs a person, ready to post: decisions for Sean (money, refunds, cancelling, dates), calls to make (trainers the app already reminded twice), urgent client messages, office questions, clients whose worries are adding up, trainers' messages to the office, dogs starting soon and dogs going home (with the handover's state), plus counts. Every item carries its owner (the trainer's POC), how many days it's been open, 'new' or 'still open', the app's reminder history and a suggested message. The app has already read the client messages and decided who needs to act, so nothing here needs judging. Call it twice a day and post it. With new=true it returns only what appeared since the last such call: an hourly feed of new urgent and office messages in one cheap call, instead of reading chats.",
+    input: { new: { type: "boolean", description: "Only what's new since the last call with new=true (an hourly feed). Default false: everything open.", optional: true } },
+    run: async (a) => officeBrief({ onlyNew: a.new === true || a.new === "true", site: site() })
   },
   {
     name: "reminders", title: "Reminders to trainers",

@@ -32,7 +32,8 @@ export type TodoItem = {
   poc?: string;         // the trainer's Point of Contact (from the trainer's profile), for the POC filter; none = not tied to a trainer
   chase?: ChaseInfo;
   clear?: "noreply" | "handled";
-  readTrainer?: string; // a trainer's message: "No reply needed" marks their thread read // a client item a person can close: "No reply needed" (waiting) / "Handled" (office question, urgent)    // handed to the office by the reminder ladder: history, a suggested check-in, Send in app / Text / Call (no Done: it clears itself)
+  readTrainer?: string; // a trainer's message: "No reply needed" marks their thread read
+  decision?: boolean;   // a client question about money, a refund, cancelling or dates: a decision for Sean, shown first and owned by him // a client item a person can close: "No reply needed" (waiting) / "Handled" (office question, urgent)    // handed to the office by the reminder ladder: history, a suggested check-in, Send in app / Text / Call (no Done: it clears itself)
 };
 /** late: forms past their deadline. beforeApp: handover reports due before the app took over the forms (still needed for the certificate). */
 export type TodoData = { items: TodoItem[]; late: (Todo & { trainerName: string; poc?: string })[]; beforeApp: (Todo & { trainerName: string; poc?: string })[]; pocs: string[] };
@@ -120,7 +121,13 @@ async function buildTodoUncached(): Promise<TodoData> {
       case "client_pileup": add({ group: "now", tone: "heart", text: `${client} has sent several messages about ${dog}`, primary: chat ? { ...chat, label: "Reply" } : undefined, quietChatId: i.chat_id || undefined, clear: "noreply",
         chase: chaseFor(i, "client_waiting", { trainerId: i.chat?.trainer_id, trainer, dog, client, bookingId }) }); break;
       // Read by the app (lib/clientNeeds.ts): for the office to answer in the chat, or Handled (answered by phone or email)
-      case "client_office": add({ group: "now", tone: "biscuit", text: `${client} asked the office about ${dog}`, detail: (i.detail || "").replace(/^.*? asked the office: /, ""), primary: chat ? { ...chat, label: "Reply" } : undefined, clear: "handled" }); break;
+      case "client_office": {
+        const q = (i.detail || "").replace(/^.*? asked the office: /, "");
+        // Money, refunds, cancelling, dates: a decision for Sean (owner "Sean" so the POC filter finds them), not an office reply
+        const decision = /\b(refund|refunds?|reimburs|fee|fees|charge[ds]?|pay|paid|payment|price|cost|discount|balance|deposit|cancel\w*|postpone|reschedul\w*|extend|extension|extra (days?|weeks?)|move the (pickup|dates?)|change (the )?dates?)\b/i.test(q);
+        add({ group: "now", tone: decision ? "heart" : "biscuit", text: decision ? `Decision for Sean: ${client} asks about ${dog}` : `${client} asked the office about ${dog}`, detail: q, primary: chat ? { ...chat, label: "Reply" } : undefined, clear: "handled", decision, ...(decision ? { poc: "Sean" } : {}) });
+        break;
+      }
       case "client_urgent": add({ group: "now", tone: "heart", text: `${client}: a message about ${dog} needs a person now`, detail: (i.detail || "").replace(/^[^:]*: /, ""), primary: chat ? { ...chat, label: "Reply" } : undefined, clear: "handled" }); break;
       case "trainer_silent": {
         // From the reminder ladder: 2 days with no post, after 2 reminders. (Before it: a flag every evening with no post.)
@@ -205,6 +212,22 @@ async function buildTodoUncached(): Promise<TodoData> {
     });
   }
 
+  // ── A client whose worries are adding up: 2+ office questions or urgent messages in 7 days (one label can't see a pattern) ──
+  try {
+    const { data: mn } = await sb.from("message_needs").select("chat_id, needs, sent_at").in("needs", ["office", "urgent"]).gte("sent_at", new Date(Date.now() - 7 * 864e5).toISOString()).limit(3000);
+    const perChat = new Map<string, { n: number; urgent: number; last: string }>();
+    for (const r of (mn || []) as { chat_id: string; needs: string; sent_at: string }[]) { const x = perChat.get(r.chat_id) || { n: 0, urgent: 0, last: "" }; x.n++; if (r.needs === "urgent") x.urgent++; if (r.sent_at > x.last) x.last = r.sent_at; perChat.set(r.chat_id, x); }
+    const ids = [...perChat.entries()].filter(([, x]) => x.n >= 2).map(([id]) => id);
+    if (ids.length) {
+      const { data: cs } = await sb.from("chats").select("id, title, client_name, trainer_name, trainer_id, status").in("id", ids).eq("status", "open");
+      for (const c of (cs || []) as { id: string; title: string | null; client_name: string | null; trainer_name: string | null; trainer_id: string | null }[]) {
+        const x = perChat.get(c.id)!;
+        items.push({ key: `pattern:${c.id}`, group: "now", tone: "heart", icon: "message", since: x.last, poc: pocOf(c.trainer_id), text: `${c.client_name || "A client"}: ${x.n} worries or questions this week about ${c.title || "their dog"}${x.urgent ? ` (${x.urgent} urgent)` : ""}`,
+          detail: `Worth a call, not just replies. Trainer: ${c.trainer_name || "?"}.`, primary: { label: "Open chat", href: `/a/chats/${c.id}` } });
+      }
+    }
+  } catch { /* before migration 052: nothing to add */ }
+
   // ── Trainer messages ──
   // A 👍, "ok" or "thanks" isn't a task: it stays unread in Messages, but only threads with something to answer are on To do
   const byTrainer = new Map<string, { n: number; first: string; last: string; real: boolean }>();
@@ -264,7 +287,7 @@ async function buildTodoUncached(): Promise<TodoData> {
   const beforeApp = forms.filter((t) => t.beforeApp && t.state !== "waiting");
 
   const order: Record<TodoGroup, number> = { now: 0, week: 1, later: 2 };
-  items.sort((a, b) => order[a.group] - order[b.group] || (a.since || "~").localeCompare(b.since || "~"));
+  items.sort((a, b) => order[a.group] - order[b.group] || Number(!!b.decision) - Number(!!a.decision) || (a.since || "~").localeCompare(b.since || "~")); // decisions for Sean first
   // Payslips waiting for approval: one small count, not the whole pay run
   if (!isDemo()) {
     const { data: drafts } = await sb.from("payslips").select("id, pay_runs(submit_date, period_start, period_end)").eq("status", "draft").limit(200);
@@ -276,5 +299,6 @@ async function buildTodoUncached(): Promise<TodoData> {
   }
   // Every POC written on an active trainer's profile, for the filter (even ones with nothing on To do right now)
   const pocs = [...new Map(((trainers || []) as { active: boolean; poc: string | null }[]).filter((t) => t.active).map((t) => String(t.poc || "").replace(/\s+/g, " ").trim()).filter(Boolean).map((p) => [p.toLowerCase(), p] as const)).values()].sort((a, b) => a.localeCompare(b));
+  if (items.some((x) => x.decision) && !pocs.some((p) => p.toLowerCase() === "sean")) pocs.push("Sean");
   return { items, late, beforeApp, pocs };
 }
