@@ -70,7 +70,8 @@ export type Snapshot = {
 async function all<T>(q: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>): Promise<T[]> {
   const out: T[] = [];
   for (let i = 0; i < 200; i++) {
-    const { data, error } = await q(i * 1000, i * 1000 + 999);
+    let { data, error } = await q(i * 1000, i * 1000 + 999);
+    if (error) { await new Promise((ok) => setTimeout(ok, 400)); ({ data, error } = await q(i * 1000, i * 1000 + 999)); } // one-off errors (a dropped connection) come back fine a moment later
     if (error) throw new Error(error.message);
     const rows = data || []; out.push(...rows);
     if (rows.length < 1000) break;
@@ -219,10 +220,19 @@ export async function buildSnapshot(sb: SupabaseClient = serviceClient()): Promi
 const appCached = unstable_cache(async () => buildAppPart(), ["pulse-app-v4"], { revalidate: 3600, tags: ["pulse"] });
 const hsCached = unstable_cache(async () => buildHsPart(), ["pulse-hs-v4"], { revalidate: 3600, tags: ["pulse"] });
 const stripeCached = unstable_cache(async () => buildStripePart(), ["pulse-stripe-v4"], { revalidate: 3600, tags: ["pulse"] });
+// The last snapshot that loaded, kept in this server instance: if a rebuild fails (a dropped database connection, HubSpot
+// slow), Pulse shows it with a note instead of "Failed to load", and the next open rebuilds again.
+let lastGood: Snapshot | null = null;
 export async function snapshotCached(): Promise<Snapshot> {
   const t0 = Date.now();
-  const [app, h, st] = await Promise.all([appCached(), hsCached(), stripeCached()]);
-  return { ...app, hs: h.hs, failed: st.failed, points: app.points + h.points + st.points, ms: app.ms + (Date.now() - t0), notes: [...app.notes, ...h.notes, ...st.notes] };
+  try {
+    const [app, h, st] = await Promise.all([appCached(), hsCached(), stripeCached()]);
+    lastGood = { ...app, hs: h.hs, failed: st.failed, points: app.points + h.points + st.points, ms: app.ms + (Date.now() - t0), notes: [...app.notes, ...h.notes, ...st.notes] };
+    return lastGood;
+  } catch (e) {
+    if (lastGood) return { ...lastGood, notes: [...lastGood.notes, `Couldn't refresh just now (${(e as Error).message.slice(0, 120)}): this is the last snapshot that loaded. Open Pulse again to retry.`] };
+    throw e;
+  }
 }
 
 // ── Views, derived from the snapshot ─────────────────────────────────────────

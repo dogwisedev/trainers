@@ -258,8 +258,9 @@ function Fact({ k, v }: { k: string; v: string }) {
 async function BeforeTab({ b, chat }: { b: Booking; chat: ChatRow | null }) {
   if (!b.hubspot_deal_id) return <p className="panel p-5 text-ink-soft">This booking has no HubSpot deal, so there are no client forms to show.</p>;
   if (!chat) return <div className="panel p-5"><p className="mb-3 text-ink-soft">Start the dog&apos;s chat first: the client fills in what&apos;s missing from there.</p><StartChat bookingId={b.id} /></div>;
-  const profile = await loadProfile(b.hubspot_deal_id);
-  if (!profile) return <p className="panel p-5 text-ink-soft">Couldn&apos;t load this dog&apos;s details from HubSpot. Try again in a minute.</p>;
+  let profile: Awaited<ReturnType<typeof loadProfile>> = null, why = "";
+  try { profile = await loadProfile(b.hubspot_deal_id); } catch (e) { why = (e as Error).message; }
+  if (!profile) return <p className="panel p-5 text-ink-soft">{why ? `Couldn't load this dog's details just now (${why}). Try again in a moment.` : "Nothing to show here: the client's before-training answers belong to the booking, and this one has none the app can find."}</p>;
   return <DogProfile chatId={chat.id} role="admin" edit open={chat.status === "open"} profile={profile} dogId={b.id} base={`/a/dogs/${b.id}`} dogLink="/a/dogs/{id}?tab=before" />;
 }
 

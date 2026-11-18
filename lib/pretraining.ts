@@ -55,8 +55,13 @@ function hubspotFiles(contact: DealProps): VaccineFile[] {
 
 async function bookingsFor(sb: SupabaseClient, dealIds: string[]) {
   if (!dealIds.length) return [] as BookingRow[];
-  const { data } = await sb.from("bookings").select("id, dog_name, client_name, client_email, program, start_date, end_date, status, trainer_id, created_at, hubspot_deal_id, trainers(name)").in("hubspot_deal_id", dealIds).neq("status", "cancelled");
-  return (data || []) as unknown as BookingRow[];
+  // A one-off database error used to come back as "no bookings", which showed as "Couldn't load from HubSpot": try once more, then throw
+  for (let attempt = 1; ; attempt++) {
+    const { data, error } = await sb.from("bookings").select("id, dog_name, client_name, client_email, program, start_date, end_date, status, trainer_id, created_at, hubspot_deal_id, trainers(name)").in("hubspot_deal_id", dealIds);
+    if (!error) return (data || []) as unknown as BookingRow[];
+    if (attempt >= 2) throw new Error(`Couldn't read the bookings: ${error.message}`);
+    await new Promise((ok) => setTimeout(ok, 400));
+  }
 }
 
 /** "Missing vaccines" on the deal (option values like "Dhlpp;Rabies") as our labels. */
@@ -114,8 +119,13 @@ export async function loadProfile(dealId: string, freshMinutes = 10): Promise<Pr
   }
   const bookings = await bookingsFor(sb, [dealId]);
   if (!bookings.length) return null;
-  const [{ data: dogs }, defs] = await Promise.all([sb.from("pretraining_dogs").select("*").eq("deal_id", dealId), fieldDefs()]);
-  return buildProfile(dealId, row as DealRow | null, (dogs || []) as DogRow[], bookings, defs);
+  const [dogsRes, defs] = await Promise.all([sb.from("pretraining_dogs").select("*").eq("deal_id", dealId), fieldDefs()]);
+  if (dogsRes.error) { // once more before giving up
+    const again = await sb.from("pretraining_dogs").select("*").eq("deal_id", dealId);
+    if (again.error) throw new Error(`Couldn't read the dog's answers: ${again.error.message}`);
+    return buildProfile(dealId, row as DealRow | null, (again.data || []) as DogRow[], bookings, defs);
+  }
+  return buildProfile(dealId, row as DealRow | null, (dogsRes.data || []) as DogRow[], bookings, defs);
 }
 
 /** Ready / missing per booking, from the copy in the database (no HubSpot calls): for badges and the admin list. */
