@@ -35,7 +35,8 @@ export function briefText(b: Brief, full: boolean): string {
   };
   const section = (title: string, items: Item[]) => (items.length ? `**${title}**\n${items.map(one).join("\n")}` : "");
   const parts = [
-    section("Needs a decision (Sean)", b.decisions as Item[]),
+    // Sean gets his decisions through the Wolf (the full brief); the team post only says how many are with him
+    b.decisions.length ? `**With Sean:** ${b.decisions.length} decision${b.decisions.length === 1 ? "" : "s"}` : "",
     section("Urgent and risk", b.urgent as Item[]),
     section("Needs a call", b.calls as Item[]),
     section("Office questions", b.officeQuestions as Item[]),
