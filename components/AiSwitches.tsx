@@ -1,7 +1,7 @@
 "use client";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { saveChecklistAction, setAiSettingAction } from "@/app/ai-actions";
+import { saveChecklistAction, setAiSettingAction, setBriefPostAction } from "@/app/ai-actions";
 import type { CheckMode } from "@/lib/aiSettings";
 import type { Kind } from "@/lib/reports";
 
@@ -87,4 +87,21 @@ export function AutoSwitch({ feature, on, canAuto, need }: { feature: "vaccines"
 export function RatePill({ rate, decided, what, weeks }: { rate: number | null; decided: number; what: string; weeks: number }) {
   const tone = rate === null ? "bg-paper text-ink-soft" : rate >= 95 ? "bg-mint-wash text-fern" : rate >= 80 ? "bg-biscuit-wash text-warn" : "bg-heart-wash text-heart";
   return <span className={`inline-flex min-h-[28px] items-center rounded-full px-3 text-small font-semibold tabular-nums ${tone}`}>{rate === null ? `AI approval: not enough yet` : `AI approval ${rate}%`} · {weeks} weeks · {decided} {what}</span>;
+}
+
+/** Pulse → Office: post the office brief to Buzz #flagged-ongoing (6 AM and 4 PM Eastern, hourly new-only), or not. */
+export function BriefPostSwitch({ on, ready }: { on: boolean; ready: boolean }) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [err, setErr] = useState("");
+  return (
+    <div className="flex flex-col items-start gap-1">
+      <button type="button" role="switch" aria-checked={on} disabled={pending || (!on && !ready)} onClick={() => {
+        if (!on && !window.confirm("Have the app post the office brief to Buzz #flagged-ongoing at 6 AM and 4 PM Eastern, plus a new-only post on the hour when something comes in? Turn off the Tower's Slack post the same day.")) return;
+        start(async () => { const r = await setBriefPostAction(!on); setErr(r.ok ? "" : r.message); router.refresh(); });
+      }} className={`inline-flex min-h-[40px] items-center rounded-full border px-4 text-small font-semibold ${on ? "border-fern bg-fern text-white" : "border-line bg-white text-ink-soft"}`}>{pending ? "…" : on ? "Posting to Buzz" : "Off"}</button>
+      {!ready && <span className="text-caption text-ink-faint">The app's Buzz account isn't set up (BUZZ_PRIVATE_KEY, BUZZ_RELAY_URL).</span>}
+      {err && <span role="alert" className="text-caption text-heart">{err}</span>}
+    </div>
+  );
 }

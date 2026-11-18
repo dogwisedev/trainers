@@ -3,16 +3,17 @@ import { serviceClient } from "./supabase";
 import { buildTodo, type TodoItem } from "./todo";
 import { addDays, todayIso } from "./dates";
 
-// The office brief: To do in the sections a Slack post wants, with "new" or "still open, day N" on each item, so an agent
-// (Sean's Communication Tower) can post it twice a day in one call and judge nothing. `onlyNew` returns just what has
-// appeared since the last call: a cheap hourly feed of new urgent and office messages, instead of re-reading chats.
+// The office brief: To do in the sections a post wants, with "new" or "still open, day N" on each item, so it can be
+// posted twice a day in one call with nothing to judge. `onlyNew` returns just what has appeared since that caller's last
+// new-only call: a cheap hourly feed. The "since" marker is kept PER CALLER (`caller`), so a test, a second agent or the
+// app's own poster never uses up another caller's new items. A full brief never moves the new-only marker.
 
 type Line = { text: string; detail?: string; owner?: string; since?: string; days: number; status: "new" | "still open"; link?: string; history?: string[]; suggested?: string };
-const KEY = { full: "brief.fullAt", new: "brief.newAt" };
+const callerKey = (c: string) => c.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "default";
 
-export async function officeBrief(o: { onlyNew?: boolean; site: string }) {
+export async function officeBrief(o: { onlyNew?: boolean; site: string; caller?: string }) {
   const sb = serviceClient();
-  const key = o.onlyNew ? KEY.new : KEY.full;
+  const key = `brief.${o.onlyNew ? "new" : "full"}.${callerKey(o.caller || "default")}`;
   const { data: last } = await sb.from("app_settings").select("value").eq("key", key).maybeSingle();
   const lastAt = typeof last?.value === "string" ? last.value : new Date(Date.now() - 24 * 3600e3).toISOString();
   const now = new Date().toISOString();
@@ -47,7 +48,7 @@ export async function officeBrief(o: { onlyNew?: boolean; site: string }) {
   await sb.from("app_settings").upsert({ key, value: now, updated_by: "app", updated_at: now }, { onConflict: "key" }).then(() => null, () => null);
   const empty = Object.values(sections).every((s) => s.length === 0);
   return {
-    at: now, since: lastAt, mode: o.onlyNew ? "new since last call" : "everything open",
+    at: now, since: lastAt, caller: callerKey(o.caller || "default"), mode: o.onlyNew ? "new since this caller's last new-only call" : "everything open",
     how: "Each item is already on the app's To do with its owner (owner = the trainer's POC; decisions = Sean). Post the sections that have items; collapse 'still open' ones to one line with the day count; never ask anyone to chase a trainer the app is still reminding (counts.chasing). Nothing here needs judging: the app has read the messages.",
     ...sections, goingHome: o.onlyNew ? goingHome.filter((g) => g.state === "handover not started" || g.state.startsWith("handover empty")) : goingHome, counts,
     nothing: empty ? (o.onlyNew ? "Nothing new since the last call." : "Nothing needs a person right now.") : undefined

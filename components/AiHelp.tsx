@@ -6,7 +6,9 @@ import { formCheckStats } from "@/lib/formCheck";
 import { handoverDraftStats } from "@/lib/handoverDraft";
 import { vaccineCheckStats } from "@/lib/vaccineCheck";
 import { needsStats } from "@/lib/clientNeeds";
-import { AutoSwitch, CheckModeSwitch, OnOff, RatePill } from "@/components/AiSwitches";
+import { AutoSwitch, BriefPostSwitch, CheckModeSwitch, OnOff, RatePill } from "@/components/AiSwitches";
+import { briefPostOn } from "@/lib/briefPost";
+import { buzzAgentOn } from "@/lib/buzzAgent";
 import { aiFlags, aiRates, AUTO_MIN_DECISIONS, AUTO_MIN_RATE, SPOT_EVERY, WEEKS, type Feature } from "@/lib/aiTrust";
 
 /** Pulse → Office: the AI help's switches and how it's doing over the range (lib/formCheck.ts, lib/handoverDraft.ts, captions). */
@@ -36,6 +38,10 @@ export async function AiHelp({ from, label }: { from: string; label: string }) {
       {!aiOn() && <p className="mb-2 rounded-xl bg-biscuit-wash px-3 py-2 text-small font-semibold text-warn">Not running: add ANTHROPIC_API_KEY in Vercel, then redeploy.</p>}
       {aiOn() && <p className="mb-2 text-small text-ink-soft">Not doing what you expect? <a href="/api/ai/test" target="_blank" rel="noopener" className="font-semibold underline">Test the connection to Claude</a>: it shows exactly what Claude answers.</p>}
       {(checks === null || drafts === null || caps === null) && <p className="mb-2 rounded-xl bg-biscuit-wash px-3 py-2 text-small font-semibold text-warn">Run migration 055 in Supabase to switch this on.</p>}
+      <div className="panel mb-3 flex flex-wrap items-start gap-3 px-4 py-3.5">
+        <div className="min-w-0 flex-1 basis-64"><p className="font-bold">Office brief in Buzz</p><p className="text-small text-ink-soft">The app posts To do as the office brief in #flagged-ongoing at 6 AM and 4 PM Eastern, and a new-only post on the hour when something comes in. No AI. Switch on the day the team moves to Buzz, and stop the Tower&apos;s Slack post the same day.</p></div>
+        <BriefPostSwitch on={await briefPostOn().catch(() => false)} ready={buzzAgentOn()} />
+      </div>
       <ul className="panel divide-y divide-line">
         {row("Form checks", "Each submitted form is checked against its checklist: \"fits the standard\" or what to look at. \"Approve clean ones\" lets weekly checks and intake forms with nothing to look at approve themselves; handover reports always come to a person.",
           <CheckModeSwitch mode={cfg.formCheck} />,

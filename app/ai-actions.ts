@@ -89,3 +89,18 @@ export async function voiceUsedAction(id: string, final: string): Promise<void> 
     await serviceClient().from("ai_voice").update({ final: final.slice(0, 2000), sent_at: new Date().toISOString() }).eq("id", id).eq("user_id", v.userId);
   } catch { /* never in the way of sending */ }
 }
+
+/** Pulse → Office: the app posts the office brief to Buzz itself (lib/briefPost.ts), or not. */
+export async function setBriefPostAction(on: boolean): Promise<R> {
+  return audited("setBriefPostAction", { on }, async () => {
+    try {
+      if (isDemo()) return { ok: false, message: "Demo mode." };
+      const by = await admin();
+      const { error } = await serviceClient().from("app_settings").upsert({ key: "brief.post", value: on ? "buzz" : "off", updated_by: by, updated_at: new Date().toISOString() }, { onConflict: "key" });
+      if (error) return { ok: false, message: /app_settings|schema cache/i.test(error.message) ? "Run migration 055 in Supabase first." : error.message };
+      await auditSystem(on ? "The app posts the office brief to Buzz" : "The app stopped posting the office brief", `By ${by}.`).catch(() => null);
+      revalidatePath("/a/pulse");
+      return { ok: true, message: on ? "On: the next post goes out at 6 AM or 4 PM Eastern." : "Off." };
+    } catch (e) { return { ok: false, message: (e as Error).message }; }
+  });
+}

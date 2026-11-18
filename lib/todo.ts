@@ -125,7 +125,7 @@ async function buildTodoUncached(): Promise<TodoData> {
       case "client_office": {
         const q = (i.detail || "").replace(/^.*? asked the office: /, "");
         // Money, refunds, cancelling, dates: a decision for Sean (owner "Sean" so the POC filter finds them), not an office reply
-        const decision = /\b(refund|refunds?|reimburs|fee|fees|charge[ds]?|pay|paid|payment|price|cost|discount|balance|deposit|cancel\w*|postpone|reschedul\w*|extend|extension|extra (days?|weeks?)|move the (pickup|dates?)|change (the )?dates?)\b/i.test(q);
+        const decision = /\b(refund\w*|reimburs\w*|money back|compensat\w*|credit|voucher|free (session|week|days?)|prorat\w*|partial|fee|fees|charge[ds]?|pay|paid|payment|price|cost|discount|balance|deposit|invoice|cancel\w*|postpone|reschedul\w*|extend|extension|extra (days?|weeks?)|move the (pickup|dates?)|change (the )?dates?)\b/i.test(q);
         add({ group: "now", tone: decision ? "heart" : "biscuit", text: decision ? `Decision for Sean: ${client} asks about ${dog}` : `${client} asked the office about ${dog}`, detail: q, primary: chat ? { ...chat, label: "Reply" } : undefined, clear: "handled", decision, ...(decision ? { poc: "Sean" } : {}) });
         break;
       }
@@ -150,8 +150,8 @@ async function buildTodoUncached(): Promise<TodoData> {
       case "intake_media_missing": add({ group: "week", tone: "biscuit", text: `${dog}'s intake form came in without pickup photos or video`, primary: chat }); break;
       case "handover_photo_missing": add({ group: "week", tone: "biscuit", text: `${dog}'s handover has no photo with the trainer`, primary: i.report_id ? { label: "Open form", href: `/a/reports/${i.report_id}` } : chat }); break;
       case "overbooked": add({ group: "now", tone: "heart", text: `${trainer} has more dogs than kennels`, primary: i.booking ? { label: "Open trainer", href: `/a/trainers/${i.booking.trainer_id}` } : undefined }); break;
-      case "length_changed": add({ group: "now", tone: "heart", text: `${dog}'s program length changed: check pay and refund`, primary: deal ? { label: "HubSpot deal", href: deal, external: true } : undefined }); break;
-      case "booking_cancelled": add({ group: "now", tone: "heart", text: `${dog}'s training was cancelled: refund or partial pay?`, primary: deal ? { label: "HubSpot deal", href: deal, external: true } : undefined }); break;
+      case "length_changed": add({ group: "now", tone: "heart", decision: true, poc: "Sean", text: `${dog}'s program length changed: check pay and refund`, primary: deal ? { label: "HubSpot deal", href: deal, external: true } : undefined }); break;
+      case "booking_cancelled": add({ group: "now", tone: "heart", decision: true, poc: "Sean", text: `${dog}'s training was cancelled: refund or partial pay?`, primary: deal ? { label: "HubSpot deal", href: deal, external: true } : undefined }); break;
       case "hubspot_problem":
         if ((i.ref || "").startsWith("dogname:")) {
           // A dog name on the deal that looks like two dogs, or like a person (lib/dogNames.ts)

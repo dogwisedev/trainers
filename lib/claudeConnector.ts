@@ -152,8 +152,16 @@ export const CLAUDE_TOOLS: ClaudeTool[] = [
   {
     name: "office_brief", title: "Office brief (To do in sections, one call)",
     description: "What needs a person, ready to post: decisions for Sean (money, refunds, cancelling, dates), calls to make (trainers the app already reminded twice), urgent client messages, office questions, clients whose worries are adding up, trainers' messages to the office, dogs starting soon and dogs going home (with the handover's state), plus counts. Every item carries its owner (the trainer's POC), how many days it's been open, 'new' or 'still open', the app's reminder history and a suggested message. The app has already read the client messages and decided who needs to act, so nothing here needs judging. Call it twice a day and post it. With new=true it returns only what appeared since the last such call: an hourly feed of new urgent and office messages in one cheap call, instead of reading chats.",
-    input: { new: { type: "boolean", description: "Only what's new since the last call with new=true (an hourly feed). Default false: everything open.", optional: true } },
-    run: async (a) => officeBrief({ onlyNew: a.new === true || a.new === "true", site: site() })
+    input: {
+      new: { type: "boolean", description: "Only what's new since this caller's last call with new=true (an hourly feed). Default false: everything open.", optional: true },
+      caller: { type: "string", description: "Who is calling, e.g. \"tower\" or \"wolf\". Required with new=true: each caller has its own \"since\" marker, so one caller never uses up another's new items. Tests should use their own name, e.g. \"test\".", optional: true }
+    },
+    run: async (a) => {
+      const onlyNew = a.new === true || a.new === "true", caller = text(a, "caller");
+      if (onlyNew && !caller) return { error: "new=true needs a caller name (e.g. caller: \"tower\"), so it doesn't use up another caller's new items." };
+      if (onlyNew && /^app/i.test(caller || "")) return { error: "\"app\" names are kept for the app's own posts: use another caller name." };
+      return officeBrief({ onlyNew, site: site(), caller: caller || "connector" });
+    }
   },
   {
     name: "reminders", title: "Reminders to trainers",
