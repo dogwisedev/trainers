@@ -2,7 +2,7 @@
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { Eye, EyeOff, StickyNote, X } from "lucide-react";
-import { addClientNoteAction, deleteClientNoteAction, watchAction } from "@/app/care-actions";
+import { addClientNoteAction, deleteClientNoteAction, qaFlagAction, watchAction } from "@/app/care-actions";
 import { WhyPick } from "@/components/WhyPick";
 
 type Note = { id: string; text: string; office_only: boolean; by: string | null; at: string };
@@ -50,5 +50,22 @@ export function ClientNotes({ dealKey, notes, admin, path }: { dealKey: string; 
       </div>
       {err && <p role="alert" className="mt-1 text-small text-heart">{err}</p>}
     </section>
+  );
+}
+
+const QA = ["Complaint", "Needs support", "Behavior, safety or health", "Program or pickup to review", "Refund, cancellation or dispute", "Other"];
+/** QA box: stop every automated email to this client (feedback asks, follow-up chasing, reviews, promotions). */
+export function QaFlagButton({ bookingId, flag }: { bookingId: string; flag: { reason: string; by: string; at: string } | null }) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [open, setOpen] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  if (flag) return <span className="rounded-full bg-biscuit-wash px-3 py-1 text-small font-semibold text-warn">QA box: {flag.reason} · {flag.by}, {day(flag.at)}</span>;
+  return (
+    <span className="inline-flex flex-col items-start">
+      <button type="button" disabled={pending} onClick={() => setOpen((o) => !o)} className="btn-ghost h-9 min-h-0 px-3 text-small">{pending ? "Flagging in HubSpot…" : "QA flag"}</button>
+      {open && !pending && <WhyPick reasons={QA} value="" onPick={(r) => start(async () => { const x = await qaFlagAction(bookingId, r); setMsg({ ok: x.ok, text: x.message }); setOpen(false); router.refresh(); })} label="Why? (stops all automated emails to this client)" />}
+      {msg && <span role="status" className={`mt-1 text-caption ${msg.ok ? "text-fern" : "text-heart"}`}>{msg.text}</span>}
+    </span>
   );
 }

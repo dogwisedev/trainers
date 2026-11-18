@@ -34,7 +34,8 @@ import { AdminChatPanel } from "@/components/AdminChatPanel";
 import { DogProfile } from "@/components/DogProfile";
 import { TodoDone } from "@/components/TodoDone";
 import { WaiveButton } from "@/components/WaiveButton";
-import { ClientNotes, WatchButton } from "@/components/ClientCare";
+import { ClientNotes, QaFlagButton, WatchButton } from "@/components/ClientCare";
+import { qaFlagOf } from "@/lib/qaBox";
 import { notesOf, watchOf } from "@/lib/clientCare";
 import { Avatar, Pill } from "@/components/ui";
 
@@ -82,7 +83,7 @@ export default async function DogPageView({ params, searchParams }: { params: { 
   const badge = (t: Tab) => t === "before" && missing ? missing : t === "forms" && toReview ? toReview : 0;
 
   // Watch list and client notes (migration 060)
-  const [watch, notes] = isDemo() ? [null, []] : await Promise.all([watchOf(b.id), notesOf(b.hubspot_deal_id || b.id, true)]);
+  const [watch, notes, qa] = isDemo() ? [null, [], null] : await Promise.all([watchOf(b.id), notesOf(b.hubspot_deal_id || b.id, true), b.hubspot_deal_id ? qaFlagOf(b.hubspot_deal_id).catch(() => null) : Promise.resolve(null)]);
   return (
     <>
       {/* The dog's name, status and tabs stay pinned while the page scrolls (on a phone, just the tabs, under the top bar) */}
@@ -104,6 +105,7 @@ export default async function DogPageView({ params, searchParams }: { params: { 
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
           {!isDemo() && b.status !== "cancelled" && <WatchButton bookingId={b.id} watch={watch} />}
+          {!isDemo() && b.hubspot_deal_id && <QaFlagButton bookingId={b.id} flag={qa} />}
           {deal ? <a href={deal} target="_blank" rel="noopener" className="btn-ink h-10 min-h-0 px-4">HubSpot deal<ExternalLink size={15} /></a>
             : <span className="text-small text-ink-faint">No HubSpot deal linked</span>}
         </div>

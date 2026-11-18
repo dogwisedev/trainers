@@ -392,3 +392,11 @@ export async function contactByEmail(email: string): Promise<{ id: string; email
   const r = (res.results || [])[0];
   return r ? { id: String(r.id), email: String(r.properties.email || email) } : null;
 }
+
+/** Contacts matching any of the filter groups (OR between groups), with the given properties. Up to 100. */
+export async function searchContacts(groups: { propertyName: string; operator: string; value: string }[][], properties: string[]): Promise<{ id: string; properties: DealProps }[]> {
+  const g = groups.filter((x) => x.length).slice(0, 5); // HubSpot allows 5 filter groups per search
+  if (!g.length) return [];
+  const res = await hs<SearchPage>("/crm/v3/objects/contacts/search", { method: "POST", body: JSON.stringify({ filterGroups: g.map((filters) => ({ filters })), properties, limit: 100 }) });
+  return (res.results || []).map((r) => ({ id: String(r.id), properties: r.properties || {} }));
+}

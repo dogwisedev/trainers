@@ -3,6 +3,7 @@ import { revalidatePath } from "next/cache";
 import { audited } from "@/lib/audit";
 import { getViewer } from "@/lib/data";
 import { isDemo, serviceClient } from "@/lib/supabase";
+import { qaFlag } from "@/lib/qaBox";
 
 // Watch list and client notes (migration 060).
 type R = { ok: boolean; message: string };
@@ -50,5 +51,19 @@ export async function deleteClientNoteAction(id: string, path: string): Promise<
     const { error } = await serviceClient().from("client_notes").delete().eq("id", id);
     revalidatePath(path);
     return error ? { ok: false, message: error.message } : { ok: true, message: "Removed." };
+  });
+}
+
+/** QA box: no automated emails to this client (HubSpot qa_flagged + mailer_hold, Follow Up to Manual Only). Admins. */
+export async function qaFlagAction(bookingId: string, reason: string): Promise<R> {
+  return audited("qaFlag", { bookingId, reason }, async () => {
+    if (isDemo()) return { ok: false, message: "Demo mode." };
+    const v = await getViewer();
+    if (!v || v.role !== "admin") return { ok: false, message: "Admins only." };
+    const { data: b } = await serviceClient().from("bookings").select("id, hubspot_deal_id, client_name, dog_name").eq("id", bookingId).maybeSingle();
+    if (!b) return { ok: false, message: "Dog not found." };
+    const r = await qaFlag({ dealId: b.hubspot_deal_id || "", bookingId, client: b.client_name, dog: b.dog_name || undefined, reason, by: name(v) });
+    revalidatePath(`/a/dogs/${bookingId}`);
+    return r;
   });
 }
