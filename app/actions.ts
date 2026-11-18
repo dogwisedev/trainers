@@ -148,6 +148,15 @@ export async function saveTrainer(_: Result | null, f: FormData): Promise<Result
     if (f.has("program_types_present")) row.program_types = f.getAll("program_types").map((x) => String(x)).filter((x) => (PROGRAMS as readonly string[]).includes(x));
   }
   const sb = serverClient();
+  // One email, one trainer: a second record with the same email takes the first one's login (that's how a trainer once
+  // signed in to an empty account). Refuse it, and say who already has it.
+  if (isAdmin) for (const k of ["email", "dogwise_email"] as const) {
+    const e = String(row[k] || "").trim().toLowerCase();
+    if (!e) continue;
+    const { data: same } = await serviceClient().from("trainers").select("id, name, active").or(`email.ilike.${e},dogwise_email.ilike.${e}`).neq("id", id || "00000000-0000-0000-0000-000000000000").limit(1);
+    const t = (same || [])[0] as { id: string; name: string; active: boolean } | undefined;
+    if (t) return { ok: false, message: `${t.name} already has ${e}${t.active ? "" : " (inactive)"}. Open their profile (/a/trainers/${t.id})${t.active ? "" : " and make them active again"} instead of making a second one.` };
+  }
   if (!id) {
     const { data, error } = await sb.from("trainers").insert({ ...row, probation: "on" }).select("id").single(); // new trainers start on probation
     if (error) return { ok: false, message: error.message };
@@ -172,6 +181,28 @@ export async function saveTrainer(_: Result | null, f: FormData): Promise<Result
     return { ok: true, message: `Profile saved. They now sign in with ${newEmail} (same password).` };
   }
   return { ok: true, message: "Profile saved." };
+});
+}
+
+/** Admin: delete a trainer record made by mistake (a duplicate). Only when nothing hangs off it: no bookings, forms,
+ *  chats, trips, payslips, messages or login, so nothing is lost. Otherwise make them inactive. */
+export async function deleteTrainerAction(id: string): Promise<Result> {
+  return audited("deleteTrainer", { id }, async () => {
+  if (isDemo()) return DEMO;
+  const v = await viewerOrThrow();
+  if (v.role !== "admin") return { ok: false, message: "Admins only." };
+  const sb = serviceClient();
+  const { data: t } = await sb.from("trainers").select("id, name").eq("id", id).maybeSingle();
+  if (!t) return { ok: false, message: "Trainer not found." };
+  const uses: [string, string][] = [["bookings", "bookings"], ["reports", "forms"], ["chats", "chats"], ["trips", "trips"], ["payslips", "payslips"], ["messages", "messages"], ["profiles", "a login"]];
+  for (const [table, what] of uses) {
+    const { count } = await sb.from(table).select("*", { count: "exact", head: true }).eq("trainer_id", id);
+    if (count) return { ok: false, message: `${t.name} has ${what} in the app, so can't be deleted. Make them inactive instead.` };
+  }
+  const { error } = await sb.from("trainers").delete().eq("id", id);
+  if (error) return { ok: false, message: error.message };
+  revalidatePath("/a/trainers");
+  redirect("/a/trainers");
 });
 }
 

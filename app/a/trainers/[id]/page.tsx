@@ -6,7 +6,7 @@ import { CalendarPlus, Mail, MapPin, MessageCircle, Phone } from "lucide-react";
 import { getTrainer, listBookings, listTimeOff, requireRole } from "@/lib/data";
 import { soonestOpening, utilisation, weekUsage } from "@/lib/capacity";
 import { addDays, range, short, todayIso, weekStart, weeksFrom } from "@/lib/dates";
-import { clearFlag, decideProbationAction, inviteTrainer, setTrainerActive } from "@/app/actions";
+import { clearFlag, decideProbationAction, deleteTrainerAction, inviteTrainer, setTrainerActive } from "@/app/actions";
 import { probationHeld, probationTrainings } from "@/lib/payrollData";
 import { KennelLegend, KennelStrip } from "@/components/KennelStrip";
 import { ActionButton, DeleteTimeOff, TimeOffForm, TrainerForm } from "@/components/forms";
@@ -139,6 +139,7 @@ export default async function TrainerDetail({ params, searchParams }: { params: 
           {t.active
             ? <ActionButton className="btn-danger" confirm={`Mark ${t.name} inactive? They disappear from matching and can't sign in to new bookings. History is kept.`} action={setTrainerActive.bind(null, id, false)}>Mark inactive</ActionButton>
             : <ActionButton className="btn-mint" action={setTrainerActive.bind(null, id, true)}>Make active again</ActionButton>}
+          <ActionButton className="btn-ghost" confirm={`Delete ${t.name}'s record for good? Only for a duplicate made by mistake: it only works if nothing is attached to it (no bookings, forms, chats, trips, payslips, messages or login).`} action={deleteTrainerAction.bind(null, id)}>Delete this record</ActionButton>
         </div>
       </Section>
     </>
