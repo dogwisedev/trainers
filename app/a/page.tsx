@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Plus } from "lucide-react";
+import { TowerStrip } from "@/components/TowerStrip";
 import { requireRole } from "@/lib/data";
 import { buildTodo, todoTotal } from "@/lib/todo";
 import { LOG_VIEWERS } from "@/lib/audit";
@@ -35,6 +36,7 @@ export default async function ToDo() {
       </div>
       <div className="mt-4"><MovesStrip moves={moves} title="Today" today /></div>
       {!total && <div className="mt-6"><Empty title="All done.">New things show up here as they happen: clients waiting, forms to check, vaccines, payslips.</Empty></div>}
+      {!isDemo() && <TowerStrip risk={todo.items.filter((i) => i.decision || /needs a person now/.test(i.text)).length} />}
       <TodoList items={todo.items} late={todo.late} beforeApp={todo.beforeApp} canQuiet={canQuiet(v.email)} pocs={todo.pocs} />
     </>
   );
