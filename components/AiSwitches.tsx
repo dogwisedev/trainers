@@ -1,7 +1,7 @@
 "use client";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { saveChecklistAction, setAiSettingAction, setBriefPostAction } from "@/app/ai-actions";
+import { saveChecklistAction, setAiSettingAction, setBriefPostAction, setQaDailyAction } from "@/app/ai-actions";
 import type { CheckMode } from "@/lib/aiSettings";
 import type { Kind } from "@/lib/reports";
 
@@ -101,6 +101,22 @@ export function BriefPostSwitch({ on, ready }: { on: boolean; ready: boolean }) 
         start(async () => { const r = await setBriefPostAction(!on); setErr(r.ok ? "" : r.message); router.refresh(); });
       }} className={`inline-flex min-h-[40px] items-center rounded-full border px-4 text-small font-semibold ${on ? "border-fern bg-fern text-white" : "border-line bg-white text-ink-soft"}`}>{pending ? "…" : on ? "Posting to Buzz" : "Off"}</button>
       {!ready && <span className="text-caption text-ink-faint">The app's Buzz account isn't set up (BUZZ_PRIVATE_KEY, BUZZ_RELAY_URL).</span>}
+      {err && <span role="alert" className="text-caption text-heart">{err}</span>}
+    </div>
+  );
+}
+
+export function QaDailySwitch({ on, ready }: { on: boolean; ready: boolean }) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [err, setErr] = useState("");
+  return (
+    <div className="flex flex-col items-start gap-1">
+      <button type="button" role="switch" aria-checked={on} disabled={pending || (!on && !ready)} onClick={() => {
+        if (!on && !window.confirm("Have the app send the QA daily email on weekdays from 6:30 AM Eastern? Stop the Tower's QA daily the same day, so it doesn't go out twice.")) return;
+        start(async () => { const r = await setQaDailyAction(!on); setErr(r.ok ? "" : r.message); router.refresh(); });
+      }} className={`inline-flex min-h-[40px] items-center rounded-full border px-4 text-small font-semibold ${on ? "border-fern bg-fern text-white" : "border-line bg-white text-ink-soft"}`}>{pending ? "…" : on ? "Sending" : "Off"}</button>
+      {!ready && <span className="text-caption text-ink-faint">Email isn't set up (SMTP_HOST, SMTP_USER, SMTP_PASS).</span>}
       {err && <span role="alert" className="text-caption text-heart">{err}</span>}
     </div>
   );

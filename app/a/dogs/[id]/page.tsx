@@ -36,6 +36,8 @@ import { TodoDone } from "@/components/TodoDone";
 import { WaiveButton } from "@/components/WaiveButton";
 import { ClientNotes, QaFlagButton, WatchButton } from "@/components/ClientCare";
 import { qaFlagOf } from "@/lib/qaBox";
+import { CaseUpdate } from "@/components/CaseUpdate";
+import { recentCaseUpdates } from "@/lib/caseUpdates";
 import { notesOf, watchOf } from "@/lib/clientCare";
 import { Avatar, Pill } from "@/components/ui";
 
@@ -83,7 +85,7 @@ export default async function DogPageView({ params, searchParams }: { params: { 
   const badge = (t: Tab) => t === "before" && missing ? missing : t === "forms" && toReview ? toReview : 0;
 
   // Watch list and client notes (migration 060)
-  const [watch, notes, qa] = isDemo() ? [null, [], null] : await Promise.all([watchOf(b.id), notesOf(b.hubspot_deal_id || b.id, true), b.hubspot_deal_id ? qaFlagOf(b.hubspot_deal_id).catch(() => null) : Promise.resolve(null)]);
+  const [watch, notes, qa, caseUpds] = isDemo() ? [null, [], null, []] : await Promise.all([watchOf(b.id), notesOf(b.hubspot_deal_id || b.id, true), b.hubspot_deal_id ? qaFlagOf(b.hubspot_deal_id).catch(() => null) : Promise.resolve(null), b.hubspot_deal_id ? recentCaseUpdates(b.hubspot_deal_id).catch(() => []) : Promise.resolve([])]);
   return (
     <>
       {/* The dog's name, status and tabs stay pinned while the page scrolls (on a phone, just the tabs, under the top bar) */}
@@ -125,6 +127,7 @@ export default async function DogPageView({ params, searchParams }: { params: { 
         {tab === "overview" && (
           <div className="space-y-5">
             <ClientNotes dealKey={b.hubspot_deal_id || b.id} notes={notes} admin path={`/a/dogs/${b.id}`} />
+            {b.hubspot_deal_id && !isDemo() && <CaseUpdate bookingId={b.id} updates={caseUpds} />}
             {((incs || []) as { id: string; kind: IncidentKind; detail: string | null }[]).length > 0 && (
               <section>
                 <h2 className="group-title">To do for {b.dog_name || "this dog"}</h2>

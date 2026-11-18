@@ -6,7 +6,9 @@ import { formCheckStats } from "@/lib/formCheck";
 import { handoverDraftStats } from "@/lib/handoverDraft";
 import { vaccineCheckStats } from "@/lib/vaccineCheck";
 import { needsStats } from "@/lib/clientNeeds";
-import { AutoSwitch, BriefPostSwitch, CheckModeSwitch, OnOff, RatePill } from "@/components/AiSwitches";
+import { AutoSwitch, BriefPostSwitch, CheckModeSwitch, OnOff, QaDailySwitch, RatePill } from "@/components/AiSwitches";
+import { qaDailyOn } from "@/lib/qaDaily";
+import { mailConfigured } from "@/lib/mail";
 import { briefPostOn } from "@/lib/briefPost";
 import { buzzAgentOn } from "@/lib/buzzAgent";
 import { aiFlags, aiRates, AUTO_MIN_DECISIONS, AUTO_MIN_RATE, SPOT_EVERY, WEEKS, type Feature } from "@/lib/aiTrust";
@@ -41,6 +43,10 @@ export async function AiHelp({ from, label }: { from: string; label: string }) {
       <div className="panel mb-3 flex flex-wrap items-start gap-3 px-4 py-3.5">
         <div className="min-w-0 flex-1 basis-64"><p className="font-bold">Office brief in Buzz</p><p className="text-small text-ink-soft">The app posts To do as the office brief in #flagged-ongoing at 6 AM and 4 PM Eastern, and a new-only post on the hour when something comes in. No AI. Switch on the day the team moves to Buzz, and stop the Tower&apos;s Slack post the same day.</p></div>
         <BriefPostSwitch on={await briefPostOn().catch(() => false)} ready={buzzAgentOn()} />
+      </div>
+      <div className="panel mb-3 flex flex-wrap items-start gap-3 px-4 py-3.5">
+        <div className="min-w-0 flex-1 basis-64"><p className="font-bold">QA daily email</p><p className="text-small text-ink-soft">Weekdays from 6:30 AM Eastern to Jeroni and Anita, Sean and Pedro copied: new cases, case updates, what&apos;s with Sean, tickets, follow-ups due, the QA box and the top 3. Built from the app and HubSpot, no AI. Switch on the day the Tower stops sending it. <Link prefetch={false} href="/a/tower" className="font-semibold underline">Tower page</Link></p></div>
+        <QaDailySwitch on={await qaDailyOn().catch(() => false)} ready={mailConfigured()} />
       </div>
       <ul className="panel divide-y divide-line">
         {row("Form checks", "Each submitted form is checked against its checklist: \"fits the standard\" or what to look at. \"Approve clean ones\" lets weekly checks and intake forms with nothing to look at approve themselves; handover reports always come to a person.",

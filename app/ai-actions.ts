@@ -104,3 +104,18 @@ export async function setBriefPostAction(on: boolean): Promise<R> {
     } catch (e) { return { ok: false, message: (e as Error).message }; }
   });
 }
+
+/** Pulse → Office: the app sends the QA daily email (lib/qaDaily.ts), or not. */
+export async function setQaDailyAction(on: boolean): Promise<R> {
+  return audited("setQaDailyAction", { on }, async () => {
+    try {
+      if (isDemo()) return { ok: false, message: "Demo mode." };
+      const by = await admin();
+      const { error } = await serviceClient().from("app_settings").upsert({ key: "qa.daily", value: on ? "on" : "off", updated_by: by, updated_at: new Date().toISOString() }, { onConflict: "key" });
+      if (error) return { ok: false, message: error.message };
+      await auditSystem(on ? "The app sends the QA daily email" : "The app stopped sending the QA daily email", `By ${by}.`).catch(() => null);
+      revalidatePath("/a/pulse");
+      return { ok: true, message: on ? "On: weekdays from 6:30 AM Eastern." : "Off." };
+    } catch (e) { return { ok: false, message: (e as Error).message }; }
+  });
+}

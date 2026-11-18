@@ -4,6 +4,7 @@ import { audited } from "@/lib/audit";
 import { getViewer } from "@/lib/data";
 import { isDemo, serviceClient } from "@/lib/supabase";
 import { qaFlag } from "@/lib/qaBox";
+import { openTicketsFor, saveCaseUpdate, type CaseAction } from "@/lib/caseUpdates";
 
 // Watch list and client notes (migration 060).
 type R = { ok: boolean; message: string };
@@ -66,4 +67,32 @@ export async function qaFlagAction(bookingId: string, reason: string): Promise<R
     revalidatePath(`/a/dogs/${bookingId}`);
     return r;
   });
+}
+
+/** Case update on the dog page: a note on the HubSpot deal now, and the actions picked (admins). */
+export async function caseUpdateAction(bookingId: string, text: string, forSean: boolean, actions: CaseAction[]): Promise<R> {
+  return audited("caseUpdate", { bookingId, forSean, actions }, async () => {
+    if (isDemo()) return { ok: false, message: "Demo mode." };
+    const v = await getViewer();
+    if (!v || v.role !== "admin") return { ok: false, message: "Admins only." };
+    const { data: b } = await serviceClient().from("bookings").select("id, hubspot_deal_id, client_name, dog_name").eq("id", bookingId).maybeSingle();
+    if (!b) return { ok: false, message: "Dog not found." };
+    const r = await saveCaseUpdate({ dealId: b.hubspot_deal_id || "", bookingId, client: b.client_name, dog: b.dog_name || "", text, by: name(v), forSean, actions: actions.slice(0, 3) });
+    revalidatePath(`/a/dogs/${bookingId}`);
+    return r;
+  });
+}
+export async function ticketsForAction(bookingId: string): Promise<{ id: string; subject: string }[]> {
+  try {
+    const v = await getViewer();
+    if (!v || v.role !== "admin" || isDemo()) return [];
+    const { data: b } = await serviceClient().from("bookings").select("client_name, dog_name").eq("id", bookingId).maybeSingle();
+    return b ? await openTicketsFor(b.client_name, b.dog_name || "") : [];
+  } catch { return []; }
+}
+export async function settleForSeanAction(id: string): Promise<R> {
+  const v = await getViewer();
+  if (!v || v.role !== "admin") return { ok: false, message: "Admins only." };
+  const { error } = await serviceClient().from("case_updates").update({ settled_at: new Date().toISOString() }).eq("id", id);
+  return error ? { ok: false, message: error.message } : { ok: true, message: "Settled." };
 }

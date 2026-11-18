@@ -31,6 +31,7 @@ import { nudgesOn, runNudges } from "./nudges";
 import { classifyNew, openFlags, pendingFor } from "./clientNeeds";
 import { runBriefPost } from "./briefPost";
 import { runQaChecks } from "./qaBox";
+import { runQaDaily } from "./qaDaily";
 
 const URGENT_CHAT: IncidentKind[] = ["client_waiting", "client_pileup", "client_urgent"];
 
@@ -206,6 +207,7 @@ export async function runChatChecks(now = new Date()) {
   // The office brief in Buzz (lib/briefPost.ts): 6 AM and 4 PM Eastern, and hourly new-only; off until switched on
   const brief = await runBriefPost(now).catch((e) => ({ posted: "", error: (e as Error).message }));
   await runQaChecks(undefined, now).catch(() => null); // the QA box's 20-minute and next-day checks
+  await runQaDaily(now).catch(() => null);              // the QA daily email, weekdays from 6:30 AM Eastern (when switched on)
   if (brief.error) out.errors.push(`brief: ${brief.error}`);
 
   // The reminder ladder (lib/nudges.ts): the trainer is reminded first; the office gets it after 2 ignored reminders

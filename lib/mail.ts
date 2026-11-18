@@ -20,11 +20,11 @@ function smtp() {
 
 export type Attachment = { filename: string; content: Buffer | Uint8Array; contentType?: string; cid?: string };
 
-export async function sendMail(opts: { to: string; subject: string; html: string; text: string; attachments?: Attachment[] }) {
+export async function sendMail(opts: { to: string; subject: string; html: string; text: string; attachments?: Attachment[]; cc?: string }) {
   if (!mailConfigured()) throw new Error("Email isn't set up yet: add SMTP_HOST, SMTP_USER and SMTP_PASS in Vercel.");
   const from = process.env.MAIL_FROM || `Dogwise Academy <${process.env.SMTP_USER}>`;
   await smtp().sendMail({
-    from, to: opts.to, replyTo: process.env.MAIL_REPLY_TO || process.env.SMTP_USER, subject: opts.subject,
+    from, to: opts.to, ...(opts.cc ? { cc: opts.cc } : {}), replyTo: process.env.MAIL_REPLY_TO || process.env.SMTP_USER, subject: opts.subject,
     html: opts.html, text: opts.text,
     attachments: opts.attachments?.map((a) => ({ filename: a.filename, content: Buffer.from(a.content), contentType: a.contentType, cid: a.cid }))
   });

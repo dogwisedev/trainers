@@ -400,3 +400,37 @@ export async function searchContacts(groups: { propertyName: string; operator: s
   const res = await hs<SearchPage>("/crm/v3/objects/contacts/search", { method: "POST", body: JSON.stringify({ filterGroups: g.map((filters) => ({ filters })), properties, limit: 100 }) });
   return (res.results || []).map((r) => ({ id: String(r.id), properties: r.properties || {} }));
 }
+
+/** A note on a deal (shows in the deal's activity). Returns the note id. */
+export async function addDealNote(dealId: string, body: string, at = new Date()): Promise<string> {
+  const r = await hs<{ id: string }>("/crm/v3/objects/notes", { method: "POST", body: JSON.stringify({
+    properties: { hs_note_body: body.slice(0, 65000), hs_timestamp: at.toISOString() },
+    associations: [{ to: { id: dealId }, types: [{ associationCategory: "HUBSPOT_DEFINED", associationTypeId: 214 }] }] // note → deal
+  }) });
+  return String(r.id);
+}
+
+/** Tickets matching a text query (subject, content), with the given properties. Up to 100. */
+export async function searchTickets(query: string, filters: { propertyName: string; operator: string; value?: string; values?: string[] }[], properties: string[], sortByActivity = false): Promise<{ id: string; properties: DealProps }[]> {
+  const res = await hs<SearchPage>("/crm/v3/objects/tickets/search", { method: "POST", body: JSON.stringify({
+    ...(query ? { query } : {}), filterGroups: filters.length ? [{ filters }] : [], properties, limit: 100,
+    ...(sortByActivity ? { sorts: [{ propertyName: "hs_lastactivitydate", direction: "DESCENDING" }] } : {})
+  }) });
+  return (res.results || []).map((r) => ({ id: String(r.id), properties: r.properties || {} }));
+}
+export async function updateTicket(id: string, properties: Record<string, string>) {
+  await hs(`/crm/v3/objects/tickets/${id}`, { method: "PATCH", body: JSON.stringify({ properties }) });
+}
+/** Deals in a pipeline (optionally in given stages), with the given properties. Up to 300. */
+export async function dealsInPipeline(pipeline: string, stages: string[], properties: string[]): Promise<{ id: string; properties: DealProps }[]> {
+  const out: { id: string; properties: DealProps }[] = [];
+  let after: string | undefined;
+  for (let page = 0; page < 3; page++) {
+    const res = await hs<SearchPage>("/crm/v3/objects/deals/search", { method: "POST", body: JSON.stringify({
+      filterGroups: [{ filters: [{ propertyName: "pipeline", operator: "EQ", value: pipeline }, ...(stages.length ? [{ propertyName: "dealstage", operator: "IN", values: stages }] : [])] }],
+      properties, limit: 100, ...(after ? { after } : {}) }) });
+    out.push(...(res.results || []).map((r) => ({ id: String(r.id), properties: r.properties || {} })));
+    after = res.paging?.next?.after; if (!after) break;
+  }
+  return out;
+}
