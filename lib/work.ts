@@ -73,8 +73,34 @@ export type WorkView = {
   reasons: { action: string; reason: string; n: number; people: string[] }[];
   hubspot: { property: string; n: number; people: string[]; last: string }[];
   byItself: { what: string; n: number }[];      // what the app did on its own in the same range
+  rhythm: Rhythm[];                              // when each office person does things, hour by hour (Eastern)
   note: string;
 };
+/** When one person does things: actions per hour of the day (Eastern), and how many came within seconds of the one before. */
+export type Rhythm = { who: string; total: number; hours: number[]; days: number; busiest: number; burstPct: number; lateNightPct: number };
+const NOISE = /^(Signed in|Turned notifications|Sent themselves a test notification|Signed out)/i;
+const etHour = (iso: string) => Number(new Date(iso).toLocaleString("en-US", { timeZone: "America/New_York", hour: "2-digit", hour12: false })) % 24;
+const etDay = (iso: string) => new Date(iso).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+/** Office people only; the shared admin name is kept apart from named logins. */
+export function rhythms(rows: { who: string | null; role: string | null; action: string; at: string }[]): Rhythm[] {
+  const by = new Map<string, { at: string; action: string }[]>();
+  for (const r of rows) {
+    if (r.role !== "admin" || NOISE.test(r.action)) continue;
+    const who = (r.who || "?").replace(/^Dogwise (Admin|team) \((.+)\)$/, "$2").replace(/@dogwiseacademy\.com$/, "");
+    by.set(who, [...(by.get(who) || []), { at: r.at, action: r.action }]);
+  }
+  const out: Rhythm[] = [];
+  for (const [who, list] of by) {
+    list.sort((a, b) => a.at.localeCompare(b.at));
+    const hours = new Array(24).fill(0);
+    let bursts = 0;
+    list.forEach((x, i) => { hours[etHour(x.at)]++; if (i && Date.parse(x.at) - Date.parse(list[i - 1].at) <= 10000) bursts++; });
+    const late = hours.slice(20).reduce((a, b) => a + b, 0) + hours.slice(0, 6).reduce((a, b) => a + b, 0);
+    out.push({ who, total: list.length, hours, days: new Set(list.map((x) => etDay(x.at))).size, busiest: hours.indexOf(Math.max(...hours)),
+      burstPct: list.length ? Math.round((bursts / list.length) * 100) : 0, lateNightPct: list.length ? Math.round((late / list.length) * 100) : 0 });
+  }
+  return out.sort((a, b) => b.total - a.total);
+}
 const median = (xs: number[]) => { if (!xs.length) return null; const s = [...xs].sort((a, b) => a - b); return Math.round(s[Math.floor(s.length / 2)]); };
 const minutes = (a: string, b: string) => Math.max(0, (Date.parse(b) - Date.parse(a)) / 60000);
 const pretty = (action: string) => ({
@@ -138,5 +164,5 @@ export async function workReport(from: string, to: string, sb: SupabaseClient = 
   const rs = group((reasons || []) as { action: string; reason: string; who: string | null }[], (r) => `${r.action}|${r.reason}`, (r) => r.who).map((x) => ({ action: x.what.split("|")[0], reason: x.what.split("|")[1], n: x.n, people: x.people }));
   const hrows = (hs || []) as { property: string; by_user: string | null; at: string }[];
   const hubspot = group(hrows, (r) => r.property, (r) => r.by_user).map((x) => ({ property: x.what, n: x.n, people: x.people, last: hrows.filter((r) => r.property === x.what).reduce((a, r) => (r.at > a ? r.at : a), "") }));
-  return { from, to, office, trainers, reasons: rs, hubspot, byItself, note: hs === null ? "Run migration 059 in Supabase for reasons and HubSpot changes." : "" };
+  return { from, to, office, trainers, reasons: rs, hubspot, byItself, rhythm: rhythms(log), note: hs === null ? "Run migration 059 in Supabase for reasons and HubSpot changes." : "" };
 }
