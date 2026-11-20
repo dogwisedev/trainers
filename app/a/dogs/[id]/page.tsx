@@ -78,7 +78,8 @@ export default async function DogPageView({ params, searchParams }: { params: { 
   const toReview = ((reps || []) as { status: Status }[]).filter((x) => x.status === "submitted").length;
   // Follows the confirmed pickup / drop-off (button or form), not the dates
   const isPicked = pickedUp(b as Parameters<typeof pickedUp>[0]), isHome = droppedOff(b as Parameters<typeof droppedOff>[0]);
-  const status = b.status === "cancelled" ? { label: "Cancelled", tone: "heart" as const } : isHome ? { label: "Finished", tone: "line" as const }
+  const postponed = b.status === "cancelled" && (b as { cancel_reason?: string | null }).cancel_reason === "Postponed";
+  const status = postponed ? { label: "Postponed: on standby", tone: "biscuit" as const } : b.status === "cancelled" ? { label: "Cancelled", tone: "heart" as const } : isHome ? { label: "Finished", tone: "line" as const }
     : isPicked ? (b.end_date < today ? { label: "Drop-off not confirmed", tone: "heart" as const } : { label: "In care", tone: "biscuit" as const })
     : b.start_date < today ? { label: "Pickup not confirmed", tone: "heart" as const }
     : b.start_date === today ? { label: "Pickup today", tone: "mint" as const } : { label: `Starts in ${daysBetween(today, b.start_date)} day${daysBetween(today, b.start_date) === 1 ? "" : "s"}`, tone: "mint" as const };
@@ -100,6 +101,7 @@ export default async function DogPageView({ params, searchParams }: { params: { 
           </h1>
           {b.status === "cancelled" && (b as { cancel_reason?: string | null }).cancel_reason && (() => {
             const c = b as { cancel_reason?: string | null; cancel_note?: string | null; cancelled_by?: string | null; cancelled_at?: string | null };
+            if (c.cancel_reason === "Postponed") return <p className="mt-1 text-body text-warn">Postponed{c.cancelled_by ? ` by ${c.cancelled_by}` : ""}{c.cancelled_at ? ` on ${short(c.cancelled_at.slice(0, 10))}` : ""}: {c.cancel_note || ""} The deal is on Standby; book it again from the Standby list when there are new dates.</p>;
             return <p className="mt-1 text-body text-heart">Cancelled{c.cancelled_by ? ` by ${c.cancelled_by}` : ""}{c.cancelled_at ? ` on ${short(c.cancelled_at.slice(0, 10))}` : ""}: {c.cancel_reason}{c.cancel_note ? `. ${c.cancel_note}` : ""}</p>;
           })()}
           <p className="mt-1 text-body text-ink-soft">{b.client_name}, with {b.trainers ? <Link prefetch={false} href={`/a/trainers/${b.trainers.id}`} className="underline">{b.trainers.name}</Link> : "no trainer"}<span className="block text-body">{short(b.start_date)} to {short(b.end_date)}</span></p>
@@ -134,7 +136,7 @@ export default async function DogPageView({ params, searchParams }: { params: { 
                 <ul className="panel divide-y divide-line">
                   {((incs || []) as { id: string; kind: IncidentKind; detail: string | null }[]).map((i) => (
                     <li key={i.id} className="flex flex-wrap items-center gap-3 p-3.5">
-                      <div className="min-w-0 flex-1"><p className="font-semibold">{INCIDENT_LABEL[i.kind] || i.kind}</p>{i.detail && <p className="text-small text-ink-soft">{i.detail}</p>}</div>
+                      <div className="min-w-0 flex-1"><p className="font-semibold">{i.kind === "booking_cancelled" && /\bpostponed\b/i.test(i.detail || "") ? "Training postponed (on standby)" : INCIDENT_LABEL[i.kind] || i.kind}</p>{i.detail && <p className="text-small text-ink-soft">{i.detail}</p>}</div>
                       <TodoDone id={i.id} />
                     </li>
                   ))}

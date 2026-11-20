@@ -33,7 +33,7 @@ function steps(r: R): Step[] {
 
 export function rowStatus(r: R, tab: string, today: string, beforeMissing: number | null): RowStatus {
   const owed = r.strip?.paid?.owed ?? 0;
-  if (r.status === "cancelled") return { tone: "grey", headline: `Cancelled${r.cancelReason ? `: ${r.cancelReason}` : ""}`, issues: [], steps: [] };
+  if (r.status === "cancelled") return { tone: "grey", headline: r.cancelReason === "Postponed" ? "Postponed: on standby" : `Cancelled${r.cancelReason ? `: ${r.cancelReason}` : ""}`, issues: [], steps: [] };
   const issues: { text: string; tone: Tone }[] = [];
   // Upcoming: before training
   if (tab === "upcoming") {

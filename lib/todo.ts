@@ -154,7 +154,11 @@ async function buildTodoUncached(): Promise<TodoData> {
       case "handover_photo_missing": add({ group: "week", tone: "biscuit", text: `${dog}'s handover has no photo with the trainer`, primary: i.report_id ? { label: "Open form", href: `/a/reports/${i.report_id}` } : chat }); break;
       case "overbooked": add({ group: "now", tone: "heart", text: `${trainer} has more dogs than kennels`, primary: i.booking ? { label: "Open trainer", href: `/a/trainers/${i.booking.trainer_id}` } : undefined }); break;
       case "length_changed": add({ group: "now", tone: "biscuit", text: `${dog}'s program length changed: check it's right in HubSpot`, primary: deal ? { label: "HubSpot deal", href: deal, external: true } : undefined }); break;
-      case "booking_cancelled": add({ group: "now", tone: "heart", decision: true, poc: moneyOwner, text: `Money ask (Sean decides): ${dog}'s training was cancelled, refund or partial pay?`, primary: deal ? { label: "HubSpot deal", href: deal, external: true } : undefined }); break;
+      case "booking_cancelled": {
+        // Postponed (on standby, waiting for new dates): the dog's POC follows it up, nothing to refund. A real cancellation: Sean decides.
+        if (/\bpostponed\b/i.test(i.detail || "")) { add({ group: "now", tone: "biscuit", text: `${dog}'s training is postponed: on standby until new dates`, primary: deal ? { label: "HubSpot deal", href: deal, external: true } : undefined }); break; }
+        add({ group: "now", tone: "heart", decision: true, poc: moneyOwner, text: `Money ask (Sean decides): ${dog}'s training was cancelled, refund or partial pay?`, primary: deal ? { label: "HubSpot deal", href: deal, external: true } : undefined }); break;
+      }
       case "hubspot_problem":
         if ((i.ref || "").startsWith("dogname:")) {
           // A dog name on the deal that looks like two dogs, or like a person (lib/dogNames.ts)
