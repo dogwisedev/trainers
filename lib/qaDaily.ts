@@ -49,7 +49,7 @@ export async function qaDailyText(now = new Date(), sb: SupabaseClient = service
   const f = (flags || []) as { client: string; dog: string; reason: string; by: string; status: string; moved: string[]; found: string | null; at: string }[];
   section(wd === 1 ? "New cases since Friday" : "New cases since yesterday", f.filter((x) => x.status !== "hand").map((x) => `${x.client} / ${x.dog}: ${x.reason} (flagged by ${x.by}, ${fmt(x.at)}).`));
   section("Cases moving or stuck", ((upd || []) as { client: string; dog: string; text: string; by: string; actions: { what: string }[]; at: string }[]).map((u) => `${u.client} / ${u.dog}: ${u.text} (${u.by}, ${fmt(u.at)})${u.actions?.length ? `. Done: ${u.actions.map((a) => a.what).join("; ")}` : ""}.`));
-  const decisions = todo.items.filter((i) => i.decision).map((i) => `${i.text.replace(/^Decision for Sean: /, "")}${i.detail ? `: ${i.detail.slice(0, 160)}` : ""}`);
+  const decisions = todo.items.filter((i) => i.decision).map((i) => `${i.text.replace(/^Money ask \(Sean decides\): /, "")}${i.detail ? `: ${i.detail.slice(0, 160)}` : ""}`);
   section("With Sean", [...((sean || []) as { client: string; dog: string; text: string; by: string; at: string }[]).map((u) => `${u.client} / ${u.dog}: ${u.text} (${u.by}, ${fmt(u.at)})`), ...decisions]);
 
   // HubSpot: tickets that need a push, and follow-ups due

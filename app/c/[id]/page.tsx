@@ -7,8 +7,9 @@ import { isDemo } from "@/lib/supabase";
 import { ChatThread } from "@/components/ChatThread";
 import { ArchivedNotice } from "@/components/ChatBits";
 import { ReopenChat } from "@/components/ChatActions";
-import { ClipboardList, CreditCard, MessagesSquare } from "lucide-react";
+import { Luggage, ClipboardList, CreditCard, MessagesSquare } from "lucide-react";
 import { BeforeTrainingPopup } from "@/components/BeforeTrainingPopup";
+import { PACKING_URL } from "@/lib/terms";
 import { chatReadiness } from "@/lib/pretraining";
 import { bookingForChat, followupState } from "@/lib/followups";
 import { FollowupRequest, type FollowupCard } from "@/components/FollowupRequest";
@@ -72,6 +73,12 @@ export default async function ClientChat({ params }: { params: { id: string } })
             </a>
           )}
         </div>
+      )}
+      {chat.status === "open" && !chat.archived_at && (
+        <a href={PACKING_URL()} target="_blank" rel="noopener" className="mb-4 flex items-center gap-3 rounded-2xl border border-line bg-white px-4 py-2.5 text-body hover:bg-paper/50">
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-mint-wash text-fern"><Luggage size={17} /></span>
+          <span className="min-w-0 flex-1"><span className="block font-semibold">Packing list &amp; program guide</span><span className="block text-small text-ink-soft">What to send with your dog, and how the program works.</span></span>
+        </a>
       )}
       {chat.archived_at || chat.status === "closed" ? (
         <ArchivedNotice chat={chat} audience="client">{chat.status === "closed" && <ReopenChat chatId={chat.id} base="/c" />}</ArchivedNotice>

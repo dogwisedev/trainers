@@ -1,5 +1,6 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { onSigned } from "./terms";
 import { noteVaccineOutcome } from "./vaccineCheck";
 import { isDemo, serviceClient } from "./supabase";
 import { addDays, short } from "./dates";
@@ -225,6 +226,8 @@ export async function syncPretraining(opts: { dealIds?: string[]; sb?: SupabaseC
         contact = { ...contact, ...pending }; out.pushed += r.sent; pending = r.pending; syncError = r.error;
       }
       await sb.from("pretraining_deals").upsert({ deal_id: dealId, contact_id: contactId, deal, contact, pending, synced_at: now, sync_error: syncError, updated_at: now });
+      // Agreed on the HubSpot form since the last read: the same record and welcome as in the app (once per deal)
+      if (!blank(contact.signature) && blank((old?.contact as DealProps | undefined)?.signature)) await onSigned({ dealId, name: String(contact.signature), source: "hubspot", contact }, sb);
       // The client's personal before-training link, on their HubSpot contact for templates
       if (contactId && !str(contact.dogwise_forms_link)) await updateContact(contactId, { dogwise_forms_link: formsLink(contactId) }).catch(() => {});
       // 2. One row per dog, with its slot on the deal (dog 1 = k9___dog_name, dog 2 = dog_2_name…)
@@ -380,7 +383,7 @@ export async function writeDealChecklist(dealId: string, deal: DealProps, defs: 
 type Who = { name: string; role: "admin" | "client" };
 
 /** Saves answers. Household answers and dog 1's go to the HubSpot contact; dogs 2 to 4 are kept in the app. */
-export async function saveAnswers(dealId: string, bookingId: string, values: Record<string, string>, who: Who): Promise<{ ok: boolean; message: string }> {
+export async function saveAnswers(dealId: string, bookingId: string, values: Record<string, string>, who: Who, meta: { ip?: string | null; userAgent?: string | null } = {}): Promise<{ ok: boolean; message: string }> {
   const sb = serviceClient();
   const clean: Record<string, string> = {};
   for (const [k, v] of Object.entries(values)) if (CLIENT_KEYS.includes(k) || DOG_KEYS.includes(k)) clean[k] = String(v ?? "").trim().slice(0, 5000);
@@ -403,6 +406,11 @@ export async function saveAnswers(dealId: string, bookingId: string, values: Rec
       if (Object.keys(pending).length) note = "Saved. It'll reach HubSpot shortly.";
     } else note = "Saved. It'll reach HubSpot shortly.";
     await sb.from("pretraining_deals").update({ contact: { ...(row.contact || {}), ...toContact }, pending, sync_error: error, updated_at: at }).eq("deal_id", dealId);
+    // They typed their name to agree to the Terms & Conditions: keep a record, and send the welcome with a copy (lib/terms.ts)
+    const before = String(((row.contact || {}) as Record<string, unknown>).signature ?? (row.pending || {}).signature ?? "").trim();
+    if (toContact.signature && toContact.signature.trim() !== before) {
+      await onSigned({ dealId, name: toContact.signature, source: who.role === "client" ? "app" : "admin", ip: meta.ip, userAgent: meta.userAgent, contact: { ...(row.contact || {}), ...toContact } }, sb);
+    }
   }
   // Last change per answer: household answers count for every dog on the deal
   for (const d of (dogs || []) as DogRow[]) {

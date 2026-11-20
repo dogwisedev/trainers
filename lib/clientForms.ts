@@ -1,4 +1,5 @@
 import "server-only";
+import { headers } from "next/headers";
 import crypto from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { serviceClient } from "./supabase";
@@ -115,7 +116,11 @@ export async function saveForm(contactId: string, dogKey: string | null, values:
   // Booked in the app: the same path as the in-app checklist (it keeps the app and HubSpot in step)
   // (household answers can go through any of the deal's bookings; a dog's only through its own booking)
   const viaBooking = f.booked ? (dog ? dog.bookingId : f.dogs.find((d) => d.bookingId)?.bookingId || null) : null;
-  if (f.dealId && viaBooking) return saveAnswers(f.dealId, viaBooking, clean, who);
+  if (f.dealId && viaBooking) {
+    let meta: { ip?: string | null; userAgent?: string | null } = {};
+    try { const h = headers(); meta = { ip: (h.get("x-forwarded-for") || "").split(",")[0].trim() || null, userAgent: h.get("user-agent") }; } catch { /* not in a request */ }
+    return saveAnswers(f.dealId, viaBooking, clean, who, meta);
+  }
   try {
     if (!dog || dog.dogOne) await updateContact(contactId, clean);       // household, or dog 1: onto the contact
     if (dog) {                                                            // every dog's answers are also kept by name

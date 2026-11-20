@@ -1,6 +1,7 @@
 "use server";
 import { audited } from "@/lib/audit";
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
 import { serviceClient } from "@/lib/supabase";
 import { profileAccess } from "@/lib/pretrainingAccess";
 import { addVaccineFile, reviewVaccines, saveAnswers, setCleared, setSlot } from "@/lib/pretraining";
@@ -23,7 +24,8 @@ export async function saveProfileAction(chatId: string, bookingId: string, value
   try {
     const g = await guard(chatId, bookingId);
     if (!g) return NO;
-    const r = await saveAnswers(g.dealId, bookingId, values, g.who);
+    const h = headers();
+    const r = await saveAnswers(g.dealId, bookingId, values, g.who, { ip: (h.get("x-forwarded-for") || "").split(",")[0].trim() || null, userAgent: h.get("user-agent") });
     revalidatePath("/", "layout");
     return r;
   } catch (e) { return { ok: false, message: (e as Error).message }; }

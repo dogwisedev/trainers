@@ -73,6 +73,8 @@ async function buildTodoUncached(): Promise<TodoData> {
   const tName = new Map(((trainers || []) as { id: string; name: string }[]).map((t) => [t.id, t.name]));
   // Point of Contact per trainer (free text on the trainer's profile): the To do POC filter
   const tPoc = new Map(((trainers || []) as { id: string; poc: string | null }[]).map((t) => [t.id, String(t.poc || "").replace(/\s+/g, " ").trim()]));
+  // A real money ask (a refund, a credit, money back) is Jeroni's case, with Sean deciding (Sean's owners-first rule, 19 Nov)
+  const moneyOwner = [...tPoc.values()].find((p) => /^(jahrony|jeroni)/i.test(p)) || "Jeroni";
   const pocOf = (trainerId: string | null | undefined) => (trainerId && tPoc.get(trainerId)) || undefined;
   const askIds = ((incs || []) as { ref: string | null }[]).map((i) => (i.ref || "").match(/^ask(?:-expired)?:(.+)$/)?.[1]).filter(Boolean) as string[];
   const { data: askRows } = askIds.length ? await serviceClient().from("booking_asks").select("id, kind, trainer_id, deal_id").in("id", askIds) : { data: [] };
@@ -124,9 +126,10 @@ async function buildTodoUncached(): Promise<TodoData> {
       // Read by the app (lib/clientNeeds.ts): for the office to answer in the chat, or Handled (answered by phone or email)
       case "client_office": {
         const q = (i.detail || "").replace(/^.*? asked the office: /, "");
-        // Money, refunds, cancelling, dates: a decision for Sean (owner "Sean" so the POC filter finds them), not an office reply
-        const decision = /\b(refund\w*|reimburs\w*|money back|compensat\w*|credit|voucher|free (session|week|days?)|prorat\w*|partial|fee|fees|charge[ds]?|pay|paid|payment|price|cost|discount|balance|deposit|invoice|cancel\w*|postpone|reschedul\w*|extend|extension|extra (days?|weeks?)|move the (pickup|dates?)|change (the )?dates?)\b/i.test(q);
-        add({ group: "now", tone: decision ? "heart" : "biscuit", text: decision ? `Decision for Sean: ${client} asks about ${dog}` : `${client} asked the office about ${dog}`, detail: q, primary: chat ? { ...chat, label: "Reply" } : undefined, clear: "handled", decision, ...(decision ? { poc: "Sean" } : {}) });
+        // Only a real money ask is Sean's decision: a refund, a credit, compensation, money back. Owned by Jeroni as the case.
+        // Extensions, date changes, postponements and longer programs are the dog's POC's (no refund in them; pay follows the days).
+        const decision = /\b(refund\w*|reimburs\w*|money back|my money|compensat\w*|credit|chargeback|prorat\w*|partial refund|pay (me|us) back|give (me|us) back)\b/i.test(q);
+        add({ group: "now", tone: decision ? "heart" : "biscuit", text: decision ? `Money ask (Sean decides): ${client} about ${dog}` : `${client} asked the office about ${dog}`, detail: q, primary: chat ? { ...chat, label: "Reply" } : undefined, clear: "handled", decision, ...(decision ? { poc: moneyOwner } : {}) });
         break;
       }
       case "client_urgent": add({ group: "now", tone: "heart", text: `${client}: a message about ${dog} needs a person now`, detail: (i.detail || "").replace(/^[^:]*: /, ""), primary: chat ? { ...chat, label: "Reply" } : undefined, clear: "handled" }); break;
@@ -150,8 +153,8 @@ async function buildTodoUncached(): Promise<TodoData> {
       case "intake_media_missing": add({ group: "week", tone: "biscuit", text: `${dog}'s intake form came in without pickup photos or video`, primary: chat }); break;
       case "handover_photo_missing": add({ group: "week", tone: "biscuit", text: `${dog}'s handover has no photo with the trainer`, primary: i.report_id ? { label: "Open form", href: `/a/reports/${i.report_id}` } : chat }); break;
       case "overbooked": add({ group: "now", tone: "heart", text: `${trainer} has more dogs than kennels`, primary: i.booking ? { label: "Open trainer", href: `/a/trainers/${i.booking.trainer_id}` } : undefined }); break;
-      case "length_changed": add({ group: "now", tone: "heart", decision: true, poc: "Sean", text: `${dog}'s program length changed: check pay and refund`, primary: deal ? { label: "HubSpot deal", href: deal, external: true } : undefined }); break;
-      case "booking_cancelled": add({ group: "now", tone: "heart", decision: true, poc: "Sean", text: `${dog}'s training was cancelled: refund or partial pay?`, primary: deal ? { label: "HubSpot deal", href: deal, external: true } : undefined }); break;
+      case "length_changed": add({ group: "now", tone: "biscuit", text: `${dog}'s program length changed: check it's right in HubSpot`, primary: deal ? { label: "HubSpot deal", href: deal, external: true } : undefined }); break;
+      case "booking_cancelled": add({ group: "now", tone: "heart", decision: true, poc: moneyOwner, text: `Money ask (Sean decides): ${dog}'s training was cancelled, refund or partial pay?`, primary: deal ? { label: "HubSpot deal", href: deal, external: true } : undefined }); break;
       case "hubspot_problem":
         if ((i.ref || "").startsWith("dogname:")) {
           // A dog name on the deal that looks like two dogs, or like a person (lib/dogNames.ts)
@@ -302,6 +305,5 @@ async function buildTodoUncached(): Promise<TodoData> {
   }
   // Every POC written on an active trainer's profile, for the filter (even ones with nothing on To do right now)
   const pocs = [...new Map(((trainers || []) as { active: boolean; poc: string | null }[]).filter((t) => t.active).map((t) => String(t.poc || "").replace(/\s+/g, " ").trim()).filter(Boolean).map((p) => [p.toLowerCase(), p] as const)).values()].sort((a, b) => a.localeCompare(b));
-  if (items.some((x) => x.decision) && !pocs.some((p) => p.toLowerCase() === "sean")) pocs.push("Sean");
   return { items, late, beforeApp, pocs };
 }

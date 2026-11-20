@@ -346,7 +346,10 @@ export function Field({ q, d, value, onChange, idPrefix = "f", plain = false }: 
   // not plain: a red star marks a must have (needed before training starts)
   const mark = plain ? (q.required ? null : <span className="font-normal text-ink-faint"> (optional)</span>) : (isMust(q) ? <span className="text-heart"> *</span> : null);
   if (q.key === "signature" && d?.type === "bool") q = { ...q, label: "I agree to the Terms & Conditions", input: "yesno" }; // HubSpot may store it as a tick box
-  const label = <label htmlFor={id} className="label">{q.label}{mark}{q.hint && <span className="block text-caption font-normal text-ink-faint">{q.hint}</span>}</label>;
+  const label = <label htmlFor={id} className="label">{q.label}{mark}{q.hint && (/^(https?:\/\/)?[\w-]+(\.[\w-]+)+\/\S*$/.test(q.hint)
+    // A web address (the Terms & Conditions): a real link, opened in a new tab, so they can read it before they agree
+    ? <a href={/^https?:/.test(q.hint) ? q.hint : `https://www.${q.hint.replace(/^www\./, "")}`} target="_blank" rel="noopener" className="block text-caption font-semibold text-lav-deep underline">{q.key === "signature" ? "Read the Terms & Conditions" : q.hint}</a>
+    : <span className="block text-caption font-normal text-ink-faint">{q.hint}</span>)}</label>;
   if (isMulti(q, d)) {
     const chosen = value ? value.split(";").filter(Boolean) : [], max = q.key.startsWith("what_are_the_most_important") ? 4 : 99;
     return (
