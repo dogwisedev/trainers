@@ -63,7 +63,19 @@ async function claim(sb: SupabaseClient, rows: Partial<Nudge>[]): Promise<Nudge[
   return got;
 }
 
-/** One message to a trainer: a phone notification, and a text (or email) when it's reminder 2 or the notification didn't reach a phone. */
+/** One text a trainer gets at most, every TEXT_GAP_HOURS: a friendly nudge to open the app, never the details. The details
+ *  are in the app (and in the phone notification); a text listing late forms and waiting clients read as harsh, and several
+ *  a day was too many. */
+const TEXT_GAP_HOURS = 12;
+const nudgeText = (name: string) => `Hi ${first(name)}, a quick nudge from Dogwise 🐾 You've got a few things waiting in the app when you get a sec: ${site()}/t`;
+async function textedRecently(trainerId: string): Promise<boolean> {
+  const since = new Date(Date.now() - TEXT_GAP_HOURS * 3600e3).toISOString();
+  const { data } = await serviceClient().from("nudges").select("id").eq("trainer_id", trainerId).contains("channels", ["text"]).gte("sent_at", since).limit(1);
+  return !!data?.length;
+}
+
+/** One message to a trainer: a phone notification with the details, and when it's reminder 2 (or the notification didn't
+ *  reach a phone) a gentle text to open the app, at most one every 12 hours, or an email if there's no text. */
 async function deliver(t: Trainer, m: { title: string; body: string; url: string; tag: string; second: boolean }, nums: PocNumbers): Promise<{ channels: string[]; error: string | null }> {
   const channels: string[] = [], errs: string[] = [];
   const pushed = await pushToTrainer(t.id, { title: m.title, body: m.body, url: m.url, tag: m.tag }).catch(() => 0);
@@ -71,15 +83,16 @@ async function deliver(t: Trainer, m: { title: string; body: string; url: string
   if (!m.second && pushed) return { channels, error: null };
   const link = `${site()}${m.url}`;
   if (quoConfigured() && toE164(t.phone)) {
-    const r = await sendText(t.phone!, `Dogwise: ${m.title}. ${m.body} ${link}`, fromFor(t.poc, nums).from); // from their POC's own Quo number when it's set
+    if (await textedRecently(t.id).catch(() => false)) return { channels, error: null }; // they had a nudge in the last 12 hours: the app has the rest
+    const r = await sendText(t.phone!, nudgeText(t.name), fromFor(t.poc, nums).from); // from their POC's own Quo number when it's set
     if (r.ok) channels.push("text"); else errs.push(`text: ${r.error}`);
   }
   const to = t.email || t.dogwise_email;
   if (!channels.includes("text") && to && mailConfigured()) {
     try {
       await sendMail({
-        to, subject: m.title, text: `Hi ${first(t.name)},\n\n${m.body}\n\nOpen the app: ${link}`,
-        html: `<div style="background:#f4f5f8;padding:24px 12px;font-family:Arial,sans-serif"><div style="max-width:520px;margin:0 auto;background:#fff;border:1px solid #E7E3F3;border-radius:16px;padding:24px"><img src="cid:dogwise-logo" width="130" alt="Dogwise Academy" style="display:block;margin-bottom:14px"><p style="font-size:16px;font-weight:bold;color:#281870;margin:0 0 8px">Hi ${esc(first(t.name))}, ${esc(m.title.charAt(0).toLowerCase() + m.title.slice(1))}</p><p style="font-size:15px;color:#333;line-height:1.5;margin:0 0 18px">${esc(m.body)}</p><a href="${link}" style="background:#281870;color:#fff;padding:11px 20px;border-radius:9px;text-decoration:none;font-weight:bold;display:inline-block">Open the app</a></div></div>`,
+        to, subject: "A few things waiting in the Dogwise app", text: `Hi ${first(t.name)},\n\nA quick nudge: you've got a few things waiting in the app when you get a sec.\n\nOpen the app: ${link}`,
+        html: `<div style="background:#f4f5f8;padding:24px 12px;font-family:Arial,sans-serif"><div style="max-width:520px;margin:0 auto;background:#fff;border:1px solid #E7E3F3;border-radius:16px;padding:24px"><img src="cid:dogwise-logo" width="130" alt="Dogwise Academy" style="display:block;margin-bottom:14px"><p style="font-size:16px;font-weight:bold;color:#281870;margin:0 0 8px">Hi ${esc(first(t.name))} 🐾</p><p style="font-size:15px;color:#333;line-height:1.5;margin:0 0 18px">A quick nudge: you've got a few things waiting in the app when you get a sec.</p><a href="${link}" style="background:#281870;color:#fff;padding:11px 20px;border-radius:9px;text-decoration:none;font-weight:bold;display:inline-block">Open the app</a></div></div>`,
         attachments: [{ filename: "dogwise.png", content: Buffer.from(BRAND_LOGO_PNG_BASE64, "base64"), contentType: "image/png", cid: "dogwise-logo" }]
       });
       channels.push("email");

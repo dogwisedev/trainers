@@ -317,3 +317,6 @@ For learning how the app is used and why, so the next automation picks itself (m
 
 ## Who owns what on To do (Sean's owners-first rule, 19 Nov)
 Only a real money ask (a refund, a credit, compensation, money back) is a **Money ask (Sean decides)**: Jeroni's case, Sean deciding, first on To do and one "With Sean" line in the brief. Extensions, date changes, postponements and longer programs are an office question for the dog's POC (a longer program raises no refund; pay follows the days).
+
+## Texts to trainers
+The app's reminders text a trainer at most once every 12 hours, and the text never lists what's late or who's waiting: "Hi Sam, a quick nudge from Dogwise 🐾 You've got a few things waiting in the app when you get a sec" with the link. The details stay in the app and the phone notification. The email fallback (no phone number) reads the same. Texts the office sends from a To do item (Send as text) are their own words, as before.
