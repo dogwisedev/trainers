@@ -13,7 +13,10 @@ export async function saveFormAction(token: string, dogKey: string | null, value
   if (isDemo()) return { ok: false, message: "Demo mode." };
   const id = contactFromToken(token);
   if (!id) return { ok: false, message: "This link isn't valid. Use the link in your latest Dogwise email." };
-  const r = await saveForm(id, dogKey, values);
+  const read = values.__terms_read === "yes";
+  const { __terms_read: _r, ...rest } = values;
+  if (rest.signature && !read) return { ok: false, message: "Tick the box to say you've read the Terms & Conditions, then sign." };
+  const r = await saveForm(id, dogKey, rest, undefined, read);
   await auditCall("clientFormSaved", { contact: id, section: dogKey ? `dog: ${dogKey}` : "your details", answers: Object.keys(values).length }, { name: `Client (HubSpot contact ${id})`, role: "client" }, { ok: r.ok, error: r.ok ? null : r.message });
   return r;
 }

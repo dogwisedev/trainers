@@ -6,6 +6,7 @@ import { addFormVaccineAction, saveFormAction, setFormDogsAction } from "@/app/f
 import { uploadToDrive } from "@/lib/driveUpload";
 import { fileType, shrinkPhoto } from "@/lib/uploadPrep";
 import { Field } from "@/components/DogProfile";
+import { Agreement } from "@/components/Agreement";
 import type { Answers, Section } from "@/lib/pretrainingFields";
 import type { ClientFormData } from "@/lib/clientForms";
 
@@ -13,7 +14,7 @@ const filled = (s: Section, a: Answers) => s.questions.filter((q) => q.required 
 
 /** The client's before-training questions: their details once, then each dog's. Saves section by section. Mobile first. */
 export function ClientForm({ token, f, sections }: { token: string; f: ClientFormData; sections: Section[] }) {
-  const mine = sections.filter((s) => s.scope === "client"), dogs = sections.filter((s) => s.scope === "dog");
+  const mine = sections.filter((s) => s.scope === "client" && s.id !== "agreement"), dogs = sections.filter((s) => s.scope === "dog");
   return (
     <div className="space-y-5">
       <div>
@@ -31,7 +32,8 @@ export function ClientForm({ token, f, sections }: { token: string; f: ClientFor
           <Vaccines token={token} dog={d} />
         </Group>
       ))}
-
+      {/* Last: read the Terms & Conditions, tick, and sign with their name */}
+      <Agreement signed={String(f.client.signature ?? "")} onSave={(v) => saveFormAction(token, null, v)} />
     </div>
   );
 }

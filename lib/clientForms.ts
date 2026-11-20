@@ -1,5 +1,6 @@
 import "server-only";
 import { headers } from "next/headers";
+import { onSigned } from "./terms";
 import crypto from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { serviceClient } from "./supabase";
@@ -104,7 +105,7 @@ async function alignDogOne(sb: SupabaseClient, contactId: string, dog1: string, 
 }
 
 /** Saves one section: household answers (dogKey null) or one dog's. */
-export async function saveForm(contactId: string, dogKey: string | null, values: Record<string, string>, sb: SupabaseClient = serviceClient()): Promise<{ ok: boolean; message: string }> {
+export async function saveForm(contactId: string, dogKey: string | null, values: Record<string, string>, sb: SupabaseClient = serviceClient(), read = false): Promise<{ ok: boolean; message: string }> {
   const allowed = dogKey ? DOG_KEYS : CLIENT_KEYS;
   const clean = Object.fromEntries(Object.entries(values).filter(([k]) => allowed.includes(k)).map(([k, v]) => [k, String(v ?? "").trim().slice(0, 5000)]));
   if (!Object.keys(clean).length) return { ok: true, message: "Nothing to save." };
@@ -119,6 +120,7 @@ export async function saveForm(contactId: string, dogKey: string | null, values:
   if (f.dealId && viaBooking) {
     let meta: { ip?: string | null; userAgent?: string | null } = {};
     try { const h = headers(); meta = { ip: (h.get("x-forwarded-for") || "").split(",")[0].trim() || null, userAgent: h.get("user-agent") }; } catch { /* not in a request */ }
+    (meta as { read?: boolean }).read = read;
     return saveAnswers(f.dealId, viaBooking, clean, who, meta);
   }
   try {
@@ -129,6 +131,12 @@ export async function saveForm(contactId: string, dogKey: string | null, values:
       if (dog.dogOne) await sb.from("form_contacts").upsert({ contact_id: contactId, dog1_key: dog.key, updated_at: new Date().toISOString() });
     }
     await tickDealForms(contactId, sb).catch(() => {});
+    // Signed before the dog is booked in the app: the record and the welcome now (with where it was signed from)
+    if (clean.signature && f.dealId) {
+      let ip: string | null = null, ua: string | null = null;
+      try { const h = headers(); ip = (h.get("x-forwarded-for") || "").split(",")[0].trim() || null; ua = h.get("user-agent"); } catch { /* not in a request */ }
+      await onSigned({ dealId: f.dealId, name: clean.signature, source: "app", ip, userAgent: ua, readConfirmed: read, contact: { email: f.email, firstname: f.name.split(" ")[0] } }, sb);
+    }
     return { ok: true, message: "Saved." };
   } catch (e) { return { ok: false, message: `That didn't save: ${(e as Error).message}` }; }
 }

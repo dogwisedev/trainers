@@ -25,7 +25,10 @@ export async function saveProfileAction(chatId: string, bookingId: string, value
     const g = await guard(chatId, bookingId);
     if (!g) return NO;
     const h = headers();
-    const r = await saveAnswers(g.dealId, bookingId, values, g.who, { ip: (h.get("x-forwarded-for") || "").split(",")[0].trim() || null, userAgent: h.get("user-agent") });
+    const read = values.__terms_read === "yes";
+    const { __terms_read: _r, ...rest } = values;
+    if (g.who.role === "client" && rest.signature && !read) return { ok: false, message: "Tick the box to say you've read the Terms & Conditions, then sign." };
+    const r = await saveAnswers(g.dealId, bookingId, rest, g.who, { ip: (h.get("x-forwarded-for") || "").split(",")[0].trim() || null, userAgent: h.get("user-agent"), read });
     revalidatePath("/", "layout");
     return r;
   } catch (e) { return { ok: false, message: (e as Error).message }; }

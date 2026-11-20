@@ -6,6 +6,8 @@ import { auditSystem } from "./audit";
 import { mailConfigured, sendMail } from "./mail";
 import { fileBytes } from "./drive";
 import { claim } from "./announce";
+import { BRAND_LOGO_PNG_BASE64 } from "./brandLogo";
+import { createHash } from "crypto";
 
 // Terms & Conditions (migration 063). When a client types their name to agree (the before-training form in the app, or the
 // HubSpot form), the app keeps a record (who, when, from where, which version) and sends ONE warm welcome email: what
@@ -55,34 +57,86 @@ function wrap(text: string, font: PDFFont, size: number, width: number): string[
   }
   return out;
 }
-export async function agreementPdf(o: { name: string; email: string; dogs: string; at: string; ip?: string | null; source: string; terms: Terms }): Promise<Uint8Array> {
+export type AgreementRecord = {
+  id: string; name: string; email: string; dogs: string; program?: string; dates?: string; trainer?: string;
+  at: string; ip?: string | null; userAgent?: string | null; source: string; readConfirmed: boolean; hash: string; terms: Terms;
+};
+const device = (ua?: string | null) => {
+  const u = ua || ""; if (!u) return "";
+  const os = /iPhone|iPad/.test(u) ? "iPhone / iPad" : /Android/.test(u) ? "Android" : /Mac OS X/.test(u) ? "Mac" : /Windows/.test(u) ? "Windows" : "";
+  const br = /CriOS|Chrome\//.test(u) && !/Edg\//.test(u) ? "Chrome" : /Edg\//.test(u) ? "Edge" : /Firefox|FxiOS/.test(u) ? "Firefox" : /Safari\//.test(u) ? "Safari" : "";
+  return [os, br].filter(Boolean).join(", ") || u.slice(0, 80);
+};
+
+/** A formal record of acceptance, then the terms and the information section: the copy a payment provider can be shown. */
+export async function agreementPdf(r: AgreementRecord): Promise<Uint8Array> {
   const pdf = await PDFDocument.create();
-  const font = await pdf.embedFont(StandardFonts.Helvetica), bold = await pdf.embedFont(StandardFonts.HelveticaBold);
-  const W = 612, H = 792, M = 56, ink = rgb(0.16, 0.09, 0.44), soft = rgb(0.35, 0.35, 0.42);
+  pdf.setTitle(`Record of acceptance: ${safe(r.name)}`); pdf.setAuthor("Dogwise Academy"); pdf.setCreationDate(new Date(r.at));
+  const font = await pdf.embedFont(StandardFonts.Helvetica), bold = await pdf.embedFont(StandardFonts.HelveticaBold), sig = await pdf.embedFont(StandardFonts.TimesRomanItalic);
+  const logo = await pdf.embedPng(Buffer.from(BRAND_LOGO_PNG_BASE64, "base64")).catch(() => null);
+  const W = 612, H = 792, M = 54, ink = rgb(0.16, 0.09, 0.44), body = rgb(0.12, 0.12, 0.18), soft = rgb(0.42, 0.41, 0.5), rule = rgb(0.86, 0.85, 0.92);
   let page = pdf.addPage([W, H]), y = H - M;
-  const write = (text: string, f = font, size = 10.5, color = rgb(0.1, 0.1, 0.15), gap = 4) => {
-    for (const l of wrap(text, f, size, W - 2 * M)) {
-      if (y < M + size) { page = pdf.addPage([W, H]); y = H - M; }
-      if (l) page.drawText(l, { x: M, y: y - size, size, font: f, color });
-      y -= size + gap;
-    }
+  const newPage = () => { page = pdf.addPage([W, H]); y = H - M; };
+  const text = (t: string, o: { f?: PDFFont; size?: number; color?: ReturnType<typeof rgb>; gap?: number; x?: number; width?: number } = {}) => {
+    const f = o.f || font, size = o.size || 10, x = o.x ?? M;
+    for (const l of wrap(t, f, size, o.width || W - M - x)) { if (y < M + 30) newPage(); if (l) page.drawText(l, { x, y: y - size, size, font: f, color: o.color || body }); y -= size + (o.gap ?? 4); }
   };
-  const when = new Date(o.at).toLocaleString("en-US", { timeZone: "America/New_York", dateStyle: "long", timeStyle: "short" });
-  write("Dogwise Academy", bold, 20, ink, 6); y -= 4;
-  write("Your agreement, for your records", bold, 13, ink, 10);
-  write(`Agreed by: ${o.name} (typed name)`); write(`Email: ${o.email || "-"}`); write(`Dog(s): ${o.dogs || "-"}`);
-  write(`Date and time: ${when} (US Eastern)`); write(`How: ${o.source === "hubspot" ? "our before-training form" : "the Dogwise Academy app, before-training details"}${o.ip ? `, from ${o.ip}` : ""}`);
-  write(`Terms & Conditions: ${o.terms.url} (version: ${o.terms.version})`, font, 10.5, soft, 14);
-  if (o.terms.text.trim()) { write("Terms & Conditions", bold, 13, ink, 8); write(o.terms.text, font, 9.5, rgb(0.1, 0.1, 0.15), 3); y -= 10; }
-  else write(`The full Terms & Conditions are at ${o.terms.url}.`, font, 10.5, soft, 14);
-  if (o.terms.data.trim()) { write(o.terms.data.split("\n")[0], bold, 13, ink, 8); write(o.terms.data.split("\n").slice(1).join("\n"), font, 9.5, rgb(0.1, 0.1, 0.15), 3); }
+  // Header
+  if (logo) { const w = 120, h = (logo.height / logo.width) * w; page.drawImage(logo, { x: M, y: y - h, width: w, height: h }); }
+  page.drawText("RECORD OF ACCEPTANCE", { x: W - M - bold.widthOfTextAtSize("RECORD OF ACCEPTANCE", 9), y: y - 10, size: 9, font: bold, color: soft });
+  page.drawText(`No. ${r.id.slice(0, 8).toUpperCase()}`, { x: W - M - font.widthOfTextAtSize(`No. ${r.id.slice(0, 8).toUpperCase()}`, 9), y: y - 23, size: 9, font, color: soft });
+  y -= 62;
+  text("Terms & Conditions: record of client acceptance", { f: bold, size: 16, color: ink, gap: 10 });
+  const when = new Date(r.at);
+  const local = when.toLocaleString("en-US", { timeZone: "America/New_York", weekday: "long", year: "numeric", month: "long", day: "numeric", hour: "numeric", minute: "2-digit", second: "2-digit", timeZoneName: "short" });
+  text(`On ${local}, ${safe(r.name)} accepted the Dogwise Academy Terms & Conditions set out in full in this document, by ${r.readConfirmed ? "ticking the box \"I have read and agree to the Dogwise Academy Terms & Conditions\" and " : ""}typing their full name as their signature${r.source === "hubspot" ? " in the before-training form" : " in the Dogwise Academy app"}.`, { size: 10.5, gap: 5 });
+  y -= 8;
+  // The record, as a table
+  const rows: [string, string][] = [
+    ["Client", safe(r.name)], ["Email", r.email || "-"], ["Dog(s)", r.dogs || "-"],
+    ...(r.program ? [["Program", r.program] as [string, string]] : []), ...(r.dates ? [["Program dates", r.dates] as [string, string]] : []), ...(r.trainer ? [["Trainer", r.trainer] as [string, string]] : []),
+    ["Read the terms", r.readConfirmed ? "Yes: ticked \"I have read and agree to the Dogwise Academy Terms & Conditions\"" : "Not recorded (agreed by typing their name)"],
+    ["Date and time", `${local}  (${when.toISOString().replace(".000Z", "Z")} UTC)`],
+    ["Method", r.source === "hubspot" ? "Dogwise Academy before-training form" : r.source === "admin" ? "Entered by the Dogwise Academy office" : "Dogwise Academy app, before-training details"],
+    ...(r.ip ? [["IP address", r.ip] as [string, string]] : []), ...(device(r.userAgent) ? [["Device", device(r.userAgent)] as [string, string]] : []),
+    ["Terms version", r.terms.version], ["Terms published at", r.terms.url], ["Terms fingerprint", `SHA-256 ${r.hash.slice(0, 32)}…`], ["Record ID", r.id]
+  ];
+  const labelW = 132;
+  page.drawLine({ start: { x: M, y }, end: { x: W - M, y }, thickness: 0.8, color: rule });
+  for (const [k, v] of rows) {
+    const lines = wrap(v, font, 10, W - 2 * M - labelW - 8), h = Math.max(1, lines.length) * 14 + 8;
+    if (y - h < M + 30) newPage();
+    page.drawText(k, { x: M, y: y - 15, size: 9.5, font: bold, color: soft });
+    lines.forEach((l, n) => page.drawText(l, { x: M + labelW, y: y - 15 - n * 14, size: 10, font, color: body }));
+    y -= h; page.drawLine({ start: { x: M, y }, end: { x: W - M, y }, thickness: 0.5, color: rule });
+  }
+  // Signature block
+  y -= 26; if (y < M + 90) newPage();
+  page.drawText(safe(r.name), { x: M, y: y - 22, size: 22, font: sig, color: ink });
+  y -= 30; page.drawLine({ start: { x: M, y }, end: { x: M + 260, y }, thickness: 0.8, color: body });
+  page.drawText("Signed electronically (typed name)", { x: M, y: y - 12, size: 8.5, font, color: soft });
+  page.drawText(when.toLocaleDateString("en-US", { timeZone: "America/New_York", year: "numeric", month: "long", day: "numeric" }), { x: M + 300, y: y + 6, size: 11, font, color: body });
+  page.drawLine({ start: { x: M + 300, y }, end: { x: W - M, y }, thickness: 0.8, color: body });
+  page.drawText("Date", { x: M + 300, y: y - 12, size: 8.5, font, color: soft });
+  y -= 36;
+  text("This record was created automatically by the Dogwise Academy app at the moment of acceptance and has not been edited. A copy was emailed to the client at the address above. The fingerprint identifies the exact text of the terms that follow.", { size: 8.5, color: soft, gap: 3 });
+  // The terms, then how information is used
+  newPage();
+  text(`Dogwise Academy Terms & Conditions`, { f: bold, size: 14, color: ink, gap: 4 });
+  text(`Version: ${r.terms.version} · ${r.terms.url}`, { size: 9, color: soft, gap: 12 });
+  if (r.terms.text.trim()) text(r.terms.text, { size: 9.5, gap: 3 });
+  else text(`The full Terms & Conditions are published at ${r.terms.url}.`, { size: 10 });
+  if (r.terms.data.trim()) { y -= 14; text(r.terms.data.split("\n")[0], { f: bold, size: 12, color: ink, gap: 6 }); text(r.terms.data.split("\n").slice(1).join("\n"), { size: 9.5, gap: 3 }); }
+  // Footer on every page
+  const pages = pdf.getPages();
+  pages.forEach((p, n) => { const f = `Dogwise Academy · Record of acceptance ${r.id.slice(0, 8).toUpperCase()} · Page ${n + 1} of ${pages.length}`; p.drawText(f, { x: (W - font.widthOfTextAtSize(f, 8)) / 2, y: 26, size: 8, font, color: soft }); });
   return pdf.save();
 }
 
 // ── The record and the welcome ──
 type Contact = Record<string, unknown>;
 /** A client has just agreed (typed their name). Records it, and sends the welcome once per deal. Never throws. */
-export async function onSigned(o: { dealId: string; name: string; source: "app" | "hubspot" | "admin"; ip?: string | null; userAgent?: string | null; contact?: Contact }, sb: SupabaseClient = serviceClient()) {
+export async function onSigned(o: { dealId: string; name: string; source: "app" | "hubspot" | "admin"; ip?: string | null; userAgent?: string | null; contact?: Contact; readConfirmed?: boolean }, sb: SupabaseClient = serviceClient()) {
   try {
     const name = o.name.replace(/\s+/g, " ").trim().slice(0, 120);
     if (name.length < 2) return;
@@ -90,12 +144,21 @@ export async function onSigned(o: { dealId: string; name: string; source: "app" 
     const { data: row } = await sb.from("pretraining_deals").select("contact").eq("deal_id", o.dealId).maybeSingle();
     const c = { ...((row?.contact || {}) as Contact), ...(o.contact || {}) };
     const email = String(c.email || "").trim();
-    const { data: rec, error } = await sb.from("terms_acceptances").insert({ deal_id: o.dealId, contact_email: email || null, name, source: o.source, ip: o.ip || null, user_agent: (o.userAgent || "").slice(0, 300) || null, terms_url: terms.url, terms_version: terms.version }).select("id, at").maybeSingle();
-    if (error) return; // migration 063 not run yet
+    // The same agreement seen twice (the app, then the HubSpot sync): one record
+    const { data: dup } = await sb.from("terms_acceptances").select("id").eq("deal_id", o.dealId).ilike("name", name).gte("at", new Date(Date.now() - 30 * 864e5).toISOString()).limit(1);
+    if (dup?.length) return;
+    const hash = createHash("sha256").update(`${terms.text}\n---\n${terms.data}`).digest("hex");
+    const { data: bks } = await sb.from("bookings").select("dog_name, program, start_date, end_date, trainers(name)").eq("hubspot_deal_id", o.dealId).neq("status", "cancelled").order("start_date");
+    const dogs = ((bks || []) as unknown as { dog_name: string | null; program: string | null; start_date: string; end_date: string; trainers: { name: string } | null }[]);
+    const program = dogs[0]?.program || "";
+    const base = { deal_id: o.dealId, contact_email: email || null, name, source: o.source, ip: o.ip || null, user_agent: (o.userAgent || "").slice(0, 300) || null, terms_url: terms.url, terms_version: terms.version };
+    const first1 = await sb.from("terms_acceptances").insert({ ...base, read_confirmed: !!o.readConfirmed, terms_hash: hash, program: program || null }).select("id, at").maybeSingle();
+    const res = first1.error && /read_confirmed|terms_hash|program/i.test(first1.error.message) ? await sb.from("terms_acceptances").insert(base).select("id, at").maybeSingle() : first1; // before migration 064
+    const rec = res.data as { id: string; at: string } | null;
+    if (res.error || !rec) return; // migration 063 not run yet
     await auditSystem("Terms & Conditions agreed", `${name} (${email || "no email"}), deal ${o.dealId}, via ${o.source}.`).catch(() => null);
     if (!email || !mailConfigured()) return;
-    const { data: bks } = await sb.from("bookings").select("dog_name, start_date, end_date, trainers(name)").eq("hubspot_deal_id", o.dealId).neq("status", "cancelled").order("start_date");
-    const dogs = ((bks || []) as unknown as { dog_name: string | null; start_date: string; end_date: string; trainers: { name: string } | null }[]);
+
     // A welcome only before training starts: an older client whose signature turns up late gets the record, not an email
     const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
     if (dogs.length && dogs.every((d) => d.start_date < today)) return;
@@ -104,7 +167,9 @@ export async function onSigned(o: { dealId: string; name: string; source: "app" 
     const first = String(c.firstname || name.split(" ")[0] || "there");
     const start = dogs[0]?.start_date, trainer = dogs[0]?.trainers?.name?.split(" ")[0];
     const day = (iso?: string) => (iso ? new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", timeZone: "UTC" }) : "");
-    const pdf = await agreementPdf({ name, email, dogs: dogNames, at: rec?.at || new Date().toISOString(), ip: o.ip, source: o.source, terms });
+    const usDay = (iso: string) => new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" });
+    const pdf = await agreementPdf({ id: rec.id, name, email, dogs: dogNames, program: program || undefined, dates: dogs[0] ? `${usDay(dogs[0].start_date)} to ${usDay(dogs[0].end_date)}` : undefined, trainer: dogs[0]?.trainers?.name,
+      at: rec.at, ip: o.ip, userAgent: o.userAgent, source: o.source, readConfirmed: !!o.readConfirmed, hash, terms });
     const packing = await fileBytes(PACKING_ID(), 5_000_000).catch(() => null);
     const p = (t: string) => `<p style="margin:0 0 14px">${t}</p>`;
     const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.55;color:#1d1640;max-width:560px">

@@ -383,7 +383,7 @@ export async function writeDealChecklist(dealId: string, deal: DealProps, defs: 
 type Who = { name: string; role: "admin" | "client" };
 
 /** Saves answers. Household answers and dog 1's go to the HubSpot contact; dogs 2 to 4 are kept in the app. */
-export async function saveAnswers(dealId: string, bookingId: string, values: Record<string, string>, who: Who, meta: { ip?: string | null; userAgent?: string | null } = {}): Promise<{ ok: boolean; message: string }> {
+export async function saveAnswers(dealId: string, bookingId: string, values: Record<string, string>, who: Who, meta: { ip?: string | null; userAgent?: string | null; read?: boolean } = {}): Promise<{ ok: boolean; message: string }> {
   const sb = serviceClient();
   const clean: Record<string, string> = {};
   for (const [k, v] of Object.entries(values)) if (CLIENT_KEYS.includes(k) || DOG_KEYS.includes(k)) clean[k] = String(v ?? "").trim().slice(0, 5000);
@@ -409,7 +409,7 @@ export async function saveAnswers(dealId: string, bookingId: string, values: Rec
     // They typed their name to agree to the Terms & Conditions: keep a record, and send the welcome with a copy (lib/terms.ts)
     const before = String(((row.contact || {}) as Record<string, unknown>).signature ?? (row.pending || {}).signature ?? "").trim();
     if (toContact.signature && toContact.signature.trim() !== before) {
-      await onSigned({ dealId, name: toContact.signature, source: who.role === "client" ? "app" : "admin", ip: meta.ip, userAgent: meta.userAgent, contact: { ...(row.contact || {}), ...toContact } }, sb);
+      await onSigned({ dealId, name: toContact.signature, source: who.role === "client" ? "app" : "admin", ip: meta.ip, userAgent: meta.userAgent, readConfirmed: meta.read, contact: { ...(row.contact || {}), ...toContact } }, sb);
     }
   }
   // Last change per answer: household answers count for every dog on the deal

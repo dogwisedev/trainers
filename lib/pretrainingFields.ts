@@ -12,7 +12,7 @@ export type Q = {
   showIf?: { key: string; is: "yes" | "no" };   // only asked (and only required) when another answer is Yes / No
 };
 export type Section = { id: SectionId; title: string; scope: Scope; questions: Q[] };
-export type SectionId = "home" | "vet" | "dog" | "health" | "food" | "goals" | "behaviour" | "handling";
+export type SectionId = "home" | "vet" | "dog" | "health" | "food" | "goals" | "behaviour" | "handling" | "agreement";
 
 const FREQ = ["Always", "Often", "Sometimes", "Rarely", "Never"];
 const MOTIV = ["Very", "Neutral", "Not at all"];
@@ -38,8 +38,7 @@ export const SECTIONS: Section[] = [
     { key: "full_address_of_veterinary_clinic", label: "Vet clinic: full address", scope: "client", input: "textarea", required: true },
     { key: "phone_number_of_veterinary_clinic", label: "Vet clinic: phone", scope: "client", input: "text", required: true },
     { key: "emergency_contact_name___number", label: "Emergency contact: name and number", scope: "client", input: "text", required: true },
-    { key: "in_the_event_of_a_life_threatening_situation__would_you_give_consent_for_our_trainer_to_perform_cpr", label: "In a life-threatening emergency, may the trainer perform CPR on your dog?", scope: "client", input: "yesno", required: true },
-    { key: "signature", label: "Type your full name to agree to the Terms & Conditions", hint: "dogwiseacademy.com/termsandconditions", scope: "client", input: "text", required: true }
+    { key: "in_the_event_of_a_life_threatening_situation__would_you_give_consent_for_our_trainer_to_perform_cpr", label: "In a life-threatening emergency, may the trainer perform CPR on your dog?", scope: "client", input: "yesno", required: true }
   ] },
   { id: "dog", title: "About your dog", scope: "dog", questions: [
     { key: "dog_s_breed", label: "Breed", scope: "dog", input: "text", required: true },
@@ -90,6 +89,11 @@ export const SECTIONS: Section[] = [
     { key: "is_your_dog_comfortable_with_having_collars_and_harnesses_being_put_on_or_taken_off", label: "OK with collars and harnesses going on and off?", scope: "dog", input: "select", required: true, options: HANDLE },
     { key: "is_your_dog_comfortable_being_handled_and_groomed", label: "OK being handled and groomed (paws, ears, tail, mouth)?", scope: "dog", input: "select", required: true, options: HANDLE },
     { key: "any_additional_information_about_your_dog_that_we_should_know_about", label: "Anything else we should know?", scope: "dog", input: "textarea" }
+  ] }
+,
+  // Last, on its own: they tick that they've read the Terms & Conditions, then type their name (components/Agreement.tsx)
+  { id: "agreement", title: "Your agreement", scope: "client", questions: [
+    { key: "signature", label: "Your full name", scope: "client", input: "text", required: true }
   ] }
 ];
 
@@ -200,7 +204,8 @@ export function checklist(o: {
     { key: "goals", label: "Training goals and behavior", done: !goals, detail: count(goals, goalsQ), count: n(goalsQ), who: "client", section: goalsQ.some((q) => sec("goals").includes(q)) ? "goals" : goalsQ.some((q) => sec("behaviour").includes(q)) ? "behaviour" : "handling" },
     { key: "food", label: "Food", done: !food, who: "client", section: "food" },
     { key: "meds", label: "Medication", done: !meds, who: "client", section: "food" },
-    { key: "vaccines", label: "Vaccines", done: o.vaccines.ok, detail: o.vaccines.ok ? undefined : o.vaccines.label, who: "client", section: "health" }
+    { key: "vaccines", label: "Vaccines", done: o.vaccines.ok, detail: o.vaccines.ok ? undefined : o.vaccines.label, who: "client", section: "health" },
+    { key: "agreement", label: "Agree to the Terms & Conditions", done: !mustMissingIn(sec("agreement"), o.client).length, who: "client", section: "agreement" }
   ];
   if (o.balanceLink.trim()) items.push({ key: "balance", label: "Pay the remaining balance", done: false, who: "client" });
   if (o.dogsMismatch) items.push({ key: "dogs", label: "Number of dogs", done: false, detail: o.dogsMismatch, who: "admin" });

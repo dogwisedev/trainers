@@ -1,6 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { Agreement } from "@/components/Agreement";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { ClientCard } from "@/components/ClientCard";
 import { contactFrom, telHref } from "@/lib/contactLinks";
@@ -145,9 +146,11 @@ export function DogProfile({ chatId, role, edit, open, profile, dogId, base, dog
             ))}
           </div>
         </details>
-      ) : SECTIONS.map((s) => (
+      ) : <>{SECTIONS.filter((s) => s.id !== "agreement").map((s) => (
         <SectionCard key={s.id} chatId={chatId} bookingId={dog.booking.id} section={s} answers={answersFor(s)} defs={profile.defs} edit={edit && open} changes={dog.changes} shared={many && s.scope === "client"} role={role} />
       ))}
+        {(() => { const ag = SECTIONS.find((s) => s.id === "agreement")!; return <Agreement signed={String(answersFor(ag).signature ?? "")} canEdit={edit && open} onSave={(v) => saveProfileAction(chatId, dog.booking.id, v)} />; })()}
+      </>}
       {role === "client" && <p className="text-center text-small text-ink-faint">Questions? Ask in the chat, or email info@dogwiseacademy.com.</p>}
     </div>
   );
