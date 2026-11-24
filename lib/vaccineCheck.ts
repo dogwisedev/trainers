@@ -131,8 +131,9 @@ export async function checkVaccines(bookingId: string, sb: SupabaseClient = serv
     else {
       const a = jsonFrom<Answer>(await claude({ system: SYSTEM(cfg.vaccineRules), files: docs, maxTokens: 900, timeoutMs: 45000,
         user: `Dog: ${b.dog_name || "(no name given)"}. Owner: ${b.client_name}. Stay: ${b.start_date} to ${b.end_date}. Today is ${stamp.at.slice(0, 10)}.\n\nRead the attached record${docs.length > 1 ? "s" : ""} and answer.` }));
-      if (!a) return { ok: false, message: "Couldn't read the records just now. Check them by hand, or try Check again in a minute." };
-      result = decide(a, b.end_date);
+      // Couldn't be read (too large, a scan Claude can't make out, or the service was busy): say so on the dog instead of
+      // trying the same one every 10 minutes and never reaching the next. "Check again with AI" retries it.
+      result = a ? decide(a, b.end_date) : { verdict: "unclear", missing: [], lines: [], note: "The app couldn't read these records. Check them by hand, or press Check again with AI." };
     }
     const { data: saved } = await sb.from("ai_vaccine_checks").insert({ booking_id: bookingId, verdict: result.verdict, missing: result.missing, lines: result.lines, note: result.note || null, files: docs.length, model: writerModel() }).select("id").maybeSingle();
     const ai: VaccineAi = { ...result, ...stamp, checkId: saved?.id };
@@ -162,7 +163,7 @@ export async function runVaccineChecks(sb: SupabaseClient = serviceClient(), lim
   const todo = ((data || []) as DogRow[]).filter((d) => {
     const files = (d.vaccines?.files || []).filter((f) => f.source !== "hubspot");
     return files.length && !(d.vaccines?.ai && d.vaccines.ai.at >= files.reduce((a, f) => (f.at > a ? f.at : a), ""));
-  }).slice(0, limit);
+  }).sort((x, y) => { const at = (d: DogRow) => (d.vaccines?.files || []).reduce((a, f) => (f.at > a ? f.at : a), ""); return at(y).localeCompare(at(x)); }).slice(0, limit);
   for (const d of todo) { if (Date.now() > until) break; const r = await checkVaccines(d.booking_id, sb); if (r.ok) out.checked++; }
   if (out.checked >= limit || Date.now() > until) return out;
   // Then dogs starting in the next 30 days whose records came on the HubSpot form: not approved or marked missing yet, not read yet
@@ -183,6 +184,16 @@ export async function runVaccineChecks(sb: SupabaseClient = serviceClient(), lim
       if (!withLink.has(b.hubspot_deal_id) || v.ai || v.status === "ok" || v.status === "missing") continue;
       const r = await checkVaccines(b.id, sb);
       if (r.ok) out.checked++; else if (/files\\?" scope|files" scope/.test(r.message)) break; // no permission: don't try every dog
+    }
+  } catch { /* the next run tries again */ }
+  if (out.checked >= limit || Date.now() > until) return out;
+  try {
+    const since = new Date(Date.now() - 45 * 864e5).toISOString();
+    const { data: done } = await sb.from("pretraining_dogs").select("booking_id, vaccines").in("vaccines->>status", ["ok", "missing"]).gte("vaccines->>reviewedAt", since).limit(300);
+    for (const d of ((done || []) as DogRow[]).filter((x) => !x.vaccines?.ai && (x.vaccines?.files || []).some((f) => f.source !== "hubspot") && x.vaccines?.reviewedBy && !/automatic/i.test(x.vaccines.reviewedBy))) {
+      if (out.checked >= limit || Date.now() > until) break;
+      const r = await checkVaccines(d.booking_id, sb);
+      if (r.ok) { out.checked++; await noteVaccineOutcome(d.booking_id, d.vaccines!.status === "ok", d.vaccines!.missing || [], d.vaccines!.reviewedBy!, sb).catch(() => null); }
     }
   } catch { /* the next run tries again */ }
   return out;

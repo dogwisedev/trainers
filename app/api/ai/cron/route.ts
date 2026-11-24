@@ -13,10 +13,13 @@ export async function GET(req: Request) {
   // 60 seconds in all. A handover draft is the long one (up to about 50 s for a big report), so it goes first when one is
   // due; form checks (a few seconds each) fill whatever time is left, and the rest wait for the next run.
   const started = Date.now();
-  const drafts = await runHandoverDrafts(undefined, new Date(), 1).catch((e) => ({ drafted: 0, thin: 0, errors: [(e as Error).message] }));
-  const checks = Date.now() - started < 38000 ? await runFormChecks(undefined, 4, started + 40000).catch(() => ({ checked: 0, auto: 0 })) : { checked: 0, auto: 0 };
-  // Vaccine records waiting for the office (one a run: reading a PDF takes a while), if there's still time
-  const vaccines = Date.now() - started < 12000 ? await runVaccineChecks(undefined, 1).catch(() => ({ checked: 0 })) : { checked: 0 };
+  // Turns: every other run vaccine records go first (two dogs, up to 40 s). They used to run only when the rest had used
+  // under 12 seconds, which was almost never, so records sat unread.
+  const vaccinesFirst = Math.floor(started / 600000) % 2 === 0;
+  let vaccines = vaccinesFirst ? await runVaccineChecks(undefined, 2, started + 40000).catch(() => ({ checked: 0 })) : { checked: 0 };
+  const drafts = Date.now() - started < 20000 ? await runHandoverDrafts(undefined, new Date(), 1).catch((e) => ({ drafted: 0, thin: 0, errors: [(e as Error).message] })) : { drafted: 0, thin: 0, errors: [] as string[] };
+  const checks = Date.now() - started < 38000 ? await runFormChecks(undefined, 4, started + 42000).catch(() => ({ checked: 0, auto: 0 })) : { checked: 0, auto: 0 };
+  if (!vaccinesFirst && Date.now() - started < 25000) vaccines = await runVaccineChecks(undefined, 1, started + 48000).catch(() => ({ checked: 0 }));
   const out = { checks, drafts, vaccines };
   return NextResponse.json(out);
 }
