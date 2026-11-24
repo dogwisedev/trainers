@@ -36,6 +36,7 @@ export function DogTraining({ bookingId, programs, chosen, bookingProgram, data 
       {data && rows.length > 0 && (
         <>
           <p className="text-body">{sent} of {rows.length} sent{next?.on ? ` · next: ${next.title}, ${day(next.on)}` : ""}{data.paused ? " · paused" : ""}</p>
+          {(data as { allPaused?: boolean }).allPaused && <p className="mt-1 rounded-lg bg-heart-wash px-3 py-2 text-small font-semibold text-heart">Sending is paused for every dog (Training materials page, or TRAINING_MATERIALS=off in Vercel). Nothing goes out until it's restarted.</p>}
           <ol className="divide-y divide-line rounded-xl border border-line">
             {rows.map((r, i) => (
               <li key={i} className={`flex items-center gap-2.5 px-3 py-2 text-small ${r.status === "skipped" ? "text-ink-faint line-through" : ""}`}>

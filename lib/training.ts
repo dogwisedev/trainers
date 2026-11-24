@@ -1,4 +1,5 @@
 import "server-only";
+import { CONFIRM_FROM } from "./moveRules";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { serviceClient, isDemo } from "./supabase";
 import { programFor } from "./programs";
@@ -36,7 +37,7 @@ export async function loadIntro(sb: SupabaseClient = serviceClient()): Promise<s
   return (data?.value as string | undefined)?.trim() || DEFAULT_INTRO;
 }
 
-const BK_COLS = "id, hubspot_deal_id, dog_name, start_date, end_date, status, program, program_choice, training_paused, created_at";
+const BK_COLS = "id, hubspot_deal_id, dog_name, start_date, end_date, status, program, program_choice, training_paused, created_at, picked_up_at";
 /** The deals' bookings, with hs_hold (HubSpot says the program is off: migration 050) when the column is there. */
 async function dealBookings(sb: SupabaseClient, deals: string[]): Promise<Bk[]> {
   const withHold = await sb.from("bookings").select(`${BK_COLS}, hs_hold`).in("hubspot_deal_id", deals);
@@ -54,6 +55,8 @@ export async function runTrainingSends(sb: SupabaseClient = serviceClient()) {
   if (now.hour < 12 || now.hour >= 18) return out;
   if (await sendingPaused(sb)) return out; // TRAINING_MATERIALS=off in Vercel, or "Pause sending" on the Training materials page
   const today = now.date;
+  const { data: res } = await sb.from("app_state").select("value").eq("key", "training_resumed_on").maybeSingle();
+  const resumedOn = typeof res?.value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(res.value) ? res.value : ""; // last restart of sending
   const materials = await loadMaterials(sb).catch(() => [] as Material[]);
   if (!materials.length) return out; // nothing set up yet (or migration 035 not run)
   const [settings, intro] = await Promise.all([loadSettings(sb), loadIntro(sb)]);
@@ -77,15 +80,19 @@ export async function runTrainingSends(sb: SupabaseClient = serviceClient()) {
       // First look at this chat for this list: items planned before today (a dog already in training) or with no
       // day left in the program are skipped, so nobody gets a backlog
       const firstLook = !mine.some((x) => byId.get(x.material_id || "")?.plan === plan);
-      const skip = items.filter((p) => !done.has(p.id) && (p.on === null || (firstLook && p.on < today)));
+      const skip = items.filter((p) => !done.has(p.id) && (p.on === null || (firstLook && p.on < today) || (resumedOn && p.on < resumedOn)));
       // Once the program has ended, anything from it that didn't go out is closed off (not sent late)
       if (today >= sch.end) for (const p of sch.during) if (!done.has(p.id) && !skip.some((x) => x.id === p.id)) skip.push({ ...p, on: p.on });
       if (skip.length) {
         await sb.from("training_sends").upsert(skip.map((p) => ({ deal_key: c.deal_key, booking_id: sch.lead.id, material_id: p.id, plan, position: p.position, status: "skipped",
-          planned_on: p.on, note: p.on === null ? "No day left in the program" : today >= sch.end && sch.during.some((d) => d.id === p.id) ? "The program ended before it went out" : "Planned before this dog started getting materials" })), { onConflict: "deal_key,material_id", ignoreDuplicates: true });
+          planned_on: p.on, note: p.on === null ? "No day left in the program" : resumedOn && p.on < resumedOn && !firstLook ? "Due while sending was paused for everyone" : today >= sch.end && sch.during.some((d) => d.id === p.id) ? "The program ended before it went out" : "Planned before this dog started getting materials" })), { onConflict: "deal_key,material_id", ignoreDuplicates: true });
         out.skipped += skip.length;
         skip.forEach((p) => done.add(p.id));
       }
+      // The program's own items only once the dog is actually with the trainer (pickup confirmed, or a start before the app
+      // confirmed pickups). Lexi's first item went to her owner on Nov 3 though she was never picked up.
+      const live = bks.filter((b) => b.hubspot_deal_id === c.deal_key && b.status !== "cancelled") as (Bk & { picked_up_at?: string | null })[];
+      if (today < sch.end && !live.some((b) => b.picked_up_at || b.start_date < CONFIRM_FROM)) continue;
       // At most one a day, at this chat's time for today
       if (mine.some((x) => x.status === "sent" && etParts(new Date(x.at)).date === today)) continue;
       if (minute < sendMinute(c.deal_key, today)) continue;
@@ -133,7 +140,8 @@ export async function dealTraining(dealKey: string, sb: SupabaseClient = service
       const s = st.get(p.id);
       return { title: byId.get(p.id)?.title || "Item", kind: byId.get(p.id)?.kind || "video", on: p.on, status: s === "sent" ? "sent" : s === "skipped" || p.on === null ? "skipped" : "planned", phase };
     };
-    return { program: sch.program, paused: sch.paused, byHand: sch.byHand, hold: sch.hold, leadId: sch.lead.id, rows: [...sch.during.map((p) => row(p, "during")), ...sch.after.map((p) => row(p, "after"))] };
+    const allPaused = await sendingPaused(sb).catch(() => false);
+    return { program: sch.program, paused: sch.paused || allPaused, allPaused, byHand: sch.byHand, hold: sch.hold, leadId: sch.lead.id, rows: [...sch.during.map((p) => row(p, "during")), ...sch.after.map((p) => row(p, "after"))] };
   } catch { return null; } // migration 035 not run yet
 }
 

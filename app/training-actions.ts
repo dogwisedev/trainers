@@ -137,7 +137,13 @@ export async function setTrainingPausedAction(bookingId: string, paused: boolean
 export async function setSendingPausedAction(paused: boolean): Promise<R> {
   return audited("setSendingPausedAction", { paused: paused ? "yes" : "no" }, async () => {
     if (isDemo() || !(await admin())) return { ok: false, message: "Admins only." };
-    const { error } = await serviceClient().from("app_state").upsert({ key: "training_paused", value: paused ? "yes" : "no", updated_at: new Date().toISOString() });
+    const now = new Date().toISOString();
+    const { error } = await serviceClient().from("app_state").upsert([
+      { key: "training_paused", value: paused ? "yes" : "no", updated_at: now },
+      // Restarted: what was due while it was paused is skipped (not sent late, one old item a day); each dog picks up
+      // from today's item on its normal schedule
+      ...(paused ? [] : [{ key: "training_resumed_on", value: new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" }), updated_at: now }])
+    ]);
     return error ? { ok: false, message: error.message } : done(paused ? "Paused: nothing more is sent until you restart it." : "Sending again from the next check (12 to 6 PM Eastern).");
   });
 }
