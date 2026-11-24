@@ -217,7 +217,7 @@ function Vaccines({ chatId, role, edit, dog, dealYes }: { chatId: string; role: 
   const ai = role === "admin" ? dog.vaccines.ai : undefined;
   const [miss, setMiss] = useState<string[]>(dog.vaccine.missing?.length ? dog.vaccine.missing : dog.vaccines.status === "review" && ai?.verdict === "missing" ? ai.missing : []);
   const [checking, setChecking] = useState(false);
-  const canRead = dog.files.some((f) => f.source !== "hubspot");
+  const canRead = dog.files.length > 0; // app uploads, and the HubSpot form's (read through HubSpot's Files API)
   const recheck = async () => {
     setChecking(true); setMsg("");
     try { const r = await fetch("/api/ai/vaccines", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bookingId: dog.booking.id }) }); const d = await r.json().catch(() => ({})); setMsg(d.message || "Couldn't check just now."); router.refresh(); }

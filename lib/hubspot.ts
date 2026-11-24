@@ -451,3 +451,20 @@ export async function ownerActivity(ownerId: string, fromIso: string, toIso: str
   }));
   return out;
 }
+
+/** A file a client uploaded on a HubSpot form (the link HubSpot stores on the contact). The link itself only opens for
+ *  someone signed in to HubSpot, so the app asks the Files API for a short-lived download link instead. That needs the
+ *  "files" scope on the private app: without it this throws "FILES_SCOPE". Returns null for a link it can't follow. */
+export async function formFileBytes(url: string, maxBytes = 9_000_000): Promise<{ bytes: Uint8Array; ext: string; name: string } | null> {
+  const id = (url.match(/signed-url-redirect\/(\d+)/) || url.match(/[?&]fileId=(\d+)/) || url.match(/\/files\/(\d+)/))?.[1];
+  if (!id) return null;
+  let signed: { url?: string; name?: string; extension?: string; size?: number };
+  try { signed = await hs<{ url?: string; name?: string; extension?: string; size?: number }>(`/files/v3/files/${id}/signed-url?expirationSeconds=300`); }
+  catch (e) { if (/403|401|scope|permission/i.test((e as Error).message)) throw new Error("FILES_SCOPE"); throw e; }
+  if (!signed?.url || (signed.size && signed.size > maxBytes)) return null;
+  const r = await fetch(signed.url, { cache: "no-store" });
+  if (!r.ok) return null;
+  const bytes = new Uint8Array(await r.arrayBuffer());
+  if (bytes.byteLength > maxBytes) return null;
+  return { bytes, ext: String(signed.extension || (signed.name || "").split(".").pop() || "").toLowerCase(), name: signed.name || `file-${id}` };
+}

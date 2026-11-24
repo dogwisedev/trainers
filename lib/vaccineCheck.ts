@@ -5,6 +5,8 @@ import { AiFile, aiOn, claude, jsonFrom, writerModel } from "./ai";
 import { aiSettings } from "./aiSettings";
 import { auditSystem } from "./audit";
 import { fileBytes, fileMeta, photoBytes } from "./drive";
+import { formFileBytes } from "./hubspot";
+import { VACCINE_FILE_PROP } from "./pretrainingFields";
 import { VACCINES, type VaccineAi, type VaccineState } from "./pretrainingFields";
 import { isSpotCheck, logDecision } from "./aiTrust";
 
@@ -17,7 +19,8 @@ export const AUTO_BY = "AI (automatic)";
 // through the last day. The result ("all in order", what's missing or expired, or "check by hand") shows on the dog's
 // Vaccines section and on the To do item, with the missing ones already ticked. A person still presses All OK or Save as
 // missing, and what they decided is kept beside what the app said (Pulse → Office → AI help).
-// Only records uploaded in the app are read: ones from the HubSpot form or by email are checked by hand, as before.
+// Records uploaded in the app are read from Drive; ones from the HubSpot form are downloaded through HubSpot's Files API
+// (the private app needs the "files" scope: without it the check says so). Ones sent by email are checked by hand.
 // The rules are on /a/ai (any admin can change them). Switch: Pulse → Office → AI help → Vaccine checks.
 
 type Found = { found?: boolean; given?: string | null; validUntil?: string | null; sure?: boolean; note?: string; name?: string };
@@ -69,9 +72,19 @@ export function vaccineSummary(ai: Pick<VaccineAi, "verdict" | "missing" | "line
   return `The app's check: needs a person${bad.length ? ` (${bad.join("; ")})` : ""}. ${ai.note || ai.lines.filter((l) => l.status === "unclear").map((l) => `${l.vaccine.split(" (")[0]}: ${l.note}`).join("; ")}`.trim();
 }
 
-/** The records uploaded in the app, as files Claude can read (up to 4). */
+/** The HubSpot form's upload links on a deal's contact (one or several). */
+export const formLinks = (contact: Record<string, unknown> | null | undefined) => String(contact?.[VACCINE_FILE_PROP] ?? "").split(/[;\s]+/).filter((u) => /^https?:\/\//.test(u));
+const IMG: Record<string, AiFile["mediaType"]> = { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp", gif: "image/gif" };
+
+/** The records as files Claude can read (up to 4): app uploads from Drive, HubSpot-form uploads through HubSpot. */
 async function readable(files: { id: string; source?: string }[]): Promise<AiFile[]> {
   const out: AiFile[] = [];
+  for (const f of files.filter((x) => x.source === "hubspot" || /^https?:/.test(x.id)).slice(-4)) {
+    const got = await formFileBytes(f.id); // throws FILES_SCOPE when HubSpot won't let the app download
+    if (!got) continue;
+    if (got.ext === "pdf") out.push({ kind: "pdf", mediaType: "application/pdf", base64: Buffer.from(got.bytes).toString("base64") });
+    else if (IMG[got.ext] && got.bytes.byteLength < 4_500_000) out.push({ kind: "image", mediaType: IMG[got.ext], base64: Buffer.from(got.bytes).toString("base64") });
+  }
   for (const f of files.filter((x) => x.source !== "hubspot" && !/^https?:/.test(x.id)).slice(-4)) {
     const meta = await fileMeta(f.id).catch(() => ({ ok: false as const }));
     const type = ("mimeType" in meta && meta.mimeType) || "";
@@ -98,11 +111,20 @@ export async function checkVaccines(bookingId: string, sb: SupabaseClient = serv
     ]);
     const row = d as DogRow | null;
     if (!row || !b) return { ok: false, message: "Dog not found." };
-    const v = row.vaccines || {}, files = (v.files || []).filter((f) => f.source !== "hubspot");
-    if (!files.length) return { ok: false, message: "No records uploaded in the app to read. Ones from the HubSpot form or by email are checked by hand." };
-    const newest = files.reduce((a, f) => (f.at > a ? f.at : a), "");
-    if (!force && v.ai && v.ai.at >= newest) return { ok: true, message: "Already checked.", ai: v.ai };
-    const docs = await readable(files);
+    const v = row.vaccines || {}, appFiles = (v.files || []).filter((f) => f.source !== "hubspot");
+    // The HubSpot form's uploads live on the deal's contact, not on the dog
+    const { data: dealRow } = b.hubspot_deal_id ? await sb.from("pretraining_deals").select("contact").eq("deal_id", b.hubspot_deal_id).maybeSingle() : { data: null };
+    const links = formLinks(dealRow?.contact as Record<string, unknown> | null);
+    const files = [...appFiles, ...links.map((u) => ({ id: u, name: "From the HubSpot form", at: "", by: "client", source: "hubspot" as const }))];
+    if (!files.length) return { ok: false, message: "No records to read: none uploaded in the app or on the HubSpot form. Ones sent by email are checked by hand." };
+    const newest = appFiles.reduce((a, f) => (f.at > a ? f.at : a), "");
+    if (!force && v.ai && (appFiles.length ? v.ai.at >= newest : true)) return { ok: true, message: "Already checked.", ai: v.ai };
+    let docs: AiFile[];
+    try { docs = await readable(files); }
+    catch (e) {
+      if ((e as Error).message === "FILES_SCOPE") return { ok: false, message: "HubSpot won't let the app download the form's files: add the \"files\" scope to the HubSpot private app, then try again." };
+      throw e;
+    }
     const stamp = { at: new Date().toISOString(), files: docs.length };
     let result: Pick<VaccineAi, "verdict" | "missing" | "lines" | "note">;
     if (!docs.length) result = { verdict: "unclear", missing: [], lines: [], note: "The app couldn't open the files (a type it can't read, or too large). Check them by hand." };
@@ -142,6 +164,27 @@ export async function runVaccineChecks(sb: SupabaseClient = serviceClient(), lim
     return files.length && !(d.vaccines?.ai && d.vaccines.ai.at >= files.reduce((a, f) => (f.at > a ? f.at : a), ""));
   }).slice(0, limit);
   for (const d of todo) { if (Date.now() > until) break; const r = await checkVaccines(d.booking_id, sb); if (r.ok) out.checked++; }
+  if (out.checked >= limit || Date.now() > until) return out;
+  // Then dogs starting in the next 30 days whose records came on the HubSpot form: not approved or marked missing yet, not read yet
+  try {
+    const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" }), soon = new Date(Date.now() + 30 * 864e5).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+    const { data: bks } = await sb.from("bookings").select("id, hubspot_deal_id").neq("status", "cancelled").gte("start_date", today).lte("start_date", soon).not("hubspot_deal_id", "is", null).limit(300);
+    const list = (bks || []) as { id: string; hubspot_deal_id: string }[];
+    if (!list.length) return out;
+    const [{ data: deals }, { data: dogs }] = await Promise.all([
+      sb.from("pretraining_deals").select("deal_id, contact, deal").in("deal_id", [...new Set(list.map((b) => b.hubspot_deal_id))]),
+      sb.from("pretraining_dogs").select("booking_id, vaccines").in("booking_id", list.map((b) => b.id))
+    ]);
+    const withLink = new Set(((deals || []) as { deal_id: string; contact: Record<string, unknown> | null }[]).filter((d) => formLinks(d.contact).length).map((d) => d.deal_id));
+    const state = new Map(((dogs || []) as DogRow[]).map((d) => [d.booking_id, d.vaccines || {}]));
+    for (const b of list) {
+      if (out.checked >= limit || Date.now() > until) break;
+      const v = state.get(b.id) || {};
+      if (!withLink.has(b.hubspot_deal_id) || v.ai || v.status === "ok" || v.status === "missing") continue;
+      const r = await checkVaccines(b.id, sb);
+      if (r.ok) out.checked++; else if (/files\\?" scope|files" scope/.test(r.message)) break; // no permission: don't try every dog
+    }
+  } catch { /* the next run tries again */ }
   return out;
 }
 

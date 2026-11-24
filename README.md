@@ -339,3 +339,6 @@ Office is now: the numbers; **Right now** (the six counts and To do waiting on t
 
 ## How the office works (a private page)
 **/a/pulse/people**: for each office person, a weekday-by-hour grid of their actions in the app (US Eastern), a typical day's first and last action, the share of clicks in quick runs, the share late at night, what they do most, their deal changes in HubSpot, and a day-by-day count; 7, 14, 30 or 60 days. Only the emails in `PEOPLE_INSIGHTS_EMAILS` (alma@ by default) can open it: everyone else gets "not found". There's no link in the menus; for those allowed, a faint dot sits after the "Snapshot of … Refresh" line at the top of Pulse. The hour-by-hour strip that was on Where the work goes moved here.
+
+### Vaccine records from the HubSpot form
+The app's vaccine check now reads the files clients upload on the HubSpot form too, not only ones uploaded in the app: it asks HubSpot's Files API for a short-lived download link (the HubSpot private app needs the **files** scope; without it, "Check with AI" says so and nothing else changes). PDFs and JPEG, PNG, WebP or GIF photos up to 4.5 MB are read. The 10-minute check picks up dogs starting in the next 30 days whose records came on the form and haven't been approved, marked missing or read yet, one per run. An admin still confirms, and that decision now counts toward the approval rate.
