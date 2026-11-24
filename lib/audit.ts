@@ -13,6 +13,11 @@ const LABEL: Record<string, string> = {
   saveBooking: "Saved a booking", setExtraDays: "Changed extra days", setBookingStatus: "Changed a booking's status", sendMessage: "Sent a Trainer message",
   emailTrainerAboutBooking: "Emailed a trainer about a booking", sendSigninHellos: "Sent 'your app is ready' emails", logFollowupAction: "Logged a follow-up session",
   decideProbationAction: "Decided a probation", setFollowupsAction: "Set follow-up session dates", startChatAction: "Started a chat", inviteClientAction: "Invited a client to a chat",
+  clientCloseAction: "Closed a client item", checkIn: "Checked in with a trainer", logCallAction: "Logged a call to a trainer", saveQuoNumber: "Saved their Quo number",
+  missReportAction: "Marked a form missed (late)", quietChatAction: "Set a chat quiet", patternSeenAction: "Looked into a client's worries",
+  watchDog: "Started watching a dog", unwatchDog: "Stopped watching a dog", addClientNote: "Added a client note", deleteClientNote: "Removed a client note",
+  qaFlag: "QA flagged a client", caseUpdate: "Wrote a case update", setBriefPostAction: "Switched the Buzz brief", setQaDailyAction: "Switched the QA daily email",
+  setAiSettingAction: "Changed an AI switch", saveChecklistAction: "Changed a form checklist", saveTerms: "Saved the Terms & Conditions", deleteTrainer: "Deleted a trainer record",
   takeIncidentAction: "Took a to-do", resolveIncidentAction: "Marked a to-do Done", deleteMessageAction: "Deleted a chat message", standbyDealAction: "Put a deal on standby", requestFollowupAction: "Client asked for a follow-up session", confirmFollowupAction: "Booked a follow-up session", cancelFollowupAction: "Cancelled a follow-up session", cancelDealAction: "Marked a deal Cancelled", postponeTrainingAction: "Postponed a training", confirmMoveAction: "Confirmed a pickup or drop-off", setFollowupTrainerAction: "Changed the follow-up trainer", saveDogViewAction: "Saved a Dogs view", askAction: "Asked about a booking (trainer or Pedro)", answerAskAction: "Answered a booking ask", deleteDogViewAction: "Removed a Dogs view", closeChatAction: "Closed a chat", reopenChatAction: "Reopened a chat",
   sendSummaryAgainAction: "Re-sent a chat summary", setClientEmailsAction: "Changed client chat emails", savePayslipAction: "Edited a payslip",
   approveAndSendAction: "Approved and sent a payslip", approveAction: "Approved a payslip", approveManyAction: "Approved several payslips",
@@ -164,6 +169,13 @@ async function summarize(action: string, a: Record<string, unknown>): Promise<st
     if (!data) return null;
     const dog = (data.chats as unknown as { title?: string } | null)?.title || (data.bookings as unknown as { dog_name?: string } | null)?.dog_name || "";
     return `${dog ? `${dog}: ` : ""}${String(data.kind).replace(/_/g, " ")}${data.detail ? `: ${String(data.detail).slice(0, 160)}` : ""}`;
+  }
+  if (action === "clientCloseAction" && typeof a.incidentId === "string") {
+    const { data } = await sb.from("chat_incidents").select("kind, detail, chats(title, client_name)").eq("id", a.incidentId).maybeSingle();
+    if (!data) return a.why ? `How: ${String(a.why)}` : null;
+    const c = data.chats as unknown as { title?: string; client_name?: string } | null;
+    const what = data.kind === "client_office" ? "office question" : data.kind === "client_urgent" ? "urgent message" : "client waiting";
+    return `${c?.client_name || "Client"} about ${c?.title || "their dog"}: ${what}${a.why ? `, ${String(a.why)}` : ""}${data.detail ? `. ${String(data.detail).replace(/^.*? asked the office: /, "").slice(0, 140)}` : ""}`;
   }
   if ((action === "setBookingStatus" || action === "setExtraDays" || action === "emailTrainerAboutBooking") && typeof a.id === "string") {
     const { data } = await sb.from("bookings").select("dog_name, client_name, status, extra_days, trainers(name)").eq("id", a.id).maybeSingle();

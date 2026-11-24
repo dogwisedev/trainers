@@ -104,7 +104,7 @@ function Item({ i, canQuiet = false }: { i: TodoItem; canQuiet?: boolean }) {
       <IconTile tone={tone}><I size={19} /></IconTile>
       <div className="min-w-0 flex-1">
         <p className="font-bold leading-snug">{i.text}</p>
-        {i.detail && <p className="mt-1 line-clamp-3 text-body leading-snug text-ink-soft">{i.detail}</p>}
+        {i.detail && <p className="mt-1 line-clamp-4 whitespace-pre-line text-body leading-snug text-ink-soft">{i.detail}</p>}
         {i.since && (() => { const d = (Date.now() - new Date(i.since).getTime()) / 864e5; return (
           <p className="mt-1.5 flex flex-wrap items-center gap-1.5 text-caption">
             <span className={`rounded-full px-2 py-0.5 font-semibold ${d >= 2 ? "bg-heart text-white" : "bg-paper text-ink-soft"}`}>{d >= 2 ? `Waiting on the office ${Math.floor(d)} days` : ago(i.since)}</span>
@@ -122,7 +122,7 @@ function Item({ i, canQuiet = false }: { i: TodoItem; canQuiet?: boolean }) {
           {i.dogHref && i.primary?.href !== i.dogHref && <Link prefetch={false} href={i.dogHref} className="btn-ghost h-9 min-h-0 px-3 text-small"><PawPrint size={14} />Dog</Link>}
           {i.hubspot && !i.primary?.external && <a href={i.hubspot} target="_blank" rel="noopener" className="btn-ghost h-9 min-h-0 px-3 text-small">HubSpot<ExternalLink size={13} /></a>}
           {canQuiet && i.quietChatId && <QuietChatButton chatId={i.quietChatId} quiet={false} />}
-          {i.incidentId && i.clear && <ClientClose id={i.incidentId} mode={i.clear} />}
+          {i.incidentId && i.clear && <ClientClose id={i.incidentId} mode={i.clear} quick={i.repliedInChat ? "Handled in the chat" : undefined} />}
           {i.readTrainer && <MarkReadButton trainerId={i.readTrainer} />}
           {i.pattern && <PatternSeen chatId={i.pattern} />}
           {i.incidentId && !i.deal && !i.ask && !i.chase && !i.clear && <span className="ml-auto"><TodoDone id={i.incidentId} label={i.doneLabel} /></span>}

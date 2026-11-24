@@ -87,7 +87,7 @@ export async function saveQuoNumberAction(_: R | null, f: FormData): Promise<R> 
  *  message dealt with by phone or email). It counts as the answer, so the item stays closed until the client writes again,
  *  and the messages' labels are corrected with your name (which is how we see how well the app reads them). */
 export async function clientCloseAction(incidentId: string, why = ""): Promise<R> {
-  return audited("clientCloseAction", { incidentId }, async () => {
+  return audited("clientCloseAction", { incidentId, why }, async () => {
     if (isDemo()) return { ok: false, message: "Demo mode." };
     const { who } = await admin();
     const sb = serviceClient(), now = new Date().toISOString();

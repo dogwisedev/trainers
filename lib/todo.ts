@@ -32,6 +32,7 @@ export type TodoItem = {
   poc?: string;         // the trainer's Point of Contact (from the trainer's profile), for the POC filter; none = not tied to a trainer
   chase?: ChaseInfo;
   clear?: "noreply" | "handled";
+  repliedInChat?: boolean; // an office question the trainer has since answered in the chat
   readTrainer?: string; // a trainer's message: "No reply needed" marks their thread read
   decision?: boolean;
   pattern?: string;     // "worries adding up" on this chat: "Looked into it" puts it aside for a week   // a client question about money, a refund, cancelling or dates: a decision for Sean, shown first and owned by him // a client item a person can close: "No reply needed" (waiting) / "Handled" (office question, urgent)    // handed to the office by the reminder ladder: history, a suggested check-in, Send in app / Text / Call (no Done: it clears itself)
@@ -219,6 +220,20 @@ async function buildTodoUncached(): Promise<TodoData> {
       primary: { label: "Review", href: `/a/reports/${r.id}` }, dogHref: dogPage(r.booking_id), hubspot: hubspotDeal(r.booking?.hubspot_deal_id)
     });
   }
+
+  // ── Office questions the trainer has since answered in the chat: say so, so the office can confirm with one tap ──
+  // (an office question only clears itself when someone in the office replies in that chat; a trainer's reply is shown here)
+  try {
+    const office = ((incs || []) as unknown as Inc[]).filter((i) => i.kind === "client_office" && i.chat_id);
+    if (office.length) {
+      const { data: tr } = await sb.from("chat_messages").select("chat_id, sender_name, body, created_at").in("chat_id", office.map((i) => i.chat_id!)).eq("sender_role", "trainer").gte("created_at", office.reduce((a, i) => (i.opened_at < a ? i.opened_at : a), office[0].opened_at)).order("created_at", { ascending: false }).limit(200);
+      for (const i of office) {
+        const m = ((tr || []) as { chat_id: string; sender_name: string | null; body: string | null; created_at: string }[]).find((x) => x.chat_id === i.chat_id && x.created_at > i.opened_at && x.body);
+        const item = items.find((x) => x.key === `inc:${i.id}`);
+        if (m && item) { item.detail = `${item.detail || ""}\n${(m.sender_name || "The trainer").split(" ")[0]} replied in the chat: “${m.body!.replace(/\s+/g, " ").slice(0, 160)}”`; item.repliedInChat = true; }
+      }
+    }
+  } catch { /* the item is still there, just without the hint */ }
 
   // ── A client whose worries are adding up: 2+ office questions or urgent messages in 7 days (one label can't see a pattern) ──
   try {
