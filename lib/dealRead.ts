@@ -28,7 +28,7 @@ export async function readDealForBooking(id: string): Promise<{ ok: boolean; mes
     const c = contacts.find((x) => x.email) || contacts[0] || {};
     const start = hsDate(d[props.start.name]), end = props.end ? hsDate(d[props.end.name]) : null;
     let weeks: number | null = null, extra = 0;
-    if (start && end && end > start) { const days = daysBetween(start, end); weeks = Math.min(12, Math.max(1, Math.floor(days / 7))); extra = Math.min(13, Math.max(0, days - weeks * 7)); }
+    if (start && end && end > start) { const days = daysBetween(start, end); weeks = Math.min(12, Math.max(1, Math.floor(days / 7))); extra = Math.min(42, Math.max(0, days - weeks * 7)); }
     return { ok: true, message: "", deal: {
       id, name: d.dealname || `Deal ${id}`, client: [c.firstname, c.lastname].filter(Boolean).join(" ").trim(), email: String(c.email || "").trim().toLowerCase(),
       // Where the trainer drives to: the pickup address's ZIP if it's different, else the client's ZIP, else the one in the deal name

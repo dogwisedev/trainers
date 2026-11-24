@@ -41,7 +41,7 @@ export async function POST(req: Request) {
   const dogs = rawDogs.map((d, i) => ({
     i, name: String(d.dog_name || "").trim().slice(0, 80), program: String(d.program || "").trim().slice(0, 120),
     weeks: Math.round(Number(d.weeks) || 0), start: String(d.start_date || ""), end: String(d.end_date || ""), notes: String(d.notes || "").trim().slice(0, 2000), rehab: d.rehab === true,
-    extra: Math.min(13, Math.max(0, Math.round(Number(d.extra_days) || 0)))
+    extra: Math.min(42, Math.max(0, Math.round(Number(d.extra_days) || 0)))
   }));
   for (const d of dogs) {
     const label = d.name || `Dog ${d.i + 1}`;

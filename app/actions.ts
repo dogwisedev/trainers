@@ -310,7 +310,7 @@ export async function saveBooking(_: Result | null, f: FormData): Promise<Result
   if (!dealId || !/^\d+$/.test(dealId)) return { ok: false, message: "Add the HubSpot deal first: every booking needs one." };
   const trainerId = str(f, "trainer_id"), client = str(f, "client_name"), start = str(f, "start_date");
   if (!trainerId || !client || !start) return { ok: false, message: "Trainer, client and pickup date are required." };
-  const weeks = Math.min(12, Math.max(1, num(f, "weeks") || 3)), extra = Math.min(13, Math.max(0, num(f, "extra_days") || 0));
+  const weeks = Math.min(12, Math.max(1, num(f, "weeks") || 3)), extra = Math.min(42, Math.max(0, num(f, "extra_days") || 0));
   const dogs = [...new Set([...f.getAll("dog").map((x) => String(x).trim()), str(f, "dog_name") || ""].filter(Boolean))].slice(0, 6);
   if (!dogs.length) return { ok: false, message: "Choose or type the dog's name." };
   const sb = serverClient();
@@ -479,7 +479,7 @@ export async function setExtraDays(id: string, extra: number): Promise<Result> {
   const { data: b } = await sb.from("bookings").select("start_date, weeks, hubspot_deal_id").eq("id", id).single();
   if (!b) return { ok: false, message: "Booking not found." };
   if (b.hubspot_deal_id && datesFromHubspot()) return { ok: false, message: "This booking's dates come from HubSpot: change them on the deal." };
-  const n = Math.min(13, Math.max(0, Math.round(extra)));
+  const n = Math.min(42, Math.max(0, Math.round(extra)));
   const { error } = await sb.from("bookings").update({ extra_days: n, end_date: dropOff(b.start_date, b.weeks || 1, n) }).eq("id", id);
   revalidatePath("/", "layout");
   if (error) return { ok: false, message: error.message };
