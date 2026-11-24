@@ -334,7 +334,10 @@ export async function saveBooking(_: Result | null, f: FormData): Promise<Result
   // kennel checks, forms, videos, program pay or "New booking" email; the trainer can book and log follow-ups straight away.
   if (f.get("followup_only") === "on") {
     if (rows[0].end_date >= todayIso()) return { ok: false, message: `Follow-up only is for programs that have finished, and this one runs to ${short(rows[0].end_date)}. Untick it to book it as a normal program.` };
-    const { data: fo, error: foErr } = await sb.from("bookings").insert(rows.map((r) => ({ ...r, followup_only: true, reports_enabled: false, training_paused: true }))).select("id, trainer_id, client_name, client_email, dog_name, hubspot_deal_id, start_date, end_date");
+    // Picked up and dropped off already (the program is over), so it sits under Finished, not Upcoming
+    const noon = (d: string) => new Date(`${d}T17:00:00Z`).toISOString(); // midday US Eastern
+    const { data: fo, error: foErr } = await sb.from("bookings").insert(rows.map((r) => ({ ...r, followup_only: true, reports_enabled: false, training_paused: true,
+      picked_up_at: noon(r.start_date), picked_up_by: "Follow-up only", dropped_off_at: noon(r.end_date), dropped_off_by: "Follow-up only" }))).select("id, trainer_id, client_name, client_email, dog_name, hubspot_deal_id, start_date, end_date");
     if (foErr || !fo?.length) return { ok: false, message: foErr && /followup_only|schema cache/i.test(foErr.message) ? "Run migration 065 in Supabase first." : foErr?.message || "Couldn't save the booking." };
     await ensureChatsForBookings(fo as Parameters<typeof ensureChatsForBookings>[0], { invite: false }).catch(() => []);
     await pushToTrainer(trainerId, { title: "Follow-ups set up", body: `${dogs.join(" & ")} (${client}): you can book and log follow-up sessions in the app now.`, url: "/t/followup", tag: "followup-setup" }).catch(() => 0);
