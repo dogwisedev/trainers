@@ -38,6 +38,7 @@ export function TodoTypes({ pocs = [] }: { pocs?: string[] }) {
       }
       li.style.display = ok ? "" : "none";
     }
+    for (const card of root.querySelectorAll<HTMLElement>("li[data-card]")) card.style.display = [...card.querySelectorAll<HTMLElement>("li[data-kind]")].some((li) => li.style.display !== "none") ? "" : "none";
     for (const sec of root.querySelectorAll<HTMLElement>("section[data-group]")) sec.style.display = [...sec.querySelectorAll<HTMLElement>("li[data-kind]")].some((li) => li.style.display !== "none") ? "" : "none";
     try { localStorage.setItem(KEY, JSON.stringify(on)); localStorage.setItem(PKEY, JSON.stringify(pon)); } catch { /* fine */ }
   }, [on, pon]);

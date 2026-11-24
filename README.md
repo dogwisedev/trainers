@@ -357,3 +357,12 @@ Speak doesn't fill in weekly health checks (no button on that form, and the serv
 
 ### Smaller videos in the chat
 Picking a video over 1 MB in a dog's chat asks once: make it smaller so it sends much faster, or send at full quality. Smaller = made on the phone before sending (lib/videoShrink.ts, Mediabunny over the browser's own video encoder): the long side at most 1920 px (1080p), about 3 Mbps, H.264 MP4, the sound as recorded, with a percentage while it works. Anything that can't be done (an older phone, a format it can't read, the sound would be lost, or no real saving) sends the original, as before. Chat only for now; form uploads are unchanged.
+
+## To do: three shelves and Park (migration 068)
+To do is sorted by whose move it is:
+- **Needs you** (red): the office's move now. Several items about one trainer fold into one card ("Amanda Kranz: 5 things"): one call covers them, one Park parks them.
+- **Waiting** (amber): the office has acted and is waiting on someone. Each row says who did what and when it's back; "Bring back now" undoes it.
+- **The app is on it** (grey, folded): not the office's yet. Late forms still being reminded, and dogs that aren't ready more than 3 days before their start.
+
+**Park** = "I've done my bit, check back in…": two taps (what you did; in 4 hours, tomorrow 9 AM Eastern, or in 2 days). The item comes back by itself when the time is up, saying what was done ("Back: Anita called the trainer on Sun 5:00 PM. It's still open."), or disappears if the trainer or client acts first. **Three parks at most**: the third button reads "Final park"; after it the button is **Pass to Pedro** (the item becomes his, and admins are notified). A client who has waited over 24 hours can't be parked, only answered; a form to review can't be parked. Parked items aren't counted in the menu badge, the office brief or Pulse's "waiting on the office". Every park is kept in `todo_parks` (who, what, when, about which trainer).
+Rows are slimmer: the main action and Park as buttons, Dog and HubSpot as links, and "What the app already did" folded away. The client's wait is worked out live.

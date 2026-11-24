@@ -1,10 +1,11 @@
 import "server-only";
+import { applyParks } from "./todoParks";
 import { cache } from "react";
 import { isPayMonday, periodLabel } from "./payroll";
 import { todayIso } from "./dates";
 import { serviceClient, isDemo } from "./supabase";
 import { addDays, short } from "./dates";
-import { etParts, INCIDENT_LABEL, IncidentKind } from "./chatRules";
+import { etParts, INCIDENT_LABEL, IncidentKind, wakingHours } from "./chatRules";
 import { BookingForReports, Kind, RowLike, Todo, kindName, todos } from "./reports";
 import { trainerSignins } from "./trainerSignin";
 import { dealKey } from "./chatTypes";
@@ -35,6 +36,16 @@ export type TodoItem = {
   repliedInChat?: boolean; // an office question the trainer has since answered in the chat
   readTrainer?: string; // a trainer's message: "No reply needed" marks their thread read
   decision?: boolean;
+  kind?: string;                          // the incident kind, when it's one
+  trainer?: { id: string; name: string }; // whose dog it's about: several items about one trainer fold into one card
+  appUntil?: string;                      // not the office's yet: the app is still on it until this day (YYYY-MM-DD)
+  // Parking (lib/todoParks.ts): where the item stands
+  shelf?: "you" | "waiting" | "app";
+  parks?: number;                         // how many times it's been parked
+  park?: { until: string; did: string; by: string };  // parked now: back at `until`
+  back?: { did: string; by: string; at: string };     // came back: what was done, by whom, when
+  passed?: { by: string; at: string };    // passed to Pedro
+  parkable?: boolean;
   pattern?: string;     // "worries adding up" on this chat: "Looked into it" puts it aside for a week   // a client question about money, a refund, cancelling or dates: a decision for Sean, shown first and owned by him // a client item a person can close: "No reply needed" (waiting) / "Handled" (office question, urgent)    // handed to the office by the reminder ladder: history, a suggested check-in, Send in app / Text / Call (no Done: it clears itself)
 };
 /** late: forms past their deadline. beforeApp: handover reports due before the app took over the forms (still needed for the certificate). */
@@ -53,10 +64,20 @@ type B = BookingForReports & { hubspot_deal_id: string | null; reports_enabled?:
 const NOW_KINDS: IncidentKind[] = ["trainer_report", "client_waiting", "client_pileup", "trainer_silent", "check_vaccines", "booking_cancelled", "length_changed", "overbooked"];
 
 /** To do, worked out once per page load (the menu badge and the To do page use the same list, so the numbers always match). */
+/** How long a client has waited, worked out now: the waking hours when the item was raised, plus the waking hours since. */
+function waitedSoFar(i: { detail: string | null; opened_at: string }): string | undefined {
+  const m = (i.detail || "").match(/waiting ([\d.]+) waking hours/);
+  if (!m) return i.detail || undefined;
+  const h = Number(m[1]) + wakingHours(new Date(i.opened_at), new Date());
+  const days = Math.floor((Date.now() - Date.parse(i.opened_at)) / 864e5);
+  return `Waiting about ${Math.round(h)} waking hours for a reply${days >= 1 ? `, over ${days} day${days === 1 ? "" : "s"}` : ""}.`;
+}
+
 export const buildTodo = cache(buildTodoUncached);
 /** The number on the To do badge and at the top of To do: every row, with the handovers from before the app counted as one row (as shown).
  *  Late forms aren't counted: the app reminds the trainers (lib/nudges.ts), and a form still late after 2 reminders is its own row. */
-export const todoTotal = (d: TodoData) => d.items.length + (d.beforeApp.length ? 1 : 0);
+/** What needs the office now: parked items and ones the app still has aren't counted. */
+export const todoTotal = (d: TodoData) => d.items.filter((i) => (i.shelf || "you") === "you").length + (d.beforeApp.length ? 1 : 0);
 export async function todoCount(): Promise<number> { return todoTotal(await buildTodo()); }
 
 async function buildTodoUncached(): Promise<TodoData> {
@@ -114,13 +135,17 @@ async function buildTodoUncached(): Promise<TodoData> {
     const chat = i.chat_id ? { label: "Open chat", href: `/a/chats/${i.chat_id}` } : undefined;
     const dogHref = bookingId ? dogPage(bookingId) : undefined;
     const startsSoon = !!i.booking && i.booking.start_date <= addDays(today, 2);
-    const base = { key: `inc:${i.id}`, since: i.opened_at, incidentId: i.id, dogHref, hubspot: deal, detail: i.detail || undefined, poc: pocOf(i.booking?.trainer_id || bk?.trainer_id || i.chat?.trainer_id) };
+    const tid = i.booking?.trainer_id || bk?.trainer_id || i.chat?.trainer_id || "";
+    const base = { key: `inc:${i.id}`, since: i.opened_at, incidentId: i.id, dogHref, hubspot: deal, detail: i.detail || undefined, poc: pocOf(tid), kind: i.kind as string,
+      trainer: tid && trainer !== "The trainer" ? { id: tid, name: trainer } : undefined,
+      // A dog that isn't ready is the client's to finish, and the app is reminding them: the office's from 3 days before the start
+      appUntil: i.kind === "not_ready" && i.booking && i.booking.start_date > addDays(today, 3) ? addDays(i.booking.start_date, -3) : undefined };
     const ICON: Partial<Record<IncidentKind, TodoIcon>> = { client_waiting: "chat", client_pileup: "chat", trainer_silent: "chat", reopened: "chat", ready_to_close: "chat",
       intake_media_missing: "camera", handover_photo_missing: "camera", overbooked: "dog", length_changed: "money", booking_cancelled: "money", hubspot_problem: "deal",
       not_ready: "dog", check_vaccines: "vaccine", trainer_report: "alert" };
     const add = (o: Omit<TodoItem, "key" | "since" | "incidentId" | "dogHref" | "hubspot"> & Partial<TodoItem>) => items.push({ ...base, icon: ICON[i.kind] || "alert", ...o });
     switch (i.kind) {
-      case "client_waiting": add({ group: "now", tone: "heart", text: `${client} is waiting for a reply about ${dog}`, primary: chat ? { ...chat, label: "Reply" } : undefined, quietChatId: i.chat_id || undefined, clear: "noreply",
+      case "client_waiting": add({ group: "now", tone: "heart", text: `${client} is waiting for a reply about ${dog}`, detail: waitedSoFar(i), primary: chat ? { ...chat, label: "Reply" } : undefined, quietChatId: i.chat_id || undefined, clear: "noreply",
         chase: chaseFor(i, "client_waiting", { trainerId: i.chat?.trainer_id, trainer, dog, client, bookingId }) }); break;
       case "client_pileup": add({ group: "now", tone: "heart", text: `${client} has sent several messages about ${dog}`, primary: chat ? { ...chat, label: "Reply" } : undefined, quietChatId: i.chat_id || undefined, clear: "noreply",
         chase: chaseFor(i, "client_waiting", { trainerId: i.chat?.trainer_id, trainer, dog, client, bookingId }) }); break;
@@ -331,5 +356,7 @@ async function buildTodoUncached(): Promise<TodoData> {
   }
   // Every POC written on an active trainer's profile, for the filter (even ones with nothing on To do right now)
   const pocs = [...new Map(((trainers || []) as { active: boolean; poc: string | null }[]).filter((t) => t.active).map((t) => String(t.poc || "").replace(/\s+/g, " ").trim()).filter(Boolean).map((p) => [p.toLowerCase(), p] as const)).values()].sort((a, b) => a.localeCompare(b));
+  await applyParks(items, sb).catch(() => null); // which are parked, which came back, which the app still has
+  if (items.some((x) => x.passed) && !pocs.some((p) => p.toLowerCase() === "pedro")) pocs.push("Pedro");
   return { items, late, beforeApp, pocs };
 }

@@ -24,7 +24,8 @@ export async function officeBrief(o: { onlyNew?: boolean; site: string; caller?:
     return { text: i.text, detail: i.detail, owner: i.poc, since, days, status: since > lastAt ? "new" : "still open", link: i.primary?.href ? (/^https?:/.test(i.primary.href) ? i.primary.href : `${o.site}${i.primary.href}`) : undefined,
       history: i.chase?.history?.length ? i.chase.history : undefined, suggested: i.chase?.suggested };
   };
-  const pick = (f: (i: TodoItem) => boolean) => d.items.filter(f).map(line).filter((l) => !o.onlyNew || l.status === "new");
+  // Only what needs the office now: an item someone has parked (they've acted, waiting on a trainer or client) isn't posted again
+  const pick = (f: (i: TodoItem) => boolean) => d.items.filter((i) => (i.shelf || "you") === "you").filter(f).map(line).filter((l) => !o.onlyNew || l.status === "new");
   const sections = {
     decisions: pick((i) => !!i.decision),
     calls: pick((i) => !!i.chase && !i.decision),                                   // handed to the office after the app's reminders
@@ -53,7 +54,7 @@ export async function officeBrief(o: { onlyNew?: boolean; site: string; caller?:
   const watched = await watching(lastAt, o.site, sb).catch(() => []);
   const praise = await wins(lastAt, o.site, sb).catch(() => []);
   const { count: chasing } = await sb.from("nudges").select("id", { count: "exact", head: true }).is("done_at", null).lt("step", 3);
-  const counts = { todo: d.items.length + (d.beforeApp.length ? 1 : 0), chasing: chasing || 0, lateForms: d.late.length };
+  const counts = { todo: d.items.filter((i) => (i.shelf || "you") === "you").length + (d.beforeApp.length ? 1 : 0), waiting: d.items.filter((i) => i.shelf === "waiting").length, chasing: chasing || 0, lateForms: d.late.length };
   await sb.from("app_settings").upsert({ key, value: now, updated_by: "app", updated_at: now }, { onConflict: "key" }).then(() => null, () => null);
   const empty = Object.values(sections).every((s) => s.length === 0) && !watched.length && !praise.length;
   return {

@@ -5,7 +5,7 @@ import { Check } from "lucide-react";
 import { clientCloseAction } from "@/app/nudge-actions";
 import { WhyPick } from "@/components/WhyPick";
 
-const WHY = { noreply: ["Just thanks or OK", "Answered by phone", "Answered by email or text", "Not a question", "Other"], handled: ["Handled in the chat", "Answered by phone", "Answered by email or text", "Sean decided", "Not needed", "Other"] };
+const WHY = { noreply: ["Just thanks or OK", "Answered by phone", "Answered by email or text", "Trainer says they answered outside the app", "Not a question", "Other"], handled: ["Handled in the chat", "Answered by phone", "Answered by email or text", "Sean decided", "Not needed", "Other"] };
 /** "No reply needed" on a waiting client, "Handled" on an office question or urgent message: one tap on why, then it closes. */
 export function ClientClose({ id, mode, quick }: { id: string; mode: "noreply" | "handled"; quick?: string }) {
   const router = useRouter();
