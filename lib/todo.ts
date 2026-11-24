@@ -37,6 +37,7 @@ export type TodoItem = {
   readTrainer?: string; // a trainer's message: "No reply needed" marks their thread read
   decision?: boolean;
   kind?: string;                          // the incident kind, when it's one
+  form?: { bookingId: string; kind: Kind; week: number }; // a late form: which one
   trainer?: { id: string; name: string }; // whose dog it's about: several items about one trainer fold into one card
   appUntil?: string;                      // not the office's yet: the app is still on it until this day (YYYY-MM-DD)
   // Parking (lib/todoParks.ts): where the item stands
@@ -177,7 +178,8 @@ async function buildTodoUncached(): Promise<TodoData> {
         const bits = (i.ref || "").split(":"), kind = bits[3] as Kind | undefined;
         const form = kind ? `${kindName(kind).toLowerCase()}${kind === "weekly" ? ` (week ${bits[4]})` : ""}` : "form";
         add({ group: "now", tone: "biscuit", icon: "form", text: `${trainer} hasn't sent ${dog}'s ${form}`, detail: (i.detail || "").replace(/\s*Reminded .*$/, "") || undefined,
-          primary: dogHref ? { label: "Open dog", href: dogHref } : undefined, chase: chaseFor(i, "form_late", { trainerId: i.booking?.trainer_id || bk?.trainer_id, trainer, dog, client, bookingId }) });
+          primary: dogHref ? { label: "Open dog", href: dogHref } : undefined, chase: chaseFor(i, "form_late", { trainerId: i.booking?.trainer_id || bk?.trainer_id, trainer, dog, client, bookingId }),
+          form: kind && /^[0-9a-f-]{36}$/i.test(bits[2] || "") ? { bookingId: bits[2], kind, week: Number(bits[4]) || 0 } : undefined });
         break;
       }
       case "reopened": add({ group: "week", tone: "biscuit", text: `${client} started a new chat about ${dog}`, primary: chat }); break;

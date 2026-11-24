@@ -14,6 +14,7 @@ import { ClientClose } from "@/components/ClientClose";
 import { MarkReadButton } from "@/components/MarkReadButton";
 import { PatternSeen } from "@/components/PatternSeen";
 import { ParkButton, UnparkButton } from "@/components/ParkButton";
+import { FormNotNeeded } from "@/components/FormNotNeeded";
 import { IconTile } from "@/components/ui";
 
 const ICONS: Record<TodoIcon, typeof PawPrint> = {
@@ -73,7 +74,7 @@ export function TodoList({ items, late, beforeApp = [], canQuiet = false, pocs =
         {shelf("#todo-waiting", waiting.length, "Waiting", "border-biscuit/50 bg-biscuit-wash text-warn")}
         {shelf("#todo-app", app.length + late.length, "The app is on it", "border-line bg-white text-ink-soft")}
       </div>
-      {old.length > 0 && <p className="mt-2 px-1 text-small text-ink-soft">{old.length} open for 2 days or more: {[...byOwner.entries()].sort((a, b) => b[1] - a[1]).map(([w, n]) => `${w} ${n}`).join(", ")}.</p>}
+      {old.length > 0 && <p className="mt-3 rounded-xl bg-heart-wash px-3.5 py-2.5 text-body font-semibold text-heart">{old.length} open for 2 days or more: {[...byOwner.entries()].sort((a, b) => b[1] - a[1]).map(([w, n]) => `${w} ${n}`).join(", ")}.</p>}
       <div className="mt-3"><TodoTypes pocs={pocs} /></div>
 
       <section id="todo-now" data-group="now" className="scroll-mt-20">
@@ -139,13 +140,13 @@ export function TodoList({ items, late, beforeApp = [], canQuiet = false, pocs =
 }
 
 /** Several things about one trainer, behind one card: closed, it's the trainer, how many things and who owns them; tap it
- *  and it drops down to every item (each with its own buttons) and one bar to call, message or park them all. */
+ *  and it drops down to every item, each with its own buttons (its own Park too), and the trainer's contact card. */
 function TrainerCard({ list, canQuiet }: { list: TodoItem[]; canQuiet: boolean }) {
   const t = list[0].trainer!, chase = list.find((i) => i.chase)?.chase, name = first(t.name);
   const owners = [...new Set(list.map((i) => i.poc).filter(Boolean))] as string[];
-  const park = list.filter((i) => i.parkable);
   const oldest = Math.floor(Math.max(0, ...list.map((i) => (i.since ? (Date.now() - new Date(i.since).getTime()) / 864e5 : 0))));
   const short = (i: TodoItem) => (i.text.startsWith(t.name) ? i.text.slice(t.name.length).trim() : i.text);
+  const initials = t.name.replace(/".*?"/g, "").split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase();
   return (
     <li data-card className="border-l-4 border-heart">
       <details className="group">
@@ -161,16 +162,21 @@ function TrainerCard({ list, canQuiet }: { list: TodoItem[]; canQuiet: boolean }
           </span>
           <ChevronDown size={20} className="mt-1 shrink-0 text-ink-soft transition-transform group-open:rotate-180" aria-hidden />
         </summary>
-        <div className="px-4 pb-4">
-          <ul className="divide-y divide-line overflow-hidden rounded-2xl border border-line bg-canvas/60">
+        <div className="space-y-3 px-4 pb-4">
+          <ul className="divide-y divide-line overflow-hidden rounded-2xl border border-line bg-white">
             {list.map((i) => <Item key={i.key} i={i} canQuiet={canQuiet} nested strip={t.name} />)}
           </ul>
-          <div className="mt-3 rounded-2xl bg-paper/70 p-3">
-            <p className="mb-2 text-small font-semibold text-ink-soft">One call to {name} can cover all {list.length}. Park them once you&apos;ve spoken.</p>
-            <div className="flex flex-col items-start gap-2">
-              {chase ? <ChaseActions c={chase} /> : <Link prefetch={false} href={`/a/messages/${t.id}`} className="btn-ghost h-10 min-h-0 px-3.5 text-small"><MessageCircle size={15} />Message {name}</Link>}
-              {(park.length > 0 || list.every((i) => (i.parks || 0) >= 3 && !i.passed)) && <ParkButton keys={(park.length ? park : list).map((i) => i.key)} parks={park.length ? Math.max(0, ...park.map((i) => i.parks || 0)) : 3} label={park.length > 1 ? `Park all ${park.length}` : undefined}
-                options={["Called the trainer", "Messaged the trainer", "Trainer says it's handled outside the app", "Other"]} trainerId={t.id} what={`${t.name}: ${list.length} things`} />}
+          <div className="rounded-2xl border border-line bg-mint-wash/60 p-3.5">
+            <div className="flex items-center gap-3">
+              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-white text-small font-extrabold text-fern" aria-hidden>{initials}</span>
+              <div className="min-w-0 flex-1">
+                <p className="font-bold leading-tight">Contact {name}</p>
+                <p className="text-small text-ink-soft">One call can cover all {list.length}. Then park each one you&apos;ve dealt with.</p>
+              </div>
+            </div>
+            <div className="mt-3">
+              {chase ? <ChaseActions c={chase} extra={<Link prefetch={false} href={`/a/trainers/${t.id}`} className="btn-ghost h-10 min-h-0 px-3.5 text-small">Trainer page</Link>} />
+                : <div className="flex flex-wrap gap-2"><Link prefetch={false} href={`/a/messages/${t.id}`} className="btn-ghost h-10 min-h-0 px-3.5 text-small"><MessageCircle size={15} />Message {name}</Link><Link prefetch={false} href={`/a/trainers/${t.id}`} className="btn-ghost h-10 min-h-0 px-3.5 text-small">Trainer page</Link></div>}
             </div>
           </div>
         </div>
@@ -197,24 +203,39 @@ function FormGroup({ title, list, note }: { title: string; list: (Todo & { train
   );
 }
 
+// A row is always the same five lines at most: what, a line of detail, its pills, ONE row of buttons, and one quiet line
+// of links. "Open dog" and "Open chat" are links, not the main button; everything a row can do sits on the one button row.
+const LINKISH = /^(dog|open dog|open chat)$/i;
 function Item({ i, canQuiet = false, nested = false, strip = "" }: { i: TodoItem; canQuiet?: boolean; nested?: boolean; strip?: string }) {
   const I = ICONS[i.icon || "alert"];
   const tone = i.tone === "heart" ? "heart" : i.tone === "biscuit" ? "biscuit" : "paper";
   const d = i.since ? (Date.now() - new Date(i.since).getTime()) / 864e5 : 0;
   const bar = nested ? "" : `border-l-4 ${i.back ? "border-biscuit" : i.tone === "heart" ? "border-heart" : "border-transparent"}`;
   const text = strip && i.text.startsWith(strip) ? i.text.slice(strip.length).trim().replace(/^./, (c) => c.toUpperCase()) : i.text;
-  const trainerKind = TRAINER_KINDS.has(i.kind || "");
-  // On its own: Park whenever it can be (or Pass to Pedro once the parks are used). Inside a trainer's card: only rows
-  // that aren't simply "the trainer needs to do something" (those are parked together, from the card).
-  const showPark = nested ? !!i.parkable && !trainerKind : !!i.parkable || ((i.parks || 0) >= 3 && !i.passed);
-  // "Open dog" isn't the main thing to do when the item is about chasing a trainer: Call and Message are
-  const primary = i.primary && !(i.chase && i.primary.href === i.dogHref) ? i.primary : null;
+  const primary = i.primary && !LINKISH.test(i.primary.label) ? i.primary : null, link = i.primary && !primary ? i.primary : null;
+  const park = i.parkable || ((i.parks || 0) >= 3 && !i.passed)
+    ? <ParkButton keys={[i.key]} parks={i.parks || 0} options={parkOptions(i)} trainerId={i.trainer?.id} what={i.text} /> : null;
+  const done = i.form ? <FormNotNeeded bookingId={i.form.bookingId} kind={i.form.kind} week={i.form.week} />
+    : i.incidentId && !i.deal && !i.ask && !i.chase && !i.clear ? <TodoDone id={i.incidentId} label={i.doneLabel} /> : null;
+  const own = <>
+    {i.incidentId && i.clear && <ClientClose id={i.incidentId} mode={i.clear} quick={i.repliedInChat ? "Handled in the chat" : undefined} />}
+    {i.readTrainer && <MarkReadButton trainerId={i.readTrainer} />}
+    {i.pattern && <PatternSeen chatId={i.pattern} />}
+    {i.ask && <AskDecision id={i.ask.id} kind={i.ask.kind} expired={i.ask.expired} trainer={i.ask.trainer} dealId={i.ask.dealId} />}
+    {i.deal && <DealDecision dealId={i.deal} bookHref={`/a/bookings/new?deal=${i.deal}`} />}
+    {i.booking && <BookingDecision bookingId={i.booking.id} move={i.booking.move} dog={i.booking.dog} trainer={i.booking.trainer} hasDeal={i.booking.hasDeal} />}
+    {park}
+    {done}
+  </>;
+  const main = primary ? (primary.external
+    ? <a href={primary.href} target="_blank" rel="noopener" className="btn-ink h-10 min-h-0 px-4 text-small">{primary.label}<ExternalLink size={13} /></a>
+    : <Link prefetch={false} href={primary.href} className="btn-ink h-10 min-h-0 px-4 text-small">{primary.label}</Link>) : null;
   return (
-    <li className={`flex gap-3 ${nested ? "px-3.5 py-3" : "p-4"} ${bar}`} data-kind={i.icon || "alert"} data-poc={(i.poc || "").toLowerCase()}>
-      {!nested && <IconTile tone={tone}><I size={19} /></IconTile>}
+    <li className={`flex gap-3 ${nested ? "px-3.5 py-3.5" : "p-4"} ${bar}`} data-kind={i.icon || "alert"} data-poc={(i.poc || "").toLowerCase()}>
+      <IconTile tone={tone}><I size={19} /></IconTile>
       <div className="min-w-0 flex-1">
-        <p className={`leading-snug ${nested ? "font-semibold" : "font-bold"}`}>{text}</p>
-        {i.detail && !(nested && trainerKind && i.kind !== "client_waiting") && <p className={`mt-1 whitespace-pre-line text-body leading-snug text-ink-soft ${nested ? "line-clamp-2" : "line-clamp-3"}`}>{i.detail}</p>}
+        <p className="font-bold leading-snug">{text}</p>
+        {i.detail && <p className="mt-0.5 line-clamp-2 whitespace-pre-line text-body leading-snug text-ink-soft">{i.detail}</p>}
         {i.back && <p className="mt-1.5 rounded-lg bg-biscuit-wash px-2.5 py-1.5 text-small font-semibold text-warn">Back: {i.back.by} {i.back.did.charAt(0).toLowerCase() + i.back.did.slice(1)} on {when(i.back.at)}. It&apos;s still open.</p>}
         <p className="mt-1.5 flex flex-wrap items-center gap-1.5 text-caption">
           {i.since && <span className={`rounded-full px-2 py-0.5 font-semibold ${d >= 2 ? "bg-heart text-white" : "bg-paper text-ink-soft"}`}>{d >= 2 ? `Open ${Math.floor(d)} days` : ago(i.since)}</span>}
@@ -222,34 +243,23 @@ function Item({ i, canQuiet = false, nested = false, strip = "" }: { i: TodoItem
           {(i.parks || 0) > 0 && !i.passed && <span className="rounded-full bg-biscuit-wash px-2 py-0.5 font-semibold text-warn">Parked {i.parks === 1 ? "once" : i.parks === 2 ? "twice" : "3 times: no more"}</span>}
           {i.passed && <span className="rounded-full bg-heart px-2 py-0.5 font-semibold text-white">Passed to Pedro by {i.passed.by}</span>}
         </p>
-        {!!i.chase?.history.length && !nested && (
-          <details className="mt-1.5 text-caption text-ink-soft">
-            <summary className="cursor-pointer">What the app already did ({i.chase.history.length})</summary>
-            <ul className="mt-1 space-y-0.5 border-l-2 border-line pl-2.5">{i.chase.history.map((h, k) => <li key={k}>{h}</li>)}</ul>
-          </details>
-        )}
-        {(primary || (i.chase && !nested) || i.clear || i.readTrainer || i.pattern || i.ask || i.deal || i.booking || showPark || (i.incidentId && !i.deal && !i.ask && !i.chase && !i.clear)) && (
-          <div className="mt-2.5 flex flex-wrap items-start gap-2">
-            {primary && (primary.external
-              ? <a href={primary.href} target="_blank" rel="noopener" className="btn-ink h-10 min-h-0 px-4 text-small">{primary.label}<ExternalLink size={13} /></a>
-              : <Link prefetch={false} href={primary.href} className="btn-ink h-10 min-h-0 px-4 text-small">{primary.label}</Link>)}
-            {i.chase && !nested && <ChaseActions c={i.chase} />}
-            {i.incidentId && i.clear && <ClientClose id={i.incidentId} mode={i.clear} quick={i.repliedInChat ? "Handled in the chat" : undefined} />}
-            {i.readTrainer && <MarkReadButton trainerId={i.readTrainer} />}
-            {i.pattern && <PatternSeen chatId={i.pattern} />}
-            {i.ask && <AskDecision id={i.ask.id} kind={i.ask.kind} expired={i.ask.expired} trainer={i.ask.trainer} dealId={i.ask.dealId} />}
-            {i.deal && <DealDecision dealId={i.deal} bookHref={`/a/bookings/new?deal=${i.deal}`} />}
-            {i.booking && <BookingDecision bookingId={i.booking.id} move={i.booking.move} dog={i.booking.dog} trainer={i.booking.trainer} hasDeal={i.booking.hasDeal} />}
-            {showPark && <ParkButton keys={[i.key]} parks={i.parks || 0} options={parkOptions(i)} trainerId={i.trainer?.id} what={i.text} />}
-            {i.incidentId && !i.deal && !i.ask && !i.chase && !i.clear && <TodoDone id={i.incidentId} label={i.doneLabel} />}
-          </div>
-        )}
-        <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-caption text-ink-faint">
+        <div className="mt-2.5 flex flex-wrap items-start gap-2">
+          {/* On its own, a trainer item has Call and Message on the same row; inside a trainer's card those are on the contact card */}
+          {i.chase && !nested ? <ChaseActions c={i.chase} lead={main} extra={own} /> : <>{main}{own}</>}
+        </div>
+        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-caption text-ink-faint">
           {i.chase && <span>Clears itself when {first(i.chase.trainerName)} {i.chase.kind === "form_late" ? "sends the form" : i.chase.kind === "client_waiting" ? "or the office replies" : "posts"}.</span>}
-          {i.dogHref && primary?.href !== i.dogHref && <Link prefetch={false} href={i.dogHref} className="font-semibold text-ink-soft underline">Open dog</Link>}
+          {link && <Link prefetch={false} href={link.href} className="font-semibold text-ink-soft underline">{/chat/i.test(link.label) ? "Open chat" : "Open dog"}</Link>}
+          {i.dogHref && i.primary?.href !== i.dogHref && <Link prefetch={false} href={i.dogHref} className="font-semibold text-ink-soft underline">Open dog</Link>}
           {i.hubspot && !primary?.external && <a href={i.hubspot} target="_blank" rel="noopener" className="font-semibold text-ink-soft underline">HubSpot</a>}
-        </p>
-        {canQuiet && i.quietChatId && !nested && <div className="mt-2"><QuietChatButton chatId={i.quietChatId} quiet={false} /></div>}
+          {canQuiet && i.quietChatId && <QuietChatButton chatId={i.quietChatId} quiet={false} small />}
+          {!!i.chase?.history.length && (
+            <details className="w-full">
+              <summary className="inline cursor-pointer font-semibold text-ink-soft underline">What the app already did ({i.chase.history.length})</summary>
+              <ul className="mt-1 space-y-0.5 border-l-2 border-line pl-2.5 text-ink-soft">{i.chase.history.map((h, k) => <li key={k}>{h}</li>)}</ul>
+            </details>
+          )}
+        </div>
       </div>
     </li>
   );

@@ -9,7 +9,7 @@ const telOf = (p: string | null) => { const d = String(p || "").replace(/[^\d+]/
 
 /** Check in with the trainer on an item the reminders handed to the office: Call, or a message (the app's suggestion,
  *  editable) sent in the app or as a text. Everything is logged; the item clears itself when the trainer acts. */
-export function ChaseActions({ c }: { c: ChaseInfo }) {
+export function ChaseActions({ c, extra, lead }: { c: ChaseInfo; extra?: React.ReactNode; lead?: React.ReactNode }) {
   const router = useRouter();
   const [open, setOpen] = useState(false), [text, setText] = useState(c.suggested);
   const [pending, start] = useTransition();
@@ -23,9 +23,11 @@ export function ChaseActions({ c }: { c: ChaseInfo }) {
   });
   return (
     <div className="w-full">
-      <div className="flex flex-wrap items-center gap-2">
-        {tel && <a href={tel} onClick={() => { void logCallAction(who); }} className="btn-ghost h-9 min-h-0 px-3 text-small"><Phone size={14} />Call {first}</a>}
-        {!open && <button type="button" onClick={() => { setOpen(true); setMsg(null); }} className="btn-ghost h-9 min-h-0 px-3 text-small"><MessageCircle size={14} />Message {first}</button>}
+      <div className="flex flex-wrap items-start gap-2">
+        {lead}
+        {tel && <a href={tel} onClick={() => { void logCallAction(who); }} className="btn-ghost h-10 min-h-0 px-3.5 text-small"><Phone size={15} />Call {first}</a>}
+        {!open && <button type="button" onClick={() => { setOpen(true); setMsg(null); }} className="btn-ghost h-10 min-h-0 px-3.5 text-small"><MessageCircle size={15} />Message {first}</button>}
+        {extra}
       </div>
       {open && (
         <div className="mt-2 rounded-xl border border-line bg-paper/50 p-3">
