@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Plus } from "lucide-react";
-import { approveReportAction, resendReportAction, saveReportAction, sendBackAction, submitReportAction, ReportResult } from "@/app/report-actions";
+import { approveReportAction, coachReportAction, resendReportAction, saveReportAction, sendBackAction, submitReportAction, ReportResult } from "@/app/report-actions";
 import { MediaPicker } from "@/components/MediaPicker";
 import { FormUpload } from "@/components/FormUpload";
 import { Answers, Field, HANDOVER_AFTER, HANDOVER_ROUTE, HANDOVER_SIMPLE, INTAKE_SECTIONS, Item, Kind, MEDIA_ADVICE, MediaItem, Status, WEEKLY_SECTIONS, arr, deadlineHint, hasTrainerPhoto, raw, rawItems, s, validate } from "@/lib/reports";
@@ -103,8 +103,19 @@ export function ReportForm(p: Props) {
   const drafted = p.mode === "trainer" && p.kind === "handover" && p.aiDraft?.fields ? Object.entries(p.aiDraft.fields).filter(([, v]) => (typeof v === "string" ? v.trim() : Array.isArray(v) && v.length)) : [];
   const asDrafted = drafted.filter(([k, v]) => norm(answers[k]) === norm(v)).map(([k]) => k);
   const run = (fn: () => Promise<ReportResult>, after?: (r: ReportResult) => void) => start(async () => { setRes(null); const r = await fn(); setRes(r); if (!r.missing?.length) setShowMissing(false); else setShowMissing(true); after?.(r); });
+  // Before it goes: the app looks at the form as it is and tells the trainer what's missing (never writes it for them).
+  // Fix it, or Send anyway. If the look is slow or fails, the form just sends.
+  const [tips, setTips] = useState<string[] | null>(null);
+  const [checking, setChecking] = useState(false);
+  const send = () => run(() => submitReportAction(p.id, answers, media), (r) => { if (r.ok) router.refresh(); });
   const submit = () => { if (missing.length) { setShowMissing(true); window.scrollTo({ top: 0, behavior: "smooth" }); return; }
-    if (asDrafted.length && !aiRead) { setRes({ ok: false, message: "Some parts are still exactly as the app drafted them. Read them, change anything that isn't right, then tick the box above the Submit button." }); return; } if (window.confirm("Submit this report for review?")) run(() => submitReportAction(p.id, answers, media), (r) => { if (r.ok) router.refresh(); }); };
+    if (asDrafted.length && !aiRead) { setRes({ ok: false, message: "Some parts are still exactly as the app drafted them. Read them, change anything that isn't right, then tick the box above the Submit button." }); return; }
+    if (p.mode !== "trainer") { if (window.confirm("Submit this report for review?")) send(); return; }
+    setChecking(true); setTips(null);
+    Promise.race([coachReportAction(p.id, answers), new Promise<{ tips: string[] }>((ok) => setTimeout(() => ok({ tips: [] }), 16000))])
+      .catch(() => ({ tips: [] as string[] }))
+      .then((r) => { setChecking(false); if (r.tips.length) setTips(r.tips); else if (window.confirm("Looks good. Send it to the office?")) send(); });
+  };
   const approve = () => { if (missing.length) { setShowMissing(true); window.scrollTo({ top: 0, behavior: "smooth" }); return; } if (p.kind !== "handover" || window.confirm(`Send this ${p.status === "approved" ? "corrected " : ""}report to ${s(answers.clientEmail)}?`)) run(() => approveReportAction(p.id, answers, media), (r) => { if (r.ok) { setEditing(false); router.push(r.nextId ? `/a/reports/${r.nextId}` : "/a"); router.refresh(); } else { window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" }); router.refresh(); } }); };
 
   const ro = !editable;
@@ -175,9 +186,15 @@ export function ReportForm(p: Props) {
       ))}
       {drafted.length > 0 && editable && (
         <div className="rounded-[18px] bg-mint-wash p-4 text-body text-fern">
-          <p className="font-bold">We&apos;ve started this one for you</p>
-          <p className="mt-0.5">The goals, training, homework and review are drafted from your chat updates, the weekly checks and the owner&apos;s answers. Read each part and change anything: it&apos;s your report. The health check, miles and photo are yours to add.</p>
-          {!!p.aiDraft?.missing?.length && <ul className="mt-2 list-disc pl-5 text-small">{p.aiDraft.missing.map((m, i) => <li key={i}>{m}</li>)}</ul>}
+          <p className="font-bold">We filled in what we could, but it isn&apos;t finished</p>
+          <p className="mt-0.5">The goals, training, homework and review come from your chat updates, the weekly checks and the owner&apos;s answers. Only you know the rest, and that&apos;s what the owner is paying for:</p>
+          <ul className="mt-2 list-disc pl-5 text-small">
+            {(p.aiDraft?.missing || []).map((m, i) => <li key={`m${i}`}>{m}</li>)}
+            <li>An item for every goal the owner named, saying where the dog is now.</li>
+            <li>The cue words you use, and how often and how long to practise at home.</li>
+            <li>The health check from the handover, the miles and a photo of you with the dog.</li>
+          </ul>
+          <p className="mt-2 text-small">Read every line and make it yours: change anything that isn&apos;t quite right.</p>
         </div>
       )}
       {p.mode === "trainer" && p.kind === "handover" && editable && p.aiDraft?.thin && (
@@ -284,9 +301,19 @@ export function ReportForm(p: Props) {
       )}
       <div className="sticky bottom-[calc(76px+env(safe-area-inset-bottom))] z-10 rounded-[20px] border border-line bg-white/95 p-2 backdrop-blur md:bottom-4">
         {editable && <p className="px-2 pb-1 text-caption text-ink-faint" aria-live="polite">{p.demo ? "Demo: nothing saves." : saved === "saving" ? "Saving…" : saved === "saved" ? "Saved" : saved === "error" ? "Couldn't save: check your signal" : "Your answers save as you go."}{missing.length > 0 ? ` ${missing.length} thing${missing.length > 1 ? "s" : ""} still needed.` : " Ready to send."}</p>}
+      {tips && editable && (
+        <div className="rounded-[18px] border border-biscuit bg-biscuit-wash p-4 text-body" role="alert">
+          <p className="font-bold text-warn">Before you send: a few things are missing</p>
+          <ul className="mt-2 list-disc space-y-1 pl-5">{tips.map((t, i) => <li key={i}>{t}</li>)}</ul>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button type="button" className="btn-ink" onClick={() => { setTips(null); window.scrollTo({ top: 0, behavior: "smooth" }); }}>Fix it</button>
+            <button type="button" className="btn-ghost" disabled={pending} onClick={() => { setTips(null); send(); }}>Send anyway</button>
+          </div>
+        </div>
+      )}
         <div className="flex gap-2">
           {editable && !p.demo && p.kind !== "weekly" && <VoiceButton mode="form" reportId={p.id} getAnswers={() => latest.current.answers} onResult={applyVoice} label="Speak" maxSeconds={170} />}
-          {p.mode === "trainer" && editable && <button type="button" className="btn-ink flex-1" disabled={pending} onClick={submit}>{pending ? "Submitting…" : "Submit for review"}</button>}
+          {p.mode === "trainer" && editable && <button type="button" className="btn-ink flex-1" disabled={pending || checking} onClick={submit}>{checking ? "Checking…" : pending ? "Submitting…" : "Submit for review"}</button>}
           {p.mode === "admin" && editable && (
             <>
               {(p.status === "draft" || p.status === "changes_requested") && <WaiveButton bookingId={p.bookingId} kind={p.kind} week={p.week ?? 0} reportId={p.id} after="/a" className="btn-ghost whitespace-nowrap px-3" />}

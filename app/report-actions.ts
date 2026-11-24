@@ -1,6 +1,6 @@
 "use server";
 import { confirmMove } from "@/lib/pickup";
-import { noteCheckOutcome } from "@/lib/formCheck";
+import { coachForm, noteCheckOutcome, noteCoachOutcome } from "@/lib/formCheck";
 import { logReason } from "@/lib/work";
 import { answersChange } from "@/lib/aiChange";
 import { draftResult, type HandoverDraft } from "@/lib/handoverDraft";
@@ -85,6 +85,7 @@ export async function submitReportAction(id: string, answers: Answers, media: Me
     const pickup = b.report.kind === "intake" ? await pickupMedia(b.booking, s(a.pickupDate) || b.booking.start_date) : null;
     const { error } = await serverClient().from("reports").update({ answers: a, media: m, status: "submitted", submitted_at: new Date().toISOString(), review_note: null }).eq("id", id);
     if (error) return { ok: false, message: error.message };
+    await noteCoachOutcome(id); // right first time, fixed after a nudge, or sent anyway
     // A handover the app started: what the trainer kept, edited or rewrote (for Pulse → Office)
     const draft = (b.report as unknown as { ai_draft?: HandoverDraft | null }).ai_draft;
     if (b.report.kind === "handover" && draft?.fields && !draft.result) await serviceClient().from("reports").update({ ai_draft: { ...draft, result: draftResult(draft, a) } }).eq("id", id).then(() => null, () => null);
@@ -403,4 +404,14 @@ export async function sendHandoverTestAction(id: string): Promise<ReportResult> 
   try { return await deliverHandover(id, b, v.email, false, true); }
   catch (e) { return { ok: false, message: `Couldn't send the test: ${(e as Error).message}` }; }
 });
+}
+
+/** Trainer pressed Send: what's missing, before it goes (lib/formCheck.ts coachForm). Nothing is saved to the form. */
+export async function coachReportAction(id: string, answers: Answers): Promise<{ tips: string[] }> {
+  try {
+    if (isDemo()) return { tips: [] };
+    const v = await getViewer();
+    if (!v || v.role !== "trainer" || !v.trainerId) return { tips: [] };
+    return await coachForm(id, answers, v.trainerId);
+  } catch { return { tips: [] }; }
 }

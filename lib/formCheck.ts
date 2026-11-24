@@ -151,3 +151,48 @@ export async function formCheckStats(sb: SupabaseClient, sinceIso: string) {
     flaggedButFine: n((r) => r.verdict === "check" && r.outcome === "approved" && !r.edited)
   };
 }
+
+// ── Before sending: what's missing, told to the trainer (migration 066) ──
+const COACH = `You help a dog trainer at Dogwise Academy (a dog board-and-train business) just before they send a form to the office. You are given the office's checklist for this kind of form, the form as it is now, and the dog's chat.
+
+List at most 3 things the trainer should add or fix, the most important first. Write to the trainer: "you", friendly, one short sentence each, saying exactly what is missing and where. For example: "You said yes to skin, but not where or since when." or "Bradley asked about door manners: there's no item for it yet."
+Never write their answers for them and never suggest the words to use: say what is missing, they write it.
+If something sounds like a health or welfare worry (not eating, weight loss, diarrhea, a wound, limping, a bite), end that tip with "and tell the office in the chat".
+Do not nitpick style, spelling or length when the meaning is clear. If the form is good, return no tips.
+
+Answer with JSON only: {"tips":["..."]}`;
+
+/** The trainer pressed Send: one look at the form as it is (not yet saved), against the office's checklist. Never throws:
+ *  anything slow or broken returns no tips, so the form just sends. */
+export async function coachForm(reportId: string, answers: Answers, trainerId: string | null, sb: SupabaseClient = serviceClient()): Promise<{ tips: string[] }> {
+  try {
+    if (!aiOn()) return { tips: [] };
+    const cfg = await aiSettings(sb);
+    if (cfg.formCheck === "off") return { tips: [] };
+    const { data: r } = await sb.from("reports").select("id, booking_id, trainer_id, kind, week_number, status, answers, submitted_at").eq("id", reportId).maybeSingle();
+    const rep = r as Report | null;
+    if (!rep || (trainerId && rep.trainer_id !== trainerId)) return { tips: [] };
+    const { data: b } = await sb.from("bookings").select("*").eq("id", rep.booking_id).maybeSingle();
+    if (!b) return { tips: [] };
+    const chat = await chatText(sb, b as Booking, { ...rep, submitted_at: null });
+    const out = jsonFrom<{ tips?: string[] }>(await claude({ system: COACH, maxTokens: 350, timeoutMs: 14000,
+      user: `Form: ${kindName(rep.kind)}${rep.kind === "weekly" ? ` (week ${rep.week_number})` : ""} for ${s(answers.dogName) || b.dog_name || "the dog"}, program ${b.start_date} to ${b.end_date}.\n\nThe office's checklist:\n${cfg.checklists[rep.kind]}\n\nThe form as it is now:\n${formText(rep.kind, answers)}\n\nThe dog's chat (${chat ? "oldest first" : "no messages"}):\n${chat || "(nothing)"}` }));
+    const tips = (out?.tips || []).map((t) => clip(t, 220)).filter(Boolean).slice(0, 3);
+    const { count } = await sb.from("form_coaching").select("id", { count: "exact", head: true }).eq("report_id", rep.id).is("outcome", null);
+    await sb.from("form_coaching").insert({ report_id: rep.id, trainer_id: rep.trainer_id, kind: rep.kind, round: (count || 0) + 1, tips }).then(() => null, () => null);
+    return { tips };
+  } catch { return { tips: [] }; }
+}
+
+/** The form was sent: how it went this time. Right first time (the first look found nothing), fixed after a nudge (the
+ *  last look found nothing), or sent anyway (the last look still had tips). */
+export async function noteCoachOutcome(reportId: string, sb: SupabaseClient = serviceClient()) {
+  try {
+    const { data } = await sb.from("form_coaching").select("id, round, tips").eq("report_id", reportId).is("outcome", null).order("round");
+    const rows = (data || []) as { id: string; round: number; tips: string[] }[];
+    if (!rows.length) return;
+    const last = rows[rows.length - 1];
+    const outcome = !rows[0].tips.length ? "first_time" : !last.tips.length ? "fixed" : "sent_anyway";
+    await sb.from("form_coaching").update({ outcome }).in("id", rows.map((x) => x.id));
+  } catch { /* the form is sent either way */ }
+}

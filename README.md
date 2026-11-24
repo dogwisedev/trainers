@@ -348,3 +348,9 @@ The 10-minute AI job did handover drafts, then form checks, and only then vaccin
 
 ### The weekly health check is checked, never filled in
 Speak doesn't fill in weekly health checks (no button on that form, and the server refuses it): the check is the trainer's own observation of the dog. The AI still checks every one against the weekly checklist, for the office only; trainers never see the check.
+
+### Teaching, not just checking (migration 066)
+- **Before a trainer sends a form**, Submit first takes a look (a few seconds, "Checking…"): the same checklist the office uses, the form as it is, and the dog's chat. If something's missing, up to three short tips written to the trainer ("You said yes to skin, but not where or since when"), with **Fix it** or **Send anyway**; a health worry adds "and tell the office in the chat". It never writes their answers. Slow or broken: the form just sends. Clean: "Looks good. Send it?".
+- **Handover drafts** stay, with a clearer note at the top: "We filled in what we could, but it isn't finished", and what only the trainer can add.
+- **The weekly health check** is never filled in by the app (no Speak there).
+- Every look is kept (`form_coaching`) with what happened: **right first time**, **fixed after a nudge**, or **sent anyway**. Pulse → AI and automation shows the counts under Form checks.

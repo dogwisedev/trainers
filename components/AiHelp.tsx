@@ -23,6 +23,12 @@ export async function AiHelp({ from, label }: { from: string; label: string }) {
     vaccineCheckStats(sb, since).catch(() => null)
   ]);
   const [rates, flags, msgs] = await Promise.all([aiRates(sb).catch(() => null), aiFlags(sb).catch(() => null), needsStats(sb, since).catch(() => null)]);
+  // Before-send nudges (migration 066): right first time, fixed after a nudge, or sent anyway
+  const coach = await sb.from("form_coaching").select("report_id, outcome, kind").gte("at", since).not("outcome", "is", null).limit(5000).then((r) => (r.error ? null : (r.data || []) as { report_id: string; outcome: string; kind: string }[]), () => null);
+  const sends = coach ? [...new Map(coach.map((c) => [c.report_id, c.outcome])).values()] : [];
+  const coachLine = coach === null ? "Run migration 066 in Supabase to count the before-send nudges." : sends.length
+    ? `Before sending: ${sends.length} form${sends.length === 1 ? "" : "s"}, ${sends.filter((o) => o === "first_time").length} right first time, ${sends.filter((o) => o === "fixed").length} fixed after a nudge, ${sends.filter((o) => o === "sent_anyway").length} sent anyway.`
+    : "Before sending: no forms sent through the nudges yet.";
   const pill = (f: Feature) => rates ? <RatePill rate={rates[f].rate} decided={rates[f].decided} what={rates[f].what} weeks={WEEKS} /> : null;
   const vChat = (voice || []).filter((x) => x.mode === "chat"), vForm = (voice || []).filter((x) => x.mode === "form");
   const used = (caps || []).filter((c) => c.used_at), asIs = used.filter((c) => (c.final || "").trim() === c.suggested.trim()).length;
@@ -51,7 +57,7 @@ export async function AiHelp({ from, label }: { from: string; label: string }) {
       <ul className="panel divide-y divide-line">
         {row("Form checks", "Each submitted form is checked against its checklist: \"fits the standard\" or what to look at. \"Approve clean ones\" lets weekly checks and intake forms with nothing to look at approve themselves; handover reports always come to a person.",
           <CheckModeSwitch mode={cfg.formCheck} />,
-          checks && checks.checked ? `${checks.checked} checked: ${checks.fits} fit, ${checks.toCheck} to look at${checks.auto ? `, ${checks.auto} approved by itself` : ""}. ${checks.agreedPct === null ? "No admin decisions yet." : `Admins agreed on ${checks.agreedPct}% (${checks.agreed} of ${checks.decided}); ${checks.fitsButSentBack} it passed were sent back or changed, ${checks.flaggedButFine} it flagged were approved as they were.`}` : "Nothing checked in this range yet.", "forms", rates ? <AutoSwitch feature="forms" on={cfg.formCheck === "auto"} canAuto={rates.forms.canAuto} need={rates.forms.need} /> : null)}
+          `${coachLine} ` + (checks && checks.checked ? `${checks.checked} checked: ${checks.fits} fit, ${checks.toCheck} to look at${checks.auto ? `, ${checks.auto} approved by itself` : ""}. ${checks.agreedPct === null ? "No admin decisions yet." : `Admins agreed on ${checks.agreedPct}% (${checks.agreed} of ${checks.decided}); ${checks.fitsButSentBack} it passed were sent back or changed, ${checks.flaggedButFine} it flagged were approved as they were.`}` : "Nothing checked in this range yet."), "forms", rates ? <AutoSwitch feature="forms" on={cfg.formCheck === "auto"} canAuto={rates.forms.canAuto} need={rates.forms.need} /> : null)}
         {row("Handover drafts", "The evening before a dog goes home, the app starts the handover report from the chat, the weekly checks and the owner's answers. The trainer checks it, changes anything and sends it.",
           <OnOff name="handoverDrafts" on={cfg.handoverDrafts} label="Handover drafts" />,
           drafts && (drafts.drafted || drafts.tooThin) ? `${drafts.drafted} started${drafts.tooThin ? `, ${drafts.tooThin} not (too few updates in the chat)` : ""}. ${drafts.sent ? `Of ${drafts.sent} sent in: ${drafts.keptPct}% of parts kept as drafted, ${drafts.editedPct}% edited, ${drafts.rewrittenPct}% rewritten.` : "None sent in yet."}` : "None started in this range yet.", "handover")}
