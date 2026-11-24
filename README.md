@@ -345,3 +345,6 @@ The app's vaccine check now reads the files clients upload on the HubSpot form t
 
 ### Vaccine checks: why so few ran, and the fix (Nov 24)
 The 10-minute AI job did handover drafts, then form checks, and only then vaccines, and only if under 12 seconds had been used: almost never. Of 33 dogs with records uploaded in the app, 2 had been read. Now the job takes turns: every other run vaccines go first (two dogs, up to 40 seconds), newest upload first. A record that can't be read is marked "needs a person" instead of being retried forever in front of the others. And it catches up: records a person decided on in the last 45 days are read too, and that person's decision is logged against the reading, so the approval rate reflects the work already done.
+
+### The weekly health check is checked, never filled in
+Speak doesn't fill in weekly health checks (no button on that form, and the server refuses it): the check is the trainer's own observation of the dog. The AI still checks every one against the weekly checklist, for the office only; trainers never see the check.

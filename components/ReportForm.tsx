@@ -285,7 +285,7 @@ export function ReportForm(p: Props) {
       <div className="sticky bottom-[calc(76px+env(safe-area-inset-bottom))] z-10 rounded-[20px] border border-line bg-white/95 p-2 backdrop-blur md:bottom-4">
         {editable && <p className="px-2 pb-1 text-caption text-ink-faint" aria-live="polite">{p.demo ? "Demo: nothing saves." : saved === "saving" ? "Saving…" : saved === "saved" ? "Saved" : saved === "error" ? "Couldn't save: check your signal" : "Your answers save as you go."}{missing.length > 0 ? ` ${missing.length} thing${missing.length > 1 ? "s" : ""} still needed.` : " Ready to send."}</p>}
         <div className="flex gap-2">
-          {editable && !p.demo && <VoiceButton mode="form" reportId={p.id} getAnswers={() => latest.current.answers} onResult={applyVoice} label="Speak" maxSeconds={170} />}
+          {editable && !p.demo && p.kind !== "weekly" && <VoiceButton mode="form" reportId={p.id} getAnswers={() => latest.current.answers} onResult={applyVoice} label="Speak" maxSeconds={170} />}
           {p.mode === "trainer" && editable && <button type="button" className="btn-ink flex-1" disabled={pending} onClick={submit}>{pending ? "Submitting…" : "Submit for review"}</button>}
           {p.mode === "admin" && editable && (
             <>

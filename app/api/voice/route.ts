@@ -65,6 +65,8 @@ export async function POST(req: Request) {
       const reportId = String(f.get("reportId") || "");
       const { data: r } = await sb.from("reports").select("id, kind, week_number, trainer_id, status, booking_id").eq("id", reportId).maybeSingle();
       if (!r || (v.role === "trainer" && r.trainer_id !== v.trainerId)) return fail("Form not found.", 404);
+      // The weekly health check is the trainer's own observation of the dog: the app checks it, it never writes it
+      if (r.kind === "weekly") return fail("The weekly health check is written by you: type what you saw this week.");
       const { data: b } = await sb.from("bookings").select("dog_name, client_name").eq("id", r.booking_id).maybeSingle();
       let answers: Answers = {};
       try { answers = JSON.parse(String(f.get("answers") || "{}")) as Answers; } catch { /* start from empty */ }
