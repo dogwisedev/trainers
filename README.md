@@ -336,3 +336,6 @@ Dogs → **Not booked** lists every deal that's Closed Won in HubSpot with no bo
 
 ## Pulse, tidied
 Office is now: the numbers; **Right now** (the six counts and To do waiting on the office, by owner); **Clients and bookings** (who hasn't heard from Dogwise, who's below the promised frequency, balances owed, bookings and cancellations in the range, incidents); and **How To do is being handled** at the bottom. Pickups and drop-offs (already on To do) and the two trainer lists (on the Trainers view) are gone from Office. The AI switches and counts, the Buzz brief switch and the QA daily switch moved to their own tab, **AI and automation**.
+
+## How the office works (a private page)
+**/a/pulse/people**: for each office person, a weekday-by-hour grid of their actions in the app (US Eastern), a typical day's first and last action, the share of clicks in quick runs, the share late at night, what they do most, their deal changes in HubSpot, and a day-by-day count; 7, 14, 30 or 60 days. Only the emails in `PEOPLE_INSIGHTS_EMAILS` (alma@ by default) can open it: everyone else gets "not found". There's no link in the menus; for those allowed, a faint dot sits after the "Snapshot of … Refresh" line at the top of Pulse. The hour-by-hour strip that was on Where the work goes moved here.

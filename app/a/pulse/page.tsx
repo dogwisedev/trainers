@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { requireRole } from "@/lib/data";
+import { canSeePeople } from "@/lib/work";
 import { canSeePulse } from "@/lib/preview";
 import { pulse, snapshotCached } from "@/lib/pulse";
 import { PulseView } from "@/components/PulseView";
@@ -14,7 +15,7 @@ export default async function PulsePage({ searchParams }: { searchParams: { r?: 
   try {
     const snap = await snapshotCached();                     // one 90-day pull in three parallel parts, kept for an hour (Refresh rebuilds it)
     const p = await pulse(searchParams, snap);               // every range and view is worked out from it: instant
-    return <PulseView p={p} q={searchParams} />;
+    return <PulseView p={p} q={searchParams} people={canSeePeople(v.email)} />;
   } catch (e) {
     // A preview: say what went wrong rather than a generic error screen
     return <div className="panel p-5"><h1 className="text-lead font-extrabold">Pulse couldn&apos;t load</h1><p className="mt-2 text-body text-heart">{(e as Error).message}</p><p className="mt-2 text-small text-ink-soft">Try again in a moment; if it keeps happening, send Alma this message.</p></div>;

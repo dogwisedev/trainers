@@ -301,7 +301,7 @@ function Sales({ s, q }: { s: SalesView; q: Q }) {
   );
 }
 
-export function PulseView({ p, q }: { p: Pulse; q: Q }) {
+export function PulseView({ p, q, people = false }: { p: Pulse; q: Q; people?: boolean }) {
   const active = q.from ? "custom" : (q.r || "14d");
   const tile = (k: string) => p.tiles.find((t) => t.key === k)!;
   const keys = p.view === "office" ? ["update", "team", "waiting", "todo", "care"] : p.view === "trainers" ? ["update", "reply", "forms", "waiting"] : [];
@@ -314,6 +314,7 @@ export function PulseView({ p, q }: { p: Pulse; q: Q }) {
           <p className="mt-1 flex flex-wrap items-center gap-2 text-caption text-ink-faint">
             <span>Snapshot of {p.stats.points.toLocaleString("en-US")} data points, taken {new Date(p.stats.at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/New_York" })} ET</span>
             <PulseRefresh />
+            {people && <Link prefetch={false} href="/a/pulse/people" aria-label="More" className="px-1 text-ink-faint/40 hover:text-ink-soft">·</Link>}
           </p>
         </div>
         <form className="flex flex-wrap items-center gap-2" method="get">

@@ -166,3 +166,53 @@ export async function workReport(from: string, to: string, sb: SupabaseClient = 
   const hubspot = group(hrows, (r) => r.property, (r) => r.by_user).map((x) => ({ property: x.what, n: x.n, people: x.people, last: hrows.filter((r) => r.property === x.what).reduce((a, r) => (r.at > a ? r.at : a), "") }));
   return { from, to, office, trainers, reasons: rs, hubspot, byItself, rhythm: rhythms(log), note: hs === null ? "Run migration 059 in Supabase for reasons and HubSpot changes." : "" };
 }
+
+// ── People: how each office person works, hour by hour and day by day (a private page: /a/pulse/people) ──
+export const canSeePeople = (email: string | null | undefined) =>
+  !!email && (process.env.PEOPLE_INSIGHTS_EMAILS || "alma@dogwiseacademy.com").split(",").map((x) => x.trim().toLowerCase()).filter(Boolean).includes(email.trim().toLowerCase());
+export type Person = {
+  who: string; total: number; days: number; burstPct: number; lateNightPct: number; busiest: number;
+  grid: number[][];                              // [weekday 0 = Mon … 6 = Sun][hour 0-23], Eastern
+  span: { first: string; last: string } | null;  // a typical day: median first and last action (Eastern, HH:MM)
+  top: { action: string; n: number }[];
+  hubspot: { n: number; top: string[] };         // deal properties they changed in HubSpot by hand, same range
+  daily: { day: string; n: number }[];
+};
+const personKey = (who: string | null) => { const m = (who || "").match(/\(([^@()]+)@[^)]+\)/) || (who || "").match(/^([^@\s]+)@/); const k = m ? m[1] : (who || "?").split(" (")[0]; return k.charAt(0).toUpperCase() + k.slice(1); };
+export async function peopleReport(from: string, to: string, sb: SupabaseClient = serviceClient()): Promise<Person[]> {
+  const f = `${from}T00:00:00Z`, t = `${to}T23:59:59Z`;
+  const rows: { who: string | null; role: string | null; action: string; at: string }[] = [];
+  for (let i = 0; i < 20; i++) {
+    const { data, error } = await sb.from("audit_log").select("who, role, action, at").eq("role", "admin").gte("at", f).lte("at", t).order("at").range(i * 1000, i * 1000 + 999);
+    if (error || !data?.length) break;
+    rows.push(...(data as typeof rows)); if (data.length < 1000) break;
+  }
+  const { data: hs } = await sb.from("hubspot_changes").select("property, by_user").gte("at", f).lte("at", t).limit(10000);
+  const by = new Map<string, { at: string; action: string }[]>();
+  for (const r of rows) { if (NOISE.test(r.action)) continue; const k = personKey(r.who); by.set(k, [...(by.get(k) || []), { at: r.at, action: r.action }]); }
+  const hhmm = (mins: number) => `${String(Math.floor(mins / 60)).padStart(2, "0")}:${String(Math.round(mins % 60)).padStart(2, "0")}`;
+  const minOfDay = (iso: string) => { const [h, m] = new Date(iso).toLocaleTimeString("en-GB", { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit" }).split(":").map(Number); return h * 60 + m; };
+  const med = (xs: number[]) => { const s = [...xs].sort((a, b) => a - b); return s[Math.floor(s.length / 2)]; };
+  const out: Person[] = [];
+  for (const [who, list] of by) {
+    const grid = Array.from({ length: 7 }, () => new Array(24).fill(0)), hours = new Array(24).fill(0);
+    const perDay = new Map<string, number[]>(), acts = new Map<string, number>();
+    let bursts = 0;
+    list.forEach((x, i) => {
+      const h = etHour(x.at), d = etDay(x.at), wd = (new Date(`${d}T12:00:00Z`).getUTCDay() + 6) % 7;
+      grid[wd][h]++; hours[h]++;
+      perDay.set(d, [...(perDay.get(d) || []), minOfDay(x.at)]);
+      acts.set(x.action, (acts.get(x.action) || 0) + 1);
+      if (i && Date.parse(x.at) - Date.parse(list[i - 1].at) <= 10000) bursts++;
+    });
+    const late = hours.slice(20).reduce((a, b) => a + b, 0) + hours.slice(0, 6).reduce((a, b) => a + b, 0);
+    const mine = ((hs || []) as { property: string; by_user: string | null }[]).filter((x) => (x.by_user || "").toLowerCase().includes(who.toLowerCase()));
+    const props = new Map<string, number>(); for (const x of mine) props.set(x.property, (props.get(x.property) || 0) + 1);
+    out.push({ who, total: list.length, days: perDay.size, burstPct: Math.round((bursts / list.length) * 100), lateNightPct: Math.round((late / list.length) * 100), busiest: hours.indexOf(Math.max(...hours)), grid,
+      span: perDay.size ? { first: hhmm(med([...perDay.values()].map((v) => Math.min(...v)))), last: hhmm(med([...perDay.values()].map((v) => Math.max(...v)))) } : null,
+      top: [...acts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([action, n]) => ({ action, n })),
+      hubspot: { n: mine.length, top: [...props.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4).map(([p, n]) => `${p.replace(/_/g, " ")} ${n}`) },
+      daily: [...perDay.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([day, v]) => ({ day, n: v.length })) });
+  }
+  return out.sort((a, b) => b.total - a.total);
+}
