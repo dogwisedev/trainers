@@ -323,3 +323,10 @@ The app's reminders text a trainer at most once every 12 hours, and the text nev
 
 ### The agreement, at the end of the before-training details (migration 064)
 The name no longer sits under "Vet and emergencies". It's the last part, **Your agreement**: a link to the exact Terms & Conditions pasted on /a/terms (public at **/terms**), a tick box ("I have read and agree to the Dogwise Academy Terms & Conditions") and their full name. Both are needed: the server refuses a client's signature without the tick. Same in the app and on the personal link. The checklist has "Agree to the Terms & Conditions" as its own item. The record keeps the tick and a SHA-256 fingerprint of the exact terms text, and the PDF is a formal **Record of acceptance** (logo, record number, the details as a table, the typed signature, date, page footers), then the full terms and the information section: what a payment provider asks for in a dispute.
+
+## Follow-up only (dogs not in the app)
+A dog whose program finished before the app (or was never booked in it) can still have its follow-ups in the app (migration 065):
+- **Trainer:** Reports tab, then **Follow-up sessions**. If the dog isn't in the list: **Ask the office to add a dog** (dog and client name). It goes on To do and pushes the office.
+- **Office:** the To do item opens Book a dog with **Follow-up only** ticked and the trainer picked: add the HubSpot deal and the program's real (past) dates, then Book.
+- The trainer is notified and can book, log and be paid for its follow-up sessions (session pay and miles, as usual). A chat is made but the client isn't invited: use the Invite box on the chat to bring them in.
+- Left out: lane and kennel checks, forms, training videos, program pay, the "New booking" email, Pulse, trainer ratings, and both HubSpot syncs (dates and progress), so nothing in HubSpot changes except the follow-up fields when sessions are logged.

@@ -10,6 +10,7 @@ import { raiseIncident, resolveIncidents } from "./incidents";
 import { SyncMode, dealDateProps, hsDate, hubspotConfigured, readDeals, stageLabel, syncMode } from "./hubspot";
 import { PlanIn, planDeal } from "./hubspotDates";
 import { auditSystem } from "./audit";
+import { followupOnlyIds } from "./followupOnly";
 
 // HubSpot is the source of truth for booking dates. Runs on a Vercel cron (vercel.json) and right after a booking is made.
 //  dry   : reads HubSpot, writes nothing, returns what it would change (the default until HUBSPOT_SYNC is set)
@@ -47,7 +48,8 @@ export async function syncHubspotDates(opts: { mode?: SyncMode; dealIds?: string
   const holdOn = !error;
   if (error) ({ data, error } = await query(COLS));
   if (error) { out.errors.push(error.message); return out; }
-  const rows = (data || []) as unknown as Row[];
+  const followupOnly = await followupOnlyIds(sb); // finished before the app: their dates and status are left alone
+  const rows = ((data || []) as unknown as Row[]).filter((r) => !followupOnly.has(r.id));
   const byDeal = new Map<string, Row[]>();
   for (const r of rows) byDeal.set(r.hubspot_deal_id, [...(byDeal.get(r.hubspot_deal_id) || []), r]);
   out.deals = byDeal.size; out.bookings = rows.length;

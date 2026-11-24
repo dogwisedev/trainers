@@ -55,7 +55,8 @@ export async function syncProgramStatus(sb: SupabaseClient = serviceClient(), no
   if (only?.length) bq = bq.in("hubspot_deal_id", only);
   const { data: bks, error } = await bq.limit(400);
   if (error) { out.errors.push(error.message); return out; }
-  const bookings = ((bks || []) as B[]).filter((b) => /^\d+$/.test(b.hubspot_deal_id));
+  // Follow-up-only dogs (migration 065) finished before the app: their HubSpot progress is left as it is
+  const bookings = ((bks || []) as (B & { followup_only?: boolean })[]).filter((b) => /^\d+$/.test(b.hubspot_deal_id) && !b.followup_only);
   if (!bookings.length) return out;
   const ids = bookings.map((b) => b.id), dealIds = [...new Set(bookings.map((b) => b.hubspot_deal_id))];
   const [{ data: reps }, { data: incs }, { data: chats }, { data: trs }, current, defs] = await Promise.all([

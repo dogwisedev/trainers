@@ -5,6 +5,7 @@ import { getViewer } from "@/lib/data";
 import { isDemo, serverClient, serviceClient } from "@/lib/supabase";
 import { SESSIONS, bookingForChat, clearFollowupTodos, followupState, writeSessionDate } from "@/lib/followups";
 import { dayET } from "@/lib/pulseMath";
+import { pushToAdmins } from "@/lib/push";
 
 type R = { ok: boolean; message: string };
 const DEMO: R = { ok: false, message: "Demo mode: nothing is saved." };
@@ -98,4 +99,21 @@ export async function cancelFollowupAction(followupId: string): Promise<R> {
   revalidatePath(`/t/followups/${f.booking_id}`);
   return { ok: true, message: `Session ${f.n} cancelled. The client has been told.` };
 });
+}
+
+/** Trainer: a dog from before the app isn't in their follow-up list. Asks the office to add it ("Follow-up only" booking). */
+export async function requestFollowupSetupAction(dog: string, client: string, note: string): Promise<R> {
+  return audited("requestFollowupSetupAction", { dog, client, note }, async () => {
+    if (isDemo()) return DEMO;
+    const v = await getViewer();
+    if (!v || v.role !== "trainer" || !v.trainerId) return { ok: false, message: "Trainers only." };
+    const d = dog.replace(/\s+/g, " ").trim().slice(0, 60), c = client.replace(/\s+/g, " ").trim().slice(0, 80), n = note.replace(/\s+/g, " ").trim().slice(0, 300);
+    if (d.length < 2 || c.length < 2) return { ok: false, message: "Type the dog's name and the client's name." };
+    const slug = (x: string) => x.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    const { error } = await serviceClient().from("chat_incidents").insert({ kind: "followup_setup", ref: `fsetup:${v.trainerId}:${slug(d)}-${slug(c)}`, opened_at: new Date().toISOString(),
+      detail: `${v.name} wants to log follow-ups for ${d} (${c}), whose program isn't in the app.${n ? ` “${n}”` : ""}` });
+    if (error && error.code !== "23505") return { ok: false, message: /followup_setup|check constraint/i.test(error.message) ? "This needs an update the office hasn't run yet. Tell them, and log it on Slack for now." : error.message };
+    if (!error) await pushToAdmins({ title: "Add a dog for follow-ups", body: `${v.name}: ${d} (${c}), not in the app`, url: "/a", tag: "followup-setup" }).catch(() => 0);
+    return { ok: true, message: `Sent to the office. Once they've added ${d}, it shows up in your list here (you'll get a notification).` };
+  });
 }

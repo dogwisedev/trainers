@@ -134,6 +134,12 @@ async function buildTodoUncached(): Promise<TodoData> {
         break;
       }
       case "client_urgent": add({ group: "now", tone: "heart", text: `${client}: a message about ${dog} needs a person now`, detail: (i.detail || "").replace(/^[^:]*: /, ""), primary: chat ? { ...chat, label: "Reply" } : undefined, clear: "handled" }); break;
+      case "followup_setup": {
+        const tid = (i.ref || "").split(":")[1] || "";
+        add({ group: "now", tone: "biscuit", text: "Add a dog for follow-ups (not in the app)", detail: i.detail || undefined,
+          primary: { label: "Add as follow-up only", href: `/a/bookings/new?followup=1&for=${i.id}${/^[0-9a-f-]{36}$/i.test(tid) ? `&trainer=${tid}` : ""}` } });
+        break;
+      }
       case "trainer_silent": {
         // From the reminder ladder: 2 days with no post, after 2 reminders. (Before it: a flag every evening with no post.)
         const fromLadder = (i.ref || "").startsWith("nudge:");

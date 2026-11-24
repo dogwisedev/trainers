@@ -1,4 +1,5 @@
 import "server-only";
+import { followupOnlyIds } from "./followupOnly";
 import { unstable_cache } from "next/cache";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { serviceClient, isDemo } from "./supabase";
@@ -91,7 +92,7 @@ type AppPart = Omit<Snapshot, "hs" | "failed">;
 /** The app's own tables for the window (every read paged). */
 export async function buildAppPart(sb: SupabaseClient = serviceClient()): Promise<AppPart> {
   const t0 = Date.now(), today = todayIso(), from90 = addDays(today, -(SPAN - 1)), from = addDays(from90, -SPAN), notes: string[] = [];
-  const [bks, trs, chats, msgs, incs, reps, offs, dm, acts] = await Promise.all([
+  const [bksAll, trs, chats, msgs, incs, reps, offs, dm, acts] = await Promise.all([
     all<{ id: string; trainer_id: string; hubspot_deal_id: string | null; dog_name: string | null; client_name: string; start_date: string; end_date: string; status: string; created_at: string; cancelled_at: string | null; cancel_reason: string | null; cancel_note: string | null }>((a, b) =>
       sb.from("bookings").select("id, trainer_id, hubspot_deal_id, dog_name, client_name, start_date, end_date, status, created_at, cancelled_at, cancel_reason, cancel_note").lte("start_date", addDays(today, 14)).gte("end_date", from).order("start_date").range(a, b)),
     all<{ id: string; name: string; capacity: number | null; active: boolean; state: string | null }>((a, b) => sb.from("trainers").select("id, name, capacity, active, state").order("name").range(a, b)),
@@ -103,6 +104,9 @@ export async function buildAppPart(sb: SupabaseClient = serviceClient()): Promis
     all<{ amount: number; closed_on: string; owner_id: string | null }>((a, b) => sb.from("deal_money").select("amount, closed_on, owner_id").gte("closed_on", from).order("closed_on").range(a, b)),
     all<{ who: string | null; action: string; detail: string | null; at: string }>((a, b) => sb.from("audit_log").select("who, action, detail, at").in("action", ["Marked a to-do Done", "Approved a form", "Sent a form back", "Took a to-do"]).gte("at", `${from}T00:00:00Z`).order("at").range(a, b)).catch(() => [])
   ]);
+  // Follow-up-only dogs (migration 065) aren't graded or counted as new bookings: their program was before the app
+  const followupOnly = await followupOnlyIds(sb);
+  const bks = bksAll.filter((b) => !followupOnly.has(b.id));
   const reads = await all<{ chat_id: string; user_id: string }>((a, b) => sb.from("chat_reads").select("chat_id, user_id").order("chat_id").range(a, b));
   // Reminders the app sent (none before migration 049: then chasing is graded on alerts, as before)
   const nudgeRows = (await all<{ trainer_id: string | null; sent_at: string; step: number | null; kind: string; outcome: string | null }>((a, b) => sb.from("nudges").select("trainer_id, sent_at, step, kind, outcome").not("step", "is", null).gte("sent_at", `${from}T00:00:00Z`).order("sent_at").range(a, b)).catch(() => []))

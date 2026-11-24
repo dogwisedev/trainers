@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ChevronRight, Route } from "lucide-react";
 import { requireRole } from "@/lib/data";
 import { listMyReports, listTodos } from "@/lib/reportData";
 import { Empty, Pill, Section } from "@/components/ui";
@@ -14,6 +15,11 @@ export default async function MyReports() {
     <>
       <h1 className="text-h1 font-extrabold">Reports</h1>
       <p className="mb-2 mt-1 text-ink-soft">Three forms for each dog: an intake form on pickup day, a weekly health check (Thursday to Wednesday), and a handover report when the program ends.</p>
+      <Link prefetch={false} href="/t/followup" className="panel mb-4 flex min-h-[60px] items-center gap-3 px-4 py-3 hover:bg-mint-wash">
+        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-mint-wash text-fern"><Route size={19} /></span>
+        <span className="min-w-0 flex-1"><span className="block font-bold">Follow-up sessions</span><span className="block text-small text-ink-soft">Log a session and its miles, for any of your dogs, including ones from before the app.</span></span>
+        <ChevronRight size={18} className="shrink-0 text-ink-faint" aria-hidden />
+      </Link>
       <Section tour="forms" title="To do">
         {open.length ? <ul className="panel divide-y divide-line">{open.map((t) => <TodoRow key={`${t.booking.id}${t.window.kind}${t.window.week}`} t={t} mode="trainer" />)}</ul>
           : <Empty title="All caught up.">New reports show up here when a dog is with you.</Empty>}

@@ -4,6 +4,7 @@ import { requireRole } from "@/lib/data";
 import { isDemo, serviceClient } from "@/lib/supabase";
 import { addDays, short, todayIso } from "@/lib/dates";
 import { FollowupForm } from "@/components/FollowupForm";
+import { FollowupSetupRequest } from "@/components/FollowupSetupRequest";
 
 // Trainer: log a follow-up session. The miles go on the next payslip; the notes show on the dog's page for the team.
 export default async function Followup({ searchParams }: { searchParams: { b?: string } }) {
@@ -22,6 +23,7 @@ export default async function Followup({ searchParams }: { searchParams: { b?: s
       </div>
       <p className="mb-4 text-ink-soft">Log each follow-up session: the miles are added to your next payslip, and the team can see what you worked on.</p>
       <FollowupForm dogs={dogs} dog={searchParams.b} today={today} />
+      <FollowupSetupRequest />
     </>
   );
 }

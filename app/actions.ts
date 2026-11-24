@@ -330,6 +330,21 @@ export async function saveBooking(_: Result | null, f: FormData): Promise<Result
     rehab: f.get("rehab") === "on" || /rehab|\bRR\b/i.test(str(f, "program") || "")
   }));
 
+  // Follow-up only (migration 065): a program that finished before the app, added for its follow-up sessions. No lane or
+  // kennel checks, forms, videos, program pay or "New booking" email; the trainer can book and log follow-ups straight away.
+  if (f.get("followup_only") === "on") {
+    if (rows[0].end_date >= todayIso()) return { ok: false, message: `Follow-up only is for programs that have finished, and this one runs to ${short(rows[0].end_date)}. Untick it to book it as a normal program.` };
+    const { data: fo, error: foErr } = await sb.from("bookings").insert(rows.map((r) => ({ ...r, followup_only: true, reports_enabled: false, training_paused: true }))).select("id, trainer_id, client_name, client_email, dog_name, hubspot_deal_id, start_date, end_date");
+    if (foErr || !fo?.length) return { ok: false, message: foErr && /followup_only|schema cache/i.test(foErr.message) ? "Run migration 065 in Supabase first." : foErr?.message || "Couldn't save the booking." };
+    await ensureChatsForBookings(fo as Parameters<typeof ensureChatsForBookings>[0], { invite: false }).catch(() => []);
+    await pushToTrainer(trainerId, { title: "Follow-ups set up", body: `${dogs.join(" & ")} (${client}): you can book and log follow-up sessions in the app now.`, url: "/t/followup", tag: "followup-setup" }).catch(() => 0);
+    const forId = str(f, "for");
+    if (forId) await serviceClient().from("chat_incidents").update({ status: "resolved", resolved_at: new Date().toISOString(), resolved_by: v.name, resolved_note: "Added as follow-up only" }).eq("id", forId).eq("kind", "followup_setup").neq("status", "resolved");
+    await clearUnbooked(dealId);
+    revalidatePath("/", "layout");
+    redirect(`/a/trainers/${trainerId}?saved=booking`);
+  }
+
   // Assign or Ask (OPS 08): probation or out of range need Pedro's OK; a bonus dog, short notice or Watch need "they said yes"
   // The button pressed wins over the hidden field: "Pedro said yes: book" / "They said yes: book" (components/forms.tsx)
   const laneOk = str(f, "lane_ok_now") || str(f, "lane_ok");

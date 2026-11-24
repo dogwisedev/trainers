@@ -1,4 +1,5 @@
 import "server-only";
+import { followupOnlyIds } from "./followupOnly";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import seed from "./demo-seed.json";
 import { isDemo, serverClient, serviceClient } from "./supabase";
@@ -84,6 +85,7 @@ export async function buildDrafts(sb: SupabaseClient, submitDate: string, onlyTr
   const fupDeals = (fupRows || []) as { deal_id: string; followups: string[] }[];
   const { data: fupBookings } = fupDeals.length ? await sb.from("bookings").select("*").in("hubspot_deal_id", fupDeals.map((d) => d.deal_id)).neq("status", "cancelled").order("start_date") : { data: [] };
   const trips = ((tripRows || []) as unknown as (TripLike & { bookings: { client_name: string; dog_name: string | null } | null })[]).map((t) => ({ ...t, client: t.bookings?.client_name || "", dog: t.bookings?.dog_name || "" }));
+  const followupOnly = await followupOnlyIds(svc); // no program pay for these: only their sessions and miles
   const rateOf = (id: string) => { const x = (rateRows || []).find((q) => q.trainer_id === id); return x ? { ...EMPTY_RATES, ...x, report_deduction: Number(x.report_deduction ?? 100) } as Rates : EMPTY_RATES; };
   let built = 0, skipped = 0, missingRates = 0, unchanged = 0;
   const changedNames: string[] = [];
@@ -105,7 +107,7 @@ export async function buildDrafts(sb: SupabaseClient, submitDate: string, onlyTr
     const release = tr.probation === "approved" && tr.probation_release_run === r.submit_date && Number(tr.probation_release_amount) > 0
       ? [{ kind: "other", booking_id: null, client: "", dog: "", program: "Probation approved: held 25% paid", amount: Number(tr.probation_release_amount), days: null, weeks_completed: null, week_from: null, missingRate: false }] : [];
     const generated = [
-      ...applyProbation(draftLines(((bookings || []) as BookingLike[]).filter((b) => b.trainer_id === t.id && !handEdited.has(b.id)), rateOf(t.id), r.weeks), tr.probation === "on" || tr.probation === "declined"),
+      ...applyProbation(draftLines(((bookings || []) as BookingLike[]).filter((b) => b.trainer_id === t.id && !handEdited.has(b.id) && !followupOnly.has(b.id)), rateOf(t.id), r.weeks), tr.probation === "on" || tr.probation === "declined"),
       ...fups, ...release,
       ...routeLines(trips.filter((x) => x.trainer_id === t.id), rateOf(t.id), r.weeks[0], addDays(lastDay, 1))
     ];
@@ -215,7 +217,8 @@ export async function getPayslip(id: string) {
     sb.from("bookings").select("id, trainer_id, client_name, dog_name, start_date, end_date, weeks, extra_days, rehab, status").eq("trainer_id", slip.trainer_id).neq("status", "cancelled").lte("start_date", addDays(r.period_start, 13)).gte("end_date", addDays(r.period_start, -21)),
     getRates(slip.trainer_id)
   ]);
-  return { slip: slip as Slip, run: r, lines: (lines || []) as Line[], trainer: trainer as Trainer | null, rates, bookings: (bookings || []) as BookingLike[] };
+  const followupOnly = await followupOnlyIds(sb);
+  return { slip: slip as Slip, run: r, lines: (lines || []) as Line[], trainer: trainer as Trainer | null, rates, bookings: ((bookings || []) as BookingLike[]).filter((b) => !followupOnly.has(b.id)) };
 }
 
 export function toSlipData(slip: Slip, run: Run, lines: SlipLine[], trainer?: Trainer | null): SlipData {

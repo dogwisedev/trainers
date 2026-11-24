@@ -178,7 +178,8 @@ export function TrainerForm({ t, admin }: { t: Partial<Trainer>; admin: boolean 
 
 export type TrainerOption = { id: string; name: string; place: string; free: number; opening3: string | null };
 /** Book a dog. Starts from the HubSpot deal (required): paste its link and the client, email, dogs and dates fill in. */
-export function BookingForm({ trainers, defaultTrainer, defaultStart, defaultDeal, defaultLaneOk }: { trainers: TrainerOption[]; defaultTrainer?: string; defaultStart?: string; defaultDeal?: string; defaultLaneOk?: string }) {
+export function BookingForm({ trainers, defaultTrainer, defaultStart, defaultDeal, defaultLaneOk, defaultFollowupOnly, forIncident }: { trainers: TrainerOption[]; defaultTrainer?: string; defaultStart?: string; defaultDeal?: string; defaultLaneOk?: string; defaultFollowupOnly?: boolean; forIncident?: string }) {
+  const [followupOnly, setFollowupOnly] = useState(!!defaultFollowupOnly);
   const [r, act] = useFormState(saveBooking, null);
   const [tid, setTid] = useState(defaultTrainer || "");
   const [laneOk, setLaneOk] = useState<"" | "offer" | "pedro">(defaultLaneOk === "offer" || defaultLaneOk === "pedro" ? defaultLaneOk : "");
@@ -283,7 +284,12 @@ export function BookingForm({ trainers, defaultTrainer, defaultStart, defaultDea
         <select name="status" defaultValue="confirmed" className="field"><option value="pending">Pending</option><option value="confirmed">Confirmed</option><option value="in_training">In training</option></select>
       </F>
       <F label="Notes for the trainer"><textarea name="notes" rows={3} className="field" placeholder="Pickup Sunday 10am. Reactive to small dogs." /></F>
-      <label className="flex min-h-[48px] items-center gap-3 rounded-xl border border-line bg-white px-3.5 text-small text-ink-soft"><input type="checkbox" name="force" className="h-5 w-5 accent-[#281870]" />Book anyway, even if the trainer has no free kennel</label>
+      <label className="flex min-h-[48px] items-start gap-3 rounded-xl border border-line bg-white px-3.5 py-3 text-small">
+        <input type="checkbox" name="followup_only" checked={followupOnly} onChange={(e) => setFollowupOnly(e.target.checked)} className="mt-0.5 h-5 w-5 shrink-0 accent-[#281870]" />
+        <span><b>Follow-up only</b> <span className="text-ink-soft">(the program finished before the app, or was never booked in it). The trainer can book, log and be paid for its follow-up sessions. No forms, videos, program pay or &ldquo;New booking&rdquo; email. Use the program&apos;s real dates.</span></span>
+      </label>
+      {forIncident && <input type="hidden" name="for" value={forIncident} />}
+      {!followupOnly && <label className="flex min-h-[48px] items-center gap-3 rounded-xl border border-line bg-white px-3.5 text-small text-ink-soft"><input type="checkbox" name="force" className="h-5 w-5 accent-[#281870]" />Book anyway, even if the trainer has no free kennel</label>}
       <BookSubmit disabled={!dealNo || notWon || (!!deal && deal.dogs.length > 0 && !picked.length)} />
       {!dealNo && <p className="text-caption text-ink-faint">Add the HubSpot deal to save.</p>}
       <Note r={r} />

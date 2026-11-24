@@ -2,6 +2,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { serviceClient } from "./supabase";
 import { addDays, todayIso } from "./dates";
+import { followupOnlyIds } from "./followupOnly";
 
 // Trainer ratings, the Tower's rule (Sean, tower.py STEP 4): over the last 7 days, a miss is a day in care with no photo or
 // video from the trainer, or a client waiting over 3 waking hours for a reply (the app's first reminder fires at 3 waking
@@ -15,7 +16,8 @@ export async function trainerRatings(days = 7, sb: SupabaseClient = serviceClien
   const to = todayIso(), from = addDays(to, -days); // the last `days` full days, not today
   const fromIso = `${from}T05:00:00Z`, toIso = `${to}T05:00:00Z`;
   const { data: bks } = await sb.from("bookings").select("id, hubspot_deal_id, trainer_id, start_date, end_date, dog_name, trainers(name)").neq("status", "cancelled").lt("start_date", to).gt("end_date", from).not("trainer_id", "is", null);
-  const bookings = (bks || []) as unknown as { id: string; hubspot_deal_id: string | null; trainer_id: string; start_date: string; end_date: string; dog_name: string | null; trainers: { name: string } | null }[];
+  const fo = await followupOnlyIds(sb); // follow-up-only dogs were never in care in the app
+  const bookings = ((bks || []) as unknown as { id: string; hubspot_deal_id: string | null; trainer_id: string; start_date: string; end_date: string; dog_name: string | null; trainers: { name: string } | null }[]).filter((b) => !fo.has(b.id));
   if (!bookings.length) return [];
   const { data: chats } = await sb.from("chats").select("id, deal_key, trainer_id, quiet_at").in("deal_key", [...new Set(bookings.map((b) => b.hubspot_deal_id || b.id))]);
   const chatOf = new Map(((chats || []) as { id: string; deal_key: string; quiet_at: string | null }[]).map((c) => [c.deal_key, c]));
