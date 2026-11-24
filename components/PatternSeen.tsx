@@ -13,7 +13,7 @@ export function PatternSeen({ chatId }: { chatId: string }) {
   return (
     <span className="inline-flex flex-col items-start">
       <button type="button" disabled={pending} onClick={() => setOpen((o) => !o)} className="btn-ghost h-9 min-h-0 px-3 text-small"><Check size={15} />{pending ? "…" : "Looked into it"}</button>
-      {open && !pending && <WhyPick reasons={WHY} value="" onPick={(r) => start(async () => { await patternSeenAction(chatId, r); router.refresh(); })} label="What happened?" />}
+      {open && !pending && <WhyPick reasons={WHY} value="" onPick={(r) => start(async () => { try { await patternSeenAction(chatId, r); } catch { /* the refresh shows it */ } router.refresh(); })} label="What happened?" />}
     </span>
   );
 }

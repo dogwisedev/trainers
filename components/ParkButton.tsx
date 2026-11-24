@@ -9,13 +9,13 @@ const WHEN: [ParkWhen, string][] = [["4h", "In 4 hours"], ["tomorrow", "Tomorrow
 
 /** "I've done my bit, check back in…": says what was done, then when it should come back. Two taps. The third park is the
  *  last; after it the button becomes "Pass to Pedro". */
-export function ParkButton({ keys, parks, options, trainerId, what }: { keys: string[]; parks: number; options: string[]; trainerId?: string; what: string }) {
+export function ParkButton({ keys, parks, options, trainerId, what, label }: { keys: string[]; parks: number; options: string[]; trainerId?: string; what: string; label?: string }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [open, setOpen] = useState(false), [did, setDid] = useState(""), [msg, setMsg] = useState("");
   if (parks >= 3) return (
     <span className="inline-flex flex-col items-start">
-      <button type="button" disabled={pending} onClick={() => { if (window.confirm("Pass this to Pedro? It's had its three parks, so it's his to decide now.")) start(async () => { const r = await passAction(keys, what); setMsg(r.ok ? "" : r.message); router.refresh(); }); }}
+      <button type="button" disabled={pending} onClick={() => { if (window.confirm("Pass this to Pedro? It's had its three parks, so it's his to decide now.")) start(async () => { try { const r = await passAction(keys, what); setMsg(r.ok ? "" : r.message); } catch { /* the refresh shows it */ } router.refresh(); }); }}
         className="btn-ghost h-10 min-h-0 px-3.5 text-small"><ArrowUpRight size={15} />{pending ? "Passing…" : "Pass to Pedro"}</button>
       {msg && <span className="mt-1 text-caption text-heart">{msg}</span>}
     </span>
@@ -23,14 +23,14 @@ export function ParkButton({ keys, parks, options, trainerId, what }: { keys: st
   const last = parks === 2;
   return (
     <span className="inline-flex flex-col items-start">
-      <button type="button" disabled={pending} aria-expanded={open} onClick={() => { setOpen((o) => !o); setMsg(""); }} className={`h-10 min-h-0 px-3.5 text-small ${last ? "btn-ghost border-biscuit text-warn" : "btn-ghost"}`}><Clock3 size={15} />{pending ? "Parking…" : last ? "Final park" : "Park"}</button>
+      <button type="button" disabled={pending} aria-expanded={open} onClick={() => { setOpen((o) => !o); setMsg(""); }} className={`h-10 min-h-0 px-3.5 text-small ${last ? "btn-ghost border-biscuit text-warn" : "btn-ghost"}`}><Clock3 size={15} />{pending ? "Parking…" : last ? "Final park" : label || "Park"}</button>
       {open && !pending && (
         <span className="mt-2 block w-full max-w-md rounded-2xl border border-line bg-paper/70 p-3">
           {last && <span className="mb-2 block text-small font-semibold text-warn">This is the last park: after it, it&apos;s dealt with or goes to Pedro.</span>}
           <span className="mb-1 block text-caption font-semibold text-ink-soft">1. What did you do?</span>
           <span className="flex flex-wrap gap-1.5">{options.map((o) => <button key={o} type="button" aria-pressed={did === o} onClick={() => setDid(o)} className={chip(did === o)}>{o}</button>)}</span>
           <span className={`mb-1 mt-3 block text-caption font-semibold ${did ? "text-ink-soft" : "text-ink-faint"}`}>2. Check back</span>
-          <span className="flex flex-wrap gap-1.5">{WHEN.map(([k, l]) => <button key={k} type="button" disabled={!did} onClick={() => start(async () => { const r = await parkAction(keys, did, k, trainerId); setMsg(r.ok ? "" : r.message); if (r.ok) { setOpen(false); router.refresh(); } })} className={`${chip(false)} disabled:opacity-40`}>{l}</button>)}</span>
+          <span className="flex flex-wrap gap-1.5">{WHEN.map(([k, l]) => <button key={k} type="button" disabled={!did} onClick={() => start(async () => { try { const r = await parkAction(keys, did, k, trainerId); setMsg(r.ok ? "" : r.message); if (r.ok) setOpen(false); } catch { setOpen(false); } router.refresh(); })} className={`${chip(false)} disabled:opacity-40`}>{l}</button>)}</span>
           <span className="mt-2 block text-caption text-ink-faint">It moves to Waiting and comes back by itself. If it sorts itself first, it just disappears.</span>
         </span>
       )}
@@ -42,5 +42,5 @@ export function ParkButton({ keys, parks, options, trainerId, what }: { keys: st
 export function UnparkButton({ itemKey }: { itemKey: string }) {
   const router = useRouter();
   const [pending, start] = useTransition();
-  return <button type="button" disabled={pending} onClick={() => start(async () => { await unparkAction(itemKey); router.refresh(); })} className="inline-flex min-h-[36px] items-center gap-1 text-small font-semibold text-ink-soft underline"><Undo2 size={14} />{pending ? "…" : "Bring back now"}</button>;
+  return <button type="button" disabled={pending} onClick={() => start(async () => { try { await unparkAction(itemKey); } catch { /* the refresh shows it */ } router.refresh(); })} className="inline-flex min-h-[36px] items-center gap-1 text-small font-semibold text-ink-soft underline"><Undo2 size={14} />{pending ? "…" : "Bring back now"}</button>;
 }

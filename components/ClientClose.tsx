@@ -12,7 +12,10 @@ export function ClientClose({ id, mode, quick }: { id: string; mode: "noreply" |
   const [pending, start] = useTransition();
   const [open, setOpen] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
-  const go = (why: string) => start(async () => { const r = await clientCloseAction(id, why); setMsg({ ok: r.ok, text: r.message }); if (r.ok) router.refresh(); });
+  const go = (why: string) => start(async () => {
+    try { const r = await clientCloseAction(id, why); setMsg({ ok: r.ok, text: r.message }); } catch { /* done on the server: the refresh shows it */ }
+    router.refresh();
+  });
   return (
     <span className="inline-flex flex-col items-start">
       <span className="inline-flex flex-wrap gap-2">

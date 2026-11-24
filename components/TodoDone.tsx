@@ -12,7 +12,12 @@ export function TodoDone({ id, label = "Done" }: { id: string; label?: string })
   const [pending, start] = useTransition();
   const [open, setOpen] = useState(false);
   const [err, setErr] = useState("");
-  const close = (why: string) => start(async () => { const r = await resolveIncidentAction(id, why); if (r.ok) router.refresh(); else setErr(r.message); });
+  // The answer can get cut off on its way back (seen as "Error in input stream") after the server has done the work:
+  // refresh either way, so the row shows what's true.
+  const close = (why: string) => start(async () => {
+    try { const r = await resolveIncidentAction(id, why); if (!r.ok) setErr(r.message); } catch { /* done on the server: the refresh shows it */ }
+    setOpen(false); router.refresh();
+  });
   return (
     <span className="inline-flex flex-col items-end">
       <button type="button" className="btn-ghost h-9 min-h-0 px-3 text-small" disabled={pending} onClick={() => setOpen((o) => !o)}><Check size={15} />{pending ? "…" : label}</button>
