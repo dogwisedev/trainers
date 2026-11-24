@@ -4,6 +4,7 @@ import { listTrainers, requireRole } from "@/lib/data";
 import { TABS, Tab } from "@/lib/history";
 import { Empty } from "@/components/ui";
 import { StandbyList } from "@/components/StandbyList";
+import { NotBookedList } from "@/components/NotBookedList";
 import { DogFilters } from "@/components/DogFilters";
 import { FILTER_KEYS, parseFilter } from "@/lib/dogFilters";
 import { DogRows } from "@/components/DogRows";
@@ -20,7 +21,8 @@ const STATE_CODES = ["AL","AK","AZ","AR","CA","CO","CT","DE","DC","FL","GA","HI"
 export default async function Dogs({ searchParams }: { searchParams: Record<string, string | undefined> }) {
   await requireRole("admin");
   const today = todayIso();
-  const standby = searchParams.f === "standby";
+  const notBooked = searchParams.f === "notbooked";
+  const standby = searchParams.f === "standby" || notBooked; // both are lists of deals, not bookings: no filters or export
   const tab = (TABS.some((x) => x.key === searchParams.f) ? searchParams.f : "now") as Tab;
   const q = (searchParams.q || "").trim(), t = searchParams.t || "", poc = (searchParams.p || "").trim();
   const f = parseFilter(searchParams, today);
@@ -34,7 +36,7 @@ export default async function Dogs({ searchParams }: { searchParams: Record<stri
   const pocs = [...new Map(trainers.map((x) => String(x.poc || "").trim()).filter(Boolean).map((x) => [x.toLowerCase(), x] as const)).values()].sort();
   // Before-training gaps only mean something before training
   const before = tab === "upcoming" ? Object.fromEntries([...ready.entries()].map(([id, x]) => [id, x.ready.missing.length])) : {};
-  const keep = (k: Tab | "standby") => { const p = new URLSearchParams({ f: k }); if (t) p.set("t", t); if (q) p.set("q", q); if (poc) p.set("p", poc); if (k !== "standby") for (const key of FILTER_KEYS) { const v = searchParams[key]; if (v) p.set(key, v); } return p; };
+  const keep = (k: Tab | "standby" | "notbooked") => { const p = new URLSearchParams({ f: k }); if (t) p.set("t", t); if (q) p.set("q", q); if (poc) p.set("p", poc); if (k !== "standby" && k !== "notbooked") for (const key of FILTER_KEYS) { const v = searchParams[key]; if (v) p.set(key, v); } return p; };
   const filtered = !!(t || poc || q || FILTER_KEYS.some((k) => searchParams[k]));
   return (
     <>
@@ -46,14 +48,14 @@ export default async function Dogs({ searchParams }: { searchParams: Record<stri
         </span>
       </div>
       <nav className="-mx-1 mb-3 mt-3 flex gap-2 overflow-x-auto px-1 pb-1" aria-label="Dogs">
-        {[...TABS.map((x) => ({ key: x.key as Tab | "standby", label: x.label })), { key: "standby" as const, label: "Standby" }].map((x) => {
-          const on = standby ? x.key === "standby" : x.key === tab;
+        {[...TABS.map((x) => ({ key: x.key as Tab | "standby" | "notbooked", label: x.label })), { key: "standby" as const, label: "Standby" }, { key: "notbooked" as const, label: "Not booked" }].map((x) => {
+          const on = notBooked ? x.key === "notbooked" : standby ? x.key === "standby" : x.key === tab;
           return <Link key={x.key} prefetch={false} href={`/a/dogs?${keep(x.key)}`} className={`shrink-0 rounded-full px-3.5 py-1.5 text-small font-semibold ${on ? "bg-ink text-white" : "border border-line bg-white"}`}>{x.label}</Link>;
         })}
       </nav>
       {!standby && <DogFilters tab={tab} q={q} t={t} p={poc} f={f} trainers={trainers.filter((x) => x.active).map((x) => [x.id, x.name] as [string, string]).sort((a, b) => a[1].localeCompare(b[1]))} pocs={pocs}
         states={STATE_CODES} programs={programs} views={views.views} viewsEditable={views.editable} total={list?.total ?? rows.length} />}
-      {standby ? <StandbyList q={q} /> : rows.length ? <DogRows rows={rows} tab={tab} today={today} before={before} /> : <Empty title={filtered ? "No dogs match." : "Nothing here."} />}
+      {notBooked ? <NotBookedList q={q} /> : standby ? <StandbyList q={q} /> : rows.length ? <DogRows rows={rows} tab={tab} today={today} before={before} /> : <Empty title={filtered ? "No dogs match." : "Nothing here."} />}
       {!standby && more && <p className="mt-3 text-center text-small text-ink-soft">Showing the first {rows.length}. Filter or search to narrow it down.</p>}
     </>
   );

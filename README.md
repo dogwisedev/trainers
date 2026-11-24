@@ -330,3 +330,9 @@ A dog whose program finished before the app (or was never booked in it) can stil
 - **Office:** the To do item opens Book a dog with **Follow-up only** ticked and the trainer picked: add the HubSpot deal and the program's real (past) dates, then Book.
 - The trainer is notified and can book, log and be paid for its follow-up sessions (session pay and miles, as usual). A chat is made but the client isn't invited: use the Invite box on the chat to bring them in.
 - Left out: lane and kennel checks, forms, training videos, program pay, the "New booking" email, Pulse, trainer ratings, and both HubSpot syncs (dates and progress), so nothing in HubSpot changes except the follow-up fields when sessions are logged.
+
+## Won but not booked: a page before the booking
+Dogs → **Not booked** lists every deal that's Closed Won in HubSpot with no booking in the app yet (the same ones To do shows). Each opens **/a/deals/<deal id>**: the deal's program and dates, and everything the client has already filled in on their before-training link (their own details and each dog's), read-only, with **Book this dog**. The "Dog" button on the To do item opens the same page. Nothing is created by looking: no chat, booking, forms or reminders until it's booked.
+
+## Pulse, tidied
+Office is now: the numbers; **Right now** (the six counts and To do waiting on the office, by owner); **Clients and bookings** (who hasn't heard from Dogwise, who's below the promised frequency, balances owed, bookings and cancellations in the range, incidents); and **How To do is being handled** at the bottom. Pickups and drop-offs (already on To do) and the two trainer lists (on the Trainers view) are gone from Office. The AI switches and counts, the Buzz brief switch and the QA daily switch moved to their own tab, **AI and automation**.

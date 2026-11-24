@@ -192,7 +192,8 @@ async function buildTodoUncached(): Promise<TodoData> {
         const again = /cancelled in the app/i.test(i.detail || "");
         add({ group: "now", tone: "biscuit", text: again ? "Cancelled in the app, still Closed Won in HubSpot" : "Closed Won in HubSpot, not booked yet",
           detail: (i.detail || "").replace(/: (Closed Won|cancelled in the app).*$/, "") || undefined,
-          hubspot: hubspotDeal(dealId), deal: /^\d+$/.test(dealId) ? dealId : undefined });
+          hubspot: hubspotDeal(dealId), deal: /^\d+$/.test(dealId) ? dealId : undefined,
+          dogHref: /^\d+$/.test(dealId) ? `/a/deals/${dealId}` : undefined }); // the "Dog" button opens what the client has already told us
         break;
       }
       case "trainer_offer": case "ask_pedro": {

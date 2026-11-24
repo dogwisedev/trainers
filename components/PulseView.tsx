@@ -6,7 +6,6 @@ import { WorkPanel } from "@/components/WorkPanel";
 import { TodoAge } from "@/components/TodoAge";
 import { TrainerWins } from "@/components/TrainerWins";
 import { PulseRefresh } from "@/components/PulseRefresh";
-import { MovesStrip } from "@/components/MovesStrip";
 import type { Card, OfficeView, Pulse, SalesView, Tile, TrainerRow, View } from "@/lib/pulse";
 import { PRESETS } from "@/lib/pulse";
 import { minutesLabel } from "@/lib/pulseMath";
@@ -17,7 +16,7 @@ import { US_COLS, US_ROWS, US_TILES } from "@/lib/usTiles";
 
 type Q = { r?: string; from?: string; to?: string; v?: string; state?: string };
 const money = (n: number) => `$${Math.round(n).toLocaleString("en-US")}`;
-const VIEWS: { key: View; label: string }[] = [{ key: "office", label: "Office" }, { key: "trainers", label: "Trainers" }, { key: "sales", label: "Sales" }, { key: "work", label: "Where the work goes" }];
+const VIEWS: { key: View; label: string }[] = [{ key: "office", label: "Office" }, { key: "trainers", label: "Trainers" }, { key: "sales", label: "Sales" }, { key: "work", label: "Where the work goes" }, { key: "auto", label: "AI and automation" }];
 const href = (q: Q, patch: Partial<Q>) => { const p = new URLSearchParams(); const all = { ...q, ...patch }; for (const k of ["v", "r", "from", "to", "state"] as const) if (all[k]) p.set(k, all[k]!); const s = p.toString(); return s ? `/a/pulse?${s}` : "/a/pulse"; };
 function dlt(now: number, before: number, pctMode: boolean): { text: string; up: boolean | null } {
   if (before === 0) return { text: now ? "new" : "same", up: now ? true : null };
@@ -65,13 +64,64 @@ function Office({ o }: { o: OfficeView }) {
   const joinedPct = o.chats ? Math.round((o.joined / o.chats) * 100) : 0;
   return (
     <>
-      <section className="mb-6 grid grid-cols-3 gap-2 md:grid-cols-6">
+      <h2 className="mb-2 text-lead font-extrabold">Right now</h2>
+      <section className="mb-4 grid grid-cols-3 gap-2 md:grid-cols-6">
         {([["To do", o.counts.todo, "/a"], ["Need a person today", o.counts.now, "/a#todo-now"], ["Forms to check", o.counts.toReview, "/a#todo-week"], ["Forms late", o.counts.late, "/a#todo-week"], ["Won, not booked", o.counts.notBooked, "/a#todo-now"], ["Not signed in", o.counts.notSignedIn, "/a/trainers#signin"]] as [string, number, string][]).map(([l, n, h]) => (
           <Link key={l} prefetch={false} href={h} className="panel p-3 hover:bg-paper/60"><p className="text-caption font-semibold text-ink-soft">{l}</p><p className={`mt-1 text-[24px] font-extrabold leading-none tabular-nums ${n ? "" : "text-ink-faint"}`}>{n}</p></Link>
         ))}
       </section>
 
-      <details className="group mb-6 panel overflow-hidden">
+
+      <TodoAge />
+      <h2 className="mb-1 mt-8 text-lead font-extrabold">Clients and bookings</h2>
+      <div className="grid gap-6 lg:grid-cols-2">
+        <section>
+          <H>Clients</H>
+          <div className="panel p-4">
+            <p className="text-[26px] font-extrabold leading-none tabular-nums">{joinedPct}% <span className="text-body font-semibold text-ink-soft">of clients with a dog in care have opened their chat</span></p>
+            <div className="mt-3"><Bar v={joinedPct} tone="bg-fern" /></div>
+            <p className="mt-2 text-small text-ink-soft">{o.joined} of {o.chats}. <Link prefetch={false} href="/a/chats?j=no" className="font-semibold underline">See who hasn&apos;t</Link></p>
+          </div>
+          <H n={o.silent24.length}>No word from Dogwise for 24 h+</H>
+          <ul className="panel divide-y divide-line">
+            {o.silent24.slice(0, 10).map((x) => <li key={x.href}><Link prefetch={false} href={x.href} className="flex items-center justify-between gap-3 px-4 py-2.5 hover:bg-paper/60"><span className="min-w-0 truncate"><b>{x.dog}</b> <span className="text-ink-soft">· {x.client} · {x.trainer}</span></span><span className={`shrink-0 text-small font-semibold tabular-nums ${x.hours >= 48 ? "text-heart" : "text-warn"}`}>{x.hours >= 48 ? `${Math.round(x.hours / 24)} d` : `${x.hours} h`}</span></Link></li>)}
+            {!o.silent24.length && <Empty>Every client has heard from Dogwise in the last 24 hours.</Empty>}
+          </ul>
+          <H n={o.waitingClients.length}>Clients below the promised frequency</H>
+          <ul className="panel divide-y divide-line">
+            {o.waitingClients.slice(0, 10).map((x) => <li key={x.href}><Link prefetch={false} href={x.href} className="flex items-center justify-between gap-3 px-4 py-2.5 hover:bg-paper/60"><span className="min-w-0 truncate"><b>{x.client}</b> <span className="text-ink-soft">· {x.dog}</span></span><span className="shrink-0 text-small font-semibold tabular-nums text-heart">{x.n}× waiting</span></Link></li>)}
+            {!o.waitingClients.length && <Empty>No client was left waiting twice in this range.</Empty>}
+          </ul>
+          <H n={o.balances.length}>Balance still owed, start coming up</H>
+          <ul className="panel divide-y divide-line">
+            {o.balances.slice(0, 8).map((x, i) => <li key={i}>{x.href ? <Link prefetch={false} href={x.href} className="block px-4 py-2.5 text-body hover:bg-paper/60">{x.text}</Link> : <span className="block px-4 py-2.5 text-body">{x.text}</span>}</li>)}
+            {!o.balances.length && <Empty>Nobody starting soon still owes a balance.</Empty>}
+          </ul>
+        </section>
+        <section>
+          <H>Bookings in this range</H>
+          <div className="panel p-4">
+            <div className="grid grid-cols-3 gap-2 text-center">
+              <div><p className="text-[24px] font-extrabold leading-none tabular-nums">{o.newBookings.reduce((n, x) => n + x.n, 0)}</p><p className="mt-1 text-caption text-ink-soft">new bookings</p></div>
+              <div><p className="text-[24px] font-extrabold leading-none tabular-nums">{o.dateChanges}</p><p className="mt-1 text-caption text-ink-soft">date changes</p></div>
+              <div><p className={`text-[24px] font-extrabold leading-none tabular-nums ${o.overbooked ? "text-heart" : ""}`}>{o.overbooked}</p><p className="mt-1 text-caption text-ink-soft">overbooked</p></div>
+            </div>
+            {o.newBookings.length > 0 && <p className="mt-3 text-small text-ink-soft">New: {o.newBookings.slice(0, 12).map((x) => `${x.name} ${x.n}`).join(" · ")}{o.newBookings.length > 12 ? ` · +${o.newBookings.length - 12} more` : ""}</p>}
+          </div>
+          <H n={o.cancellations.length}>Cancelled, and why</H>
+          <ul className="panel divide-y divide-line">
+            {o.cancellations.slice(0, 8).map((x, i) => <li key={i} className="px-4 py-2.5"><p className="text-body"><b>{x.dog}</b> <span className="text-ink-soft">· {x.client} · {x.trainer} · {x.when.slice(5).replace("-", "/")}</span></p><p className="text-small text-ink-soft">{x.reason}</p></li>)}
+            {!o.cancellations.length && <Empty>No cancellations in this range.</Empty>}
+          </ul>
+          <H n={o.incidents.length}>Incidents reported by trainers</H>
+          <ul className="panel divide-y divide-line">
+            {o.incidents.slice(0, 8).map((x, i) => <li key={i} className="px-4 py-2.5"><p className="text-body"><b>{x.title}</b> <span className="text-ink-soft">· {x.when.slice(5).replace("-", "/")}</span></p>{x.detail && <p className="text-small text-ink-soft">{x.detail}</p>}</li>)}
+            {!o.incidents.length && <Empty>No incident reports in this range.</Empty>}
+          </ul>
+        </section>
+      </div>
+      <div className="mt-8">
+      <details className="group panel overflow-hidden">
         <summary className="flex cursor-pointer list-none items-center justify-between p-4 [&::-webkit-details-marker]:hidden">
           <h2 className="text-lead font-extrabold m-0">How To do is being handled</h2>
           <ChevronRight size={20} className="text-ink-soft transition-transform group-open:rotate-90" />
@@ -96,63 +146,6 @@ function Office({ o }: { o: OfficeView }) {
           )}
         </div>
       </details>
-
-      <div className="grid gap-6 lg:grid-cols-2">
-        <section>
-          <H>Clients</H>
-          <div className="panel p-4">
-            <p className="text-[26px] font-extrabold leading-none tabular-nums">{joinedPct}% <span className="text-body font-semibold text-ink-soft">of clients with a dog in care have opened their chat</span></p>
-            <div className="mt-3"><Bar v={joinedPct} tone="bg-fern" /></div>
-            <p className="mt-2 text-small text-ink-soft">{o.joined} of {o.chats}. <Link prefetch={false} href="/a/chats?j=no" className="font-semibold underline">See who hasn&apos;t</Link></p>
-          </div>
-          <H n={o.silent24.length}>No word from Dogwise for 24 h+</H>
-          <ul className="panel divide-y divide-line">
-            {o.silent24.slice(0, 10).map((x) => <li key={x.href}><Link prefetch={false} href={x.href} className="flex items-center justify-between gap-3 px-4 py-2.5 hover:bg-paper/60"><span className="min-w-0 truncate"><b>{x.dog}</b> <span className="text-ink-soft">· {x.client} · {x.trainer}</span></span><span className={`shrink-0 text-small font-semibold tabular-nums ${x.hours >= 48 ? "text-heart" : "text-warn"}`}>{x.hours >= 48 ? `${Math.round(x.hours / 24)} d` : `${x.hours} h`}</span></Link></li>)}
-            {!o.silent24.length && <Empty>Every client has heard from Dogwise in the last 24 hours.</Empty>}
-          </ul>
-          <H n={o.waitingClients.length}>Clients below the promised frequency</H>
-          <ul className="panel divide-y divide-line">
-            {o.waitingClients.slice(0, 10).map((x) => <li key={x.href}><Link prefetch={false} href={x.href} className="flex items-center justify-between gap-3 px-4 py-2.5 hover:bg-paper/60"><span className="min-w-0 truncate"><b>{x.client}</b> <span className="text-ink-soft">· {x.dog}</span></span><span className="shrink-0 text-small font-semibold tabular-nums text-heart">{x.n}× waiting</span></Link></li>)}
-            {!o.waitingClients.length && <Empty>No client was left waiting twice in this range.</Empty>}
-          </ul>
-          <H n={o.balances.length}>Balance still owed, start coming up</H>
-          <ul className="panel divide-y divide-line">
-            {o.balances.slice(0, 8).map((x, i) => <li key={i}>{x.href ? <Link prefetch={false} href={x.href} className="block px-4 py-2.5 text-body hover:bg-paper/60">{x.text}</Link> : <span className="block px-4 py-2.5 text-body">{x.text}</span>}</li>)}
-            {!o.balances.length && <Empty>Nobody starting soon still owes a balance.</Empty>}
-          </ul>
-          <div className="mt-5"><MovesStrip moves={o.moves} limit={40} title="Pickups and drop-offs, next 14 days" /></div>
-        </section>
-        <section>
-          <H n={o.slowTrainers.length}>Trainers who needed the most chasing</H>
-          <ul className="panel divide-y divide-line">
-            {o.slowTrainers.map((x) => <li key={x.href}><Link prefetch={false} href={x.href} className="flex items-center justify-between gap-3 px-4 py-2.5 hover:bg-paper/60"><b>{x.name}</b><span className="text-small font-semibold tabular-nums text-heart">{x.reminders ? `${x.reminders} reminder${x.reminders > 1 ? "s" : ""}` : ""}{x.reminders && x.alerts ? ", " : ""}{x.alerts ? `${x.alerts} to the office` : ""}</span></Link></li>)}
-            {!o.slowTrainers.length && <Empty>No trainer needed much chasing in this range.</Empty>}
-          </ul>
-          <H n={o.lateForms.reduce((n, x) => n + x.n, 0)}>Forms missing, by trainer</H>
-          <ul className="panel divide-y divide-line">
-            {o.lateForms.slice(0, 10).map((x) => <li key={x.name} className="flex items-center justify-between gap-3 px-4 py-2.5"><b>{x.name}</b><span className="text-small tabular-nums text-ink-soft">{x.n} late</span></li>)}
-            {!o.lateForms.length && <Empty>No forms are late right now.</Empty>}
-          </ul>
-          <H>Bookings in this range</H>
-          <div className="panel p-4">
-            <div className="grid grid-cols-3 gap-2 text-center">
-              <div><p className="text-[24px] font-extrabold leading-none tabular-nums">{o.newBookings.reduce((n, x) => n + x.n, 0)}</p><p className="mt-1 text-caption text-ink-soft">new bookings</p></div>
-              <div><p className="text-[24px] font-extrabold leading-none tabular-nums">{o.dateChanges}</p><p className="mt-1 text-caption text-ink-soft">date changes</p></div>
-              <div><p className={`text-[24px] font-extrabold leading-none tabular-nums ${o.overbooked ? "text-heart" : ""}`}>{o.overbooked}</p><p className="mt-1 text-caption text-ink-soft">overbooked</p></div>
-            </div>
-            {o.newBookings.length > 0 && <p className="mt-3 text-small text-ink-soft">New: {o.newBookings.slice(0, 12).map((x) => `${x.name} ${x.n}`).join(" · ")}{o.newBookings.length > 12 ? ` · +${o.newBookings.length - 12} more` : ""}</p>}
-          </div>
-          <H n={o.cancellations.length}>Cancelled, and why</H>
-          <ul className="panel divide-y divide-line">
-            {o.cancellations.slice(0, 8).map((x, i) => <li key={i} className="px-4 py-2.5"><p className="text-body"><b>{x.dog}</b> <span className="text-ink-soft">· {x.client} · {x.trainer} · {x.when.slice(5).replace("-", "/")}</span></p><p className="text-small text-ink-soft">{x.reason}</p></li>)}
-            {!o.cancellations.length && <Empty>No cancellations in this range.</Empty>}
-          </ul>
-          <H n={o.incidents.length}>Incidents reported by trainers</H>
-          <ul className="panel divide-y divide-line">
-            {o.incidents.slice(0, 8).map((x, i) => <li key={i} className="px-4 py-2.5"><p className="text-body"><b>{x.title}</b> <span className="text-ink-soft">· {x.when.slice(5).replace("-", "/")}</span></p>{x.detail && <p className="text-small text-ink-soft">{x.detail}</p>}</li>)}
-            {!o.incidents.length && <Empty>No incident reports in this range.</Empty>}
-          </ul>
-        </section>
       </div>
     </>
   );
@@ -333,15 +326,14 @@ export function PulseView({ p, q }: { p: Pulse; q: Q }) {
           </span>
         </form>
       </div>
-      <nav className="mb-4 grid grid-cols-3 rounded-2xl border border-line bg-white p-1 text-body font-semibold shadow-card sm:inline-grid sm:w-auto" aria-label="View">
+      <nav className="mb-4 flex flex-wrap gap-1 rounded-2xl border border-line bg-white p-1 text-body font-semibold shadow-card sm:inline-flex" aria-label="View">
         {VIEWS.map((v) => <Link key={v.key} prefetch={false} href={href(q, { v: v.key, state: undefined })} aria-current={p.view === v.key ? "page" : undefined} className={`flex items-center justify-center rounded-xl px-5 py-2.5 ${p.view === v.key ? "bg-ink text-white" : "text-ink-soft hover:text-ink"}`}>{v.label}</Link>)}
       </nav>
       {p.cards.length > 0 && <section aria-label="Needs a decision" className="-mx-4 mb-5 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-1 md:mx-0 md:grid md:grid-cols-2 md:overflow-visible md:px-0 lg:grid-cols-3">{p.cards.map((c, i) => <CardView key={i} c={c} />)}</section>}
       {keys.length > 0 && <section aria-label="The numbers" className={`mb-6 grid grid-cols-2 gap-3 ${keys.length === 5 ? "md:grid-cols-3 lg:grid-cols-5" : "md:grid-cols-4"}`}>{keys.map((k) => <TileCard key={k} t={tile(k)} />)}</section>}
       {p.view === "office" && p.office && <Office o={p.office} />}
-      {p.view === "office" && <TodoAge />}
       {p.view === "trainers" && <TrainerWins from={p.range.from} label={p.range.label} />}
-      {p.view === "office" && <AiHelp from={p.range.from} label={p.range.label} />}
+      {p.view === "auto" && <AiHelp from={p.range.from} label={p.range.label} />}
       {p.view === "work" && <WorkPanel from={p.range.from} to={p.range.to} label={p.range.label} />}
       {p.view === "trainers" && (
         <section>

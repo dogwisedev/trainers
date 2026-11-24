@@ -19,7 +19,7 @@ import { dayET, delta, median, percentile, replyRuns, shrink, wilsonLower } from
 // Eastern, medians not averages. Costs use only deals that carry Bark credits. Supabase returns at most 1,000 rows per
 // request, so every read is paged (see `all`).
 
-export type View = "office" | "trainers" | "sales" | "work";
+export type View = "office" | "trainers" | "sales" | "work" | "auto";
 /** key: the preset, or the nearest one for a custom range (some HubSpot figures are only counted per preset); exact: a preset was used as is. */
 export type Range = { from: string; to: string; prevFrom: string; prevTo: string; days: number; label: string; key: string; exact: boolean };
 export const PRESETS: { key: string; label: string; days: number }[] = [
@@ -350,7 +350,7 @@ function summaryOf(t: { updateRate: number | null; replyMedian: number | null; r
 export async function pulse(q: { r?: string; from?: string; to?: string; v?: string; state?: string }, s?: Snapshot): Promise<Pulse> {
   const snap = s || await snapshotCached();
   const t0 = Date.now(), range = pulseRange(q, snap.today), notes = [...snap.notes];
-  const view: View = (["office", "trainers", "sales", "work"] as View[]).find((x) => x === q.v) || "office";
+  const view: View = (["office", "trainers", "sales", "work", "auto"] as View[]).find((x) => x === q.v) || "office";
   if (isDemo()) return { range, view, tiles: [], cards: [], trainers: [], office: null, sales: null, notes: ["Demo mode: no data."], stats: { points: 0, ms: 0, at: snap.builtAt } };
   const now = period(snap, range.from, range.to), prev = period(snap, range.prevFrom, range.prevTo), base = period(snap, addDays(snap.today, -(SPAN - 1)), snap.today);
   const { live, chatOf, chatById } = now;
