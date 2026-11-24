@@ -3,7 +3,6 @@ import { revalidatePath } from "next/cache";
 import { audited } from "@/lib/audit";
 import { getViewer } from "@/lib/data";
 import { isDemo, serviceClient } from "@/lib/supabase";
-import { pushToAdmins } from "@/lib/push";
 import { MAX_PARKS } from "@/lib/todoParks";
 
 type R = { ok: boolean; message: string };
@@ -33,7 +32,7 @@ export async function parkAction(keys: string[], did: string, when: ParkWhen, tr
     const n = new Map<string, number>(); let stop = false;
     for (const r of (had || []) as { item_key: string; passed: boolean }[]) { if (r.passed) stop = true; else n.set(r.item_key, (n.get(r.item_key) || 0) + 1); }
     const ok = list.filter((k) => (n.get(k) || 0) < MAX_PARKS);
-    if (stop || !ok.length) return { ok: false, message: "This one has had its last park. Deal with it now, or pass it to Pedro." };
+    if (stop || !ok.length) return { ok: false, message: "This one has had its last park. It needs dealing with now." };
     const at = until(when);
     const { error: e } = await sb.from("todo_parks").insert(ok.map((k) => ({ item_key: k, did: did.trim().slice(0, 120), until: at, by: who(v), trainer_id: trainerId && /^[0-9a-f-]{36}$/i.test(trainerId) ? trainerId : null })));
     revalidatePath("/a");
@@ -50,20 +49,4 @@ export async function unparkAction(key: string): Promise<R> {
   const { error } = await serviceClient().from("todo_parks").update({ until: now }).eq("item_key", key).gt("until", now);
   revalidatePath("/a");
   return error ? { ok: false, message: error.message } : { ok: true, message: "Back on your list." };
-}
-
-/** Out of parks: pass it to Pedro. It stays on To do, his now. */
-export async function passAction(keys: string[], what: string): Promise<R> {
-  return audited("passTodoToPedro", { keys: keys.length, what }, async () => {
-    if (isDemo()) return { ok: false, message: "Demo mode." };
-    const v = await getViewer();
-    if (!v || v.role !== "admin") return { ok: false, message: "Admins only." };
-    const list = [...new Set(keys)].filter((k) => /^(inc|pattern):[\w-]+$/.test(k)).slice(0, 20);
-    if (!list.length) return { ok: false, message: "Nothing to pass." };
-    const { error } = await serviceClient().from("todo_parks").insert(list.map((k) => ({ item_key: k, did: "Passed to Pedro", passed: true, by: who(v) })));
-    if (error) return { ok: false, message: /todo_parks|schema cache/i.test(error.message) ? "Run migration 068 in Supabase first." : error.message };
-    await pushToAdmins({ title: "Passed to Pedro", body: `${who(v)}: ${what.slice(0, 120)}`, url: "/a", tag: "todo-pass" }).catch(() => 0);
-    revalidatePath("/a");
-    return { ok: true, message: "Passed to Pedro." };
-  });
 }

@@ -359,6 +359,5 @@ async function buildTodoUncached(): Promise<TodoData> {
   // Every POC written on an active trainer's profile, for the filter (even ones with nothing on To do right now)
   const pocs = [...new Map(((trainers || []) as { active: boolean; poc: string | null }[]).filter((t) => t.active).map((t) => String(t.poc || "").replace(/\s+/g, " ").trim()).filter(Boolean).map((p) => [p.toLowerCase(), p] as const)).values()].sort((a, b) => a.localeCompare(b));
   await applyParks(items, sb).catch(() => null); // which are parked, which came back, which the app still has
-  if (items.some((x) => x.passed) && !pocs.some((p) => p.toLowerCase() === "pedro")) pocs.push("Pedro");
   return { items, late, beforeApp, pocs };
 }

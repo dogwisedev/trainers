@@ -42,7 +42,7 @@ function parkOptions(i: TodoItem): string[] {
   if (TRAINER_KINDS.has(i.kind || "")) return ["Called the trainer", "Messaged the trainer", "Trainer says it's handled outside the app", "Other"];
   if (MOVE_KINDS.has(i.kind || "")) return ["Called the trainer", "Changed it in HubSpot", "Other"];
   if (CLIENT_KINDS.has(i.kind || "") || i.pattern) return ["Replied to the client", "Called the client", "Asked the trainer", "Other"];
-  return ["Changed it in HubSpot", "Messaged the client", "Asked Pedro", "Other"];
+  return ["Changed it in HubSpot", "Messaged the client", "Asked a colleague", "Other"];
 }
 
 /** The admin To do list, in three shelves by whose move it is: Needs you (red), Waiting (amber: you've acted, it comes
@@ -240,8 +240,7 @@ function Item({ i, canQuiet = false, nested = false, strip = "" }: { i: TodoItem
         <p className="mt-1.5 flex flex-wrap items-center gap-1.5 text-caption">
           {i.since && <span className={`rounded-full px-2 py-0.5 font-semibold ${d >= 2 ? "bg-heart text-white" : "bg-paper text-ink-soft"}`}>{d >= 2 ? `Open ${Math.floor(d)} days` : ago(i.since)}</span>}
           {i.since && !nested && <span className={`rounded-full px-2 py-0.5 font-semibold ${i.poc ? "bg-mint-wash text-fern" : "bg-biscuit-wash text-warn"}`}>{i.poc ? `Owner: ${i.poc}` : "No owner"}</span>}
-          {(i.parks || 0) > 0 && !i.passed && <span className="rounded-full bg-biscuit-wash px-2 py-0.5 font-semibold text-warn">Parked {i.parks === 1 ? "once" : i.parks === 2 ? "twice" : "3 times: no more"}</span>}
-          {i.passed && <span className="rounded-full bg-heart px-2 py-0.5 font-semibold text-white">Passed to Pedro by {i.passed.by}</span>}
+          {(i.parks || 0) > 0 && !i.passed && <span className="rounded-full bg-biscuit-wash px-2 py-0.5 font-semibold text-warn">Parked {i.parks === 1 ? "once" : i.parks === 2 ? "twice" : "3 times"}</span>}
         </p>
         <div className="mt-2.5 flex flex-wrap items-start gap-2">
           {/* On its own, a trainer item has Call and Message on the same row; inside a trainer's card those are on the contact card */}
