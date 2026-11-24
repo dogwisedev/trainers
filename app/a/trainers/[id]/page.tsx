@@ -14,6 +14,7 @@ import { Avatar, Pill, Section } from "@/components/ui";
 import { PayRatesForm } from "@/components/PayRatesForm";
 import { getRates } from "@/lib/payrollData";
 import { bookingHistory } from "@/lib/history";
+import { CONFIRM_FROM } from "@/lib/moveRules";
 import { BookingHistory } from "@/components/BookingHistory";
 
 export default async function TrainerDetail({ params, searchParams }: { params: { id: string }; searchParams: { saved?: string; emailed?: string } }) {
@@ -25,7 +26,10 @@ export default async function TrainerDetail({ params, searchParams }: { params: 
   const use = weekUsage(t, bookings, off, weeksFrom(today, 16));
   const o2 = soonestOpening(use, 2), o3 = soonestOpening(use, 3);
   const when = (o: string | null) => (!o ? "None in 16 weeks" : o === weekStart(today) ? "Now" : short(o));
-  const upcoming = bookings.filter((b) => b.end_date >= today && b.status !== "cancelled");
+  // Still with the trainer: not finished by date, or past the end date with the drop-off not confirmed (an extension
+  // HubSpot hasn't passed on yet, or a drop-off nobody tapped)
+  const notHome = (b: (typeof bookings)[number]) => b.end_date < today && b.start_date >= CONFIRM_FROM && !(b as { dropped_off_at?: string | null }).dropped_off_at;
+  const upcoming = bookings.filter((b) => b.status !== "cancelled" && (b.end_date >= today || notHome(b)));
   const id = t.id;
   const finished = await bookingHistory({ tab: "finished", trainerId: id, limit: 8 });
   const probRow = isDemo() ? null : (await serviceClient().from("trainers").select("probation, probation_decided_by, probation_release_run, probation_release_amount").eq("id", id).maybeSingle()).data as { probation: string; probation_decided_by: string | null; probation_release_run: string | null; probation_release_amount: number | null } | null;
@@ -100,6 +104,7 @@ export default async function TrainerDetail({ params, searchParams }: { params: 
                   <div><p className="font-semibold">{b.dog_name || "Dog"} <span className="font-normal text-ink-soft">with {b.client_name}</span></p><p className="text-body text-ink-soft">{range(b.start_date, b.end_date)}, {b.program || `${b.weeks}-week`}{b.extra_days ? ` + ${b.extra_days} day${b.extra_days > 1 ? "s" : ""}` : ""}{b.rehab ? ", rehab" : ""}</p></div>
                   <div className="flex flex-wrap items-center gap-2">
                     {!b.notified_at && <Pill tone="heart">Trainer not emailed</Pill>}
+                    {notHome(b) && <Pill tone="heart">Past its end date: drop-off not confirmed</Pill>}
                     {(() => { const p = pickedUp(b as Parameters<typeof pickedUp>[0]); const late = !p && b.start_date < today; return <Pill tone={late ? "heart" : p ? "biscuit" : b.status === "pending" ? "line" : "mint"}>{late ? "Pickup not confirmed" : p ? "In care" : b.status === "pending" ? "Pending" : "Upcoming"}</Pill>; })()}
                     <span className="btn-ghost h-9 min-h-0 px-3 text-small">Open</span>
                   </div>

@@ -13,6 +13,9 @@ export type PlanOut = { id: string; start: string; end: string; extra: number; w
 
 const days = (s: string, e: string) => Math.max(1, daysBetween(s, e)); // end = drop-off day, not a day in care
 
+/** The most extra days HubSpot can add to a program before the app asks a person: 6 weeks. */
+export const MAX_EXTRA = 42;
+
 export function planDeal(list: PlanIn[], hsStart: string, hsEnd: string | null): { plan: PlanOut[]; problem?: string } {
   if (!list.length) return { plan: [] };
   if (hsEnd && hsEnd < hsStart) return { plan: [], problem: `HubSpot's end date (${hsEnd}) is before its start date (${hsStart}).` };
@@ -31,7 +34,8 @@ export function planDeal(list: PlanIn[], hsStart: string, hsEnd: string | null):
     const n = days(start, end);
     const weeks = b.weeks || Math.max(1, Math.floor(n / 7));
     const extra = n - weeks * 7;
-    if (extra > 13) return { plan: [], problem: `${b.dog_name || "A dog"}: HubSpot's dates give ${n} days, more than the ${weeks}-week program plus 13 days. Check the dates or the program length.` };
+    // Extensions of a few weeks are normal (Jax: 3 weeks + 14 days); only something far longer looks like a typo
+    if (extra > MAX_EXTRA) return { plan: [], problem: `${b.dog_name || "A dog"}: HubSpot's dates give ${n} days, more than the ${weeks}-week program plus ${MAX_EXTRA} days. Check the dates or the program length.` };
     const ex = Math.max(0, extra);
     plan.push({ id: b.id, start, end, extra: ex, weeks, oldDays: days(b.start_date, b.end_date), newDays: n,
       changed: start !== b.start_date || end !== b.end_date || ex !== (b.extra_days ?? 0) });
