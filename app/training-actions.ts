@@ -136,10 +136,13 @@ export async function setTrainingPausedAction(bookingId: string, paused: boolean
 /** The switch on the Training materials page: stop or restart all sending (nothing already sent changes). */
 export async function setSendingPausedAction(paused: boolean): Promise<R> {
   return audited("setSendingPausedAction", { paused: paused ? "yes" : "no" }, async () => {
-    if (isDemo() || !(await admin())) return { ok: false, message: "Admins only." };
+    const who = await admin();
+    if (isDemo() || !who) return { ok: false, message: "Admins only." };
     const now = new Date().toISOString();
+    const name = who.name === "Dogwise Admin" || who.name === "Dogwise team" ? (who.email || who.name).split("@")[0] : who.name;
     const { error } = await serviceClient().from("app_state").upsert([
       { key: "training_paused", value: paused ? "yes" : "no", updated_at: now },
+      { key: "training_paused_by", value: name, updated_at: now }, // shown to Sean if it stays off for an hour
       // Restarted: what was due while it was paused is skipped (not sent late, one old item a day); each dog picks up
       // from today's item on its normal schedule
       ...(paused ? [] : [{ key: "training_resumed_on", value: new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" }), updated_at: now }])

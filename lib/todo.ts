@@ -1,4 +1,5 @@
 import "server-only";
+import { pausedInfo } from "./training";
 import { applyParks } from "./todoParks";
 import { cache } from "react";
 import { isPayMonday, periodLabel } from "./payroll";
@@ -124,6 +125,16 @@ async function buildTodoUncached(): Promise<TodoData> {
     return { ref, kind, trainerId: o.trainerId, trainerName: o.trainer, phone, chatId: i.chat_id, bookingId: o.bookingId || null,
       history: historyLines(rows), suggested: suggestCheckIn(kind, { trainer: o.trainer, dog: o.dog, client: o.client, since, hours, form }), canText: canText && !!toE164(phone) };
   };
+
+  // ── Training materials switched off for every dog for an hour or more: Sean's, until it's back on (can't be parked) ──
+  const off = await pausedInfo(sb).catch(() => null);
+  if (off?.paused && off.hours >= 1) {
+    const since = off.since ? new Date(off.since).toLocaleString("en-US", { timeZone: "America/New_York", weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "";
+    items.push({ key: "training-paused", group: "now", tone: "heart", icon: "alert", decision: true, poc: "Sean", since: off.since || undefined,
+      text: "Training materials are switched off for every dog",
+      detail: `${off.byEnv && !off.since ? "TRAINING_MATERIALS=off is set in Vercel." : `Switched off${off.by ? ` by ${off.by}` : ""}${since ? ` on ${since} Eastern` : ""}.`} No client is getting their training videos. Switch it back on, or pause only the one dog on its page.`,
+      primary: { label: "Open Training materials", href: "/a/materials" } });
+  }
 
   // ── Incidents ──
   for (const i of (incs || []) as unknown as Inc[]) {
@@ -358,6 +369,7 @@ async function buildTodoUncached(): Promise<TodoData> {
   }
   // Every POC written on an active trainer's profile, for the filter (even ones with nothing on To do right now)
   const pocs = [...new Map(((trainers || []) as { active: boolean; poc: string | null }[]).filter((t) => t.active).map((t) => String(t.poc || "").replace(/\s+/g, " ").trim()).filter(Boolean).map((p) => [p.toLowerCase(), p] as const)).values()].sort((a, b) => a.localeCompare(b));
+  if (items.some((x) => x.key === "training-paused") && !pocs.includes("Sean")) pocs.push("Sean");
   await applyParks(items, sb).catch(() => null); // which are parked, which came back, which the app still has
   return { items, late, beforeApp, pocs };
 }

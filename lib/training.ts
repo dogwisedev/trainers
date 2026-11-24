@@ -1,4 +1,5 @@
 import "server-only";
+import { pushToAdmins } from "./push";
 import { CONFIRM_FROM } from "./moveRules";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { serviceClient, isDemo } from "./supabase";
@@ -47,9 +48,34 @@ async function dealBookings(sb: SupabaseClient, deals: string[]): Promise<Bk[]> 
 
 /** The 10-minute chat check: post today's item in each chat once its send time (12–5:30 PM Eastern) has come.
  *  Nothing goes to a cancelled booking (Cancel or Postpone in the app), a dog paused by hand, or a deal HubSpot says is off. */
+/** Sending switched off for every dog: since when, and by whom. `hours` is how long it has been off. */
+export async function pausedInfo(sb: SupabaseClient = serviceClient()): Promise<{ paused: boolean; since: string | null; by: string; hours: number; byEnv: boolean }> {
+  const byEnv = pausedByEnv();
+  const { data } = await sb.from("app_state").select("key, value, updated_at").in("key", ["training_paused", "training_paused_by"]);
+  const rows = (data || []) as { key: string; value: string; updated_at: string }[];
+  const p = rows.find((r) => r.key === "training_paused"), by = rows.find((r) => r.key === "training_paused_by" && p && r.updated_at >= p.updated_at)?.value || "";
+  const paused = byEnv || p?.value === "yes", since = p?.value === "yes" ? p.updated_at : null;
+  return { paused, since, by: byEnv && !since ? "TRAINING_MATERIALS=off in Vercel" : by, hours: since ? (Date.now() - Date.parse(since)) / 3600e3 : byEnv ? 999 : 0, byEnv };
+}
+
+/** Off for an hour or more: the admins get one phone notification per pause (it also sits on To do as Sean's). After
+ *  Nov 4 to 24, 2026, when it was off for three weeks and nobody knew. */
+async function pausedAlert(sb: SupabaseClient) {
+  const info = await pausedInfo(sb);
+  if (!info.paused || info.hours < 1) return;
+  const mark = info.since || "env";
+  const { data: told } = await sb.from("app_state").select("value").eq("key", "training_paused_alerted").maybeSingle();
+  if (told?.value === mark) return;
+  await sb.from("app_state").upsert({ key: "training_paused_alerted", value: mark, updated_at: new Date().toISOString() });
+  const who = info.by ? ` by ${info.by}` : "";
+  await pushToAdmins({ title: "Training materials are off for every dog", body: `Switched off${who} over an hour ago. Nothing is going to any client until it's back on.`, url: "/a/materials", tag: "training-paused" }).catch(() => 0);
+  await auditSystem("Training materials off for over an hour", `Switched off${who}${info.since ? ` at ${new Date(info.since).toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })} Eastern` : ""}. On To do for Sean until it's back on.`, { ok: false, link: "/a/materials" }).catch(() => null);
+}
+
 export async function runTrainingSends(sb: SupabaseClient = serviceClient()) {
   const out = { sent: 0, skipped: 0, errors: [] as string[] };
   if (isDemo()) return out;
+  await pausedAlert(sb).catch(() => null); // checked on every run, whatever the hour
   const now = etParts(new Date());
   const minute = now.hour * 60 + now.minute;
   if (now.hour < 12 || now.hour >= 18) return out;
