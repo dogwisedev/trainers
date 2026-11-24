@@ -354,3 +354,6 @@ Speak doesn't fill in weekly health checks (no button on that form, and the serv
 - **Handover drafts** stay, with a clearer note at the top: "We filled in what we could, but it isn't finished", and what only the trainer can add.
 - **The weekly health check** is never filled in by the app (no Speak there).
 - Every look is kept (`form_coaching`) with what happened: **right first time**, **fixed after a nudge**, or **sent anyway**. Pulse → AI and automation shows the counts under Form checks.
+
+### Smaller videos in the chat
+Picking a video over 1 MB in a dog's chat asks once: make it smaller so it sends much faster, or send at full quality. Smaller = made on the phone before sending (lib/videoShrink.ts, Mediabunny over the browser's own video encoder): the long side at most 1920 px (1080p), about 3 Mbps, H.264 MP4, the sound as recorded, with a percentage while it works. Anything that can't be done (an older phone, a format it can't read, the sound would be lost, or no real saving) sends the original, as before. Chat only for now; form uploads are unchanged.

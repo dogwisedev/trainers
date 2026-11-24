@@ -10,6 +10,7 @@ import { captionAction, captionUsedAction, voiceUsedAction } from "@/app/ai-acti
 import { VoiceButton } from "@/components/VoiceButton";
 import { uploadToDrive } from "@/lib/driveUpload";
 import { allowedType, deviceLabel, fileType, mediaKind, newId, shrinkPhoto } from "@/lib/uploadPrep";
+import { shrinkVideo } from "@/lib/videoShrink";
 import { ChatMsg, MediaRef } from "@/lib/chatTypes";
 import { MediaCard, MediaViewer } from "@/components/MediaViewer";
 
@@ -22,7 +23,7 @@ import { MediaCard, MediaViewer } from "@/components/MediaViewer";
 type Me = { userId: string; role: "admin" | "trainer" | "client"; name: string };
 type Local = ChatMsg & { local?: boolean; failed?: boolean };
 type Stage = "prepare" | "start" | "upload" | "confirm";
-type Task = { key: number; file: File; progress: number; note: string; error: string; stage: Stage; blob?: Blob; name?: string; type?: string; session?: { uploadUrl: string; storedName: string }; restarted?: boolean };
+type Task = { key: number; file: File; progress: number; note: string; error: string; stage: Stage; blob?: Blob; name?: string; type?: string; session?: { uploadUrl: string; storedName: string }; restarted?: boolean; shrink?: boolean };
 type Outbox = Pick<ChatMsg, "id" | "kind" | "body" | "media" | "created_at">[];
 
 const ROLE_LABEL = { admin: "Dogwise team", trainer: "Trainer", client: "Client", system: "" } as const;
@@ -229,6 +230,13 @@ export function ChatThread(p: { chatId: string; me: Me; initial: ChatMsg[]; hasM
         const type = fileType(t.file);
         if (!allowedType(type)) return fail("prepare", "Only photos, videos and PDFs can be sent here.", `not allowed: ${type || "no type"}`);
         if (type.startsWith("image/")) { patch(t.key, { note: "Getting the photo ready…" }); const s = await shrinkPhoto(t.file); t = { ...t, blob: s.blob, name: s.name, type: s.type }; }
+        else if (type.startsWith("video/") && t.shrink) {
+          // Smaller first (they chose it): on the phone, then sent. Can't be done here? The original goes, as before.
+          patch(t.key, { note: "Making the video smaller…" });
+          const v = await shrinkVideo(t.file, (x) => patch(t.key, { note: `Making the video smaller… ${Math.round(x * 100)}%` }));
+          t = v ? { ...t, blob: v.blob, name: v.name, type: v.type } : { ...t, blob: t.file, name: t.file.name, type };
+          if (!v) patch(t.key, { note: "Sending it at full quality (this phone can't make it smaller)" });
+        }
         else t = { ...t, blob: t.file, name: t.file.name, type };
         patch(t.key, { blob: t.blob, name: t.name, type: t.type, note: "" });
       }
@@ -277,7 +285,10 @@ export function ChatThread(p: { chatId: string; me: Me; initial: ChatMsg[]; hasM
     if (!files || !p.open) return;
     const docs = [...files].filter((f) => !/^(image|video)\//.test(f.type) && !/\.(heic|heif|mov|mp4|jpe?g|png|gif|webp)$/i.test(f.name));
     if (me.role !== "client" && docs.length && !window.confirm(`You're sending ${docs.length > 1 ? `${docs.length} documents` : `a document`} (${docs.map((f) => f.name).join(", ")}) into ${p.otherLabel ? `the chat with ${p.otherLabel}` : "the client's chat"}. The client will see ${docs.length > 1 ? "them" : "it"}.\n\nIs that right?`)) return;
-    const added: Task[] = [...files].map((file) => ({ key: ++seq.current, file, progress: 0, note: "", error: "", stage: "prepare" }));
+    // A video over 1 MB: offer to make it smaller first (much quicker to send, a little less sharp)
+    const big = [...files].filter((f) => /^video\//.test(f.type) || /\.(mov|mp4|m4v|3gp|webm)$/i.test(f.name)).filter((f) => f.size > 1_000_000);
+    const shrink = big.length > 0 && window.confirm(`Make ${big.length > 1 ? "these videos" : "this video"} smaller so ${big.length > 1 ? "they send" : "it sends"} much faster? (${(big.reduce((n, f) => n + f.size, 0) / 1e6).toFixed(0)} MB now.)\n\nOK: smaller and quicker, still clear on a phone.\nCancel: send at full quality.`);
+    const added: Task[] = [...files].map((file) => ({ key: ++seq.current, file, progress: 0, note: "", error: "", stage: "prepare", shrink: shrink && big.includes(file) }));
     setTasks((cur) => [...cur, ...added]);
     added.reduce((chain, t) => chain.then(() => runUpload(t)), Promise.resolve()); // one at a time: kind to a phone connection
   };

@@ -16,6 +16,7 @@
     "@supabase/ssr": "^0.5.2",
     "@supabase/supabase-js": "^2.45.4",
     "lucide-react": "^0.447.0",
+    "mediabunny": "1.65.2",
     "next": "14.2.15",
     "nodemailer": "^10.0.16",
     "pdf-lib": "^1.17.1",
