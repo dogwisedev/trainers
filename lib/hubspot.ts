@@ -434,3 +434,20 @@ export async function dealsInPipeline(pipeline: string, stages: string[], proper
   }
   return out;
 }
+
+/** When one owner logged things in HubSpot: the timestamps of their notes, calls, emails, tasks and meetings in a range. */
+export async function ownerActivity(ownerId: string, fromIso: string, toIso: string, max = 400): Promise<Record<"notes" | "calls" | "emails" | "tasks" | "meetings", string[]>> {
+  const out = { notes: [] as string[], calls: [] as string[], emails: [] as string[], tasks: [] as string[], meetings: [] as string[] };
+  await Promise.all((Object.keys(out) as (keyof typeof out)[]).map(async (type) => {
+    let after: string | undefined;
+    for (let page = 0; page < Math.ceil(max / 100); page++) {
+      const res = await hs<SearchPage>(`/crm/v3/objects/${type}/search`, { method: "POST", body: JSON.stringify({
+        filterGroups: [{ filters: [{ propertyName: "hubspot_owner_id", operator: "EQ", value: ownerId }, { propertyName: "hs_timestamp", operator: "BETWEEN", value: String(Date.parse(fromIso)), highValue: String(Date.parse(toIso)) }] }],
+        properties: ["hs_timestamp"], limit: 100, ...(after ? { after } : {}) }) }).catch(() => null);
+      if (!res) break;
+      for (const r of res.results || []) { const t = r.properties?.hs_timestamp; if (t) out[type].push(String(t)); }
+      after = res.paging?.next?.after; if (!after) break;
+    }
+  }));
+  return out;
+}

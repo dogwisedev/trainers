@@ -3,7 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { serviceClient } from "./supabase";
 import { auditSystem } from "./audit";
 import { addDays, todayIso } from "./dates";
-import { hubspotConfigured, listOwners, readDealHistory } from "./hubspot";
+import { hubspotConfigured, listOwners, ownerActivity, readDealHistory } from "./hubspot";
 
 // Where the work goes (migration 059): what people still do by hand, how often, how long it takes, and why they
 // overrode the app. For learning what to automate next; read on Pulse → Where the work goes.
@@ -104,6 +104,8 @@ export function rhythms(rows: { who: string | null; role: string | null; action:
 const median = (xs: number[]) => { if (!xs.length) return null; const s = [...xs].sort((a, b) => a - b); return Math.round(s[Math.floor(s.length / 2)]); };
 const minutes = (a: string, b: string) => Math.max(0, (Date.parse(b) - Date.parse(a)) / 60000);
 const pretty = (action: string) => ({
+  approveQuietAction: "Approved a form (no message to the trainer)", checkRoutesAction: "Checked mileage routes", quietChatAction: "Set a chat quiet", saveQuoNumber: "Saved their Quo number", patternSeenAction: "Looked into a client's worries",
+
   saveBooking: "Booked a dog", cancelBooking: "Cancelled a booking", postponeBooking: "Put a booking on standby", setTrainingPaused: "Paused or resumed training videos",
   approveReportAction: "Approved a form", requestChangesAction: "Sent a form back", waiveReportAction: "Marked a form not needed", missReportAction: "Marked a form missed (late)", unwaiveReportAction: "Brought a form back",
   reviewVaccinesAction: "Checked vaccine records", clearReadyAction: "Cleared a dog as ready", resolveIncidentAction: "Closed a To do item by hand", clientCloseAction: "Closed a client item (no reply needed / handled)",
@@ -171,48 +173,78 @@ export async function workReport(from: string, to: string, sb: SupabaseClient = 
 export const canSeePeople = (email: string | null | undefined) =>
   !!email && (process.env.PEOPLE_INSIGHTS_EMAILS || "alma@dogwiseacademy.com").split(",").map((x) => x.trim().toLowerCase()).filter(Boolean).includes(email.trim().toLowerCase());
 export type Person = {
-  who: string; total: number; days: number; burstPct: number; lateNightPct: number; busiest: number;
-  grid: number[][];                              // [weekday 0 = Mon … 6 = Sun][hour 0-23], Eastern
-  span: { first: string; last: string } | null;  // a typical day: median first and last action (Eastern, HH:MM)
+  who: string; total: number; days: number; burstPct: number; lateNightPct: number; busiest: number; activeHours: number;
+  grid: number[][];                               // the app: [weekday 0 = Mon … 6 = Sun][hour 0-23], Eastern
+  span: { first: string; last: string } | null;   // a typical day: median first and last action (Eastern)
+  cats: { name: string; n: number }[];            // what kind of work, grouped
   top: { action: string; n: number }[];
-  hubspot: { n: number; top: string[] };         // deal properties they changed in HubSpot by hand, same range
-  daily: { day: string; n: number }[];
+  hub: { found: boolean; owner?: string; total: number; notes: number; calls: number; emails: number; tasks: number; meetings: number; hours: number[]; changes: number; changed: string[] };
+  daily: { day: string; app: number; hubspot: number }[];
 };
-const personKey = (who: string | null) => { const m = (who || "").match(/\(([^@()]+)@[^)]+\)/) || (who || "").match(/^([^@\s]+)@/); const k = m ? m[1] : (who || "?").split(" (")[0]; return k.charAt(0).toUpperCase() + k.slice(1); };
+const ALIAS: Record<string, string[]> = { jahrony: ["jeroni", "jahrony"], sdevereux: ["sean", "sdevereux"], ppereira: ["pedro"], alma: ["alma", "hugo"] };
+const SKIP = /^(Saw an error screen|Opened Payslips|Signed in|Signed out|Turned notifications|Sent themselves a test notification)/i;
+const CATS: [string, RegExp][] = [
+  ["Forms", /form|report|checklist/i], ["To do", /to-do|client item|worries|took a/i], ["Trainers", /trainer message|checked in|checkIn|logged a call|asked|ask/i],
+  ["Clients and chats", /chat|invited|client note|case update|qa flag|watch/i], ["Bookings", /book|cancel|postpon|standby|pickup|drop-off|program|ok to start|time off|deal/i],
+  ["Vaccines", /vaccin/i], ["Pay", /payslip|pay |mileage|route/i], ["Settings", /switch|quo|setting|terms|saved their/i]
+];
+const catOf = (a: string) => (CATS.find(([, re]) => re.test(a)) || ["Other"])[0] as string;
+const personKey = (who: string | null) => { const m = (who || "").match(/\(([^@()]+)@[^)]+\)/) || (who || "").match(/^([^@\s]+)@/); return (m ? m[1] : (who || "?").split(" (")[0]).toLowerCase(); };
+const nice = (k: string) => k.charAt(0).toUpperCase() + k.slice(1);
+
 export async function peopleReport(from: string, to: string, sb: SupabaseClient = serviceClient()): Promise<Person[]> {
   const f = `${from}T00:00:00Z`, t = `${to}T23:59:59Z`;
-  const rows: { who: string | null; role: string | null; action: string; at: string }[] = [];
+  const rows: { who: string | null; user_id: string | null; action: string; at: string }[] = [];
   for (let i = 0; i < 20; i++) {
-    const { data, error } = await sb.from("audit_log").select("who, role, action, at").eq("role", "admin").gte("at", f).lte("at", t).order("at").range(i * 1000, i * 1000 + 999);
+    const { data, error } = await sb.from("audit_log").select("who, user_id, action, at").eq("role", "admin").gte("at", f).lte("at", t).order("at").range(i * 1000, i * 1000 + 999);
     if (error || !data?.length) break;
     rows.push(...(data as typeof rows)); if (data.length < 1000) break;
   }
-  const { data: hs } = await sb.from("hubspot_changes").select("property, by_user").gte("at", f).lte("at", t).limit(10000);
-  const by = new Map<string, { at: string; action: string }[]>();
-  for (const r of rows) { if (NOISE.test(r.action)) continue; const k = personKey(r.who); by.set(k, [...(by.get(k) || []), { at: r.at, action: r.action }]); }
-  const hhmm = (mins: number) => `${String(Math.floor(mins / 60)).padStart(2, "0")}:${String(Math.round(mins % 60)).padStart(2, "0")}`;
+  const by = new Map<string, { at: string; action: string }[]>(), ids = new Map<string, string>();
+  for (const r of rows) { if (SKIP.test(r.action)) continue; const k = personKey(r.who); if (r.user_id) ids.set(r.user_id, k); by.set(k, [...(by.get(k) || []), { at: r.at, action: pretty(r.action) }]); }
+  // What they wrote in dogs' chats (not in the activity log)
+  if (ids.size) {
+    const { data: cm } = await sb.from("chat_messages").select("sender_id, created_at").in("sender_id", [...ids.keys()]).eq("sender_role", "admin").gte("created_at", f).lte("created_at", t).limit(5000);
+    for (const m of (cm || []) as { sender_id: string; created_at: string }[]) { const k = ids.get(m.sender_id); if (k) by.set(k, [...(by.get(k) || []), { at: m.created_at, action: "Wrote in a dog's chat" }]); }
+  }
+  const { data: hsRows } = await sb.from("hubspot_changes").select("property, by_user").gte("at", f).lte("at", t).limit(10000);
+  const owners = hubspotConfigured() ? await listOwners().catch(() => []) : [];
+  const hhmm = (mins: number) => { const h = Math.floor(mins / 60), m = Math.round(mins % 60); return `${h % 12 === 0 ? 12 : h % 12}:${String(m).padStart(2, "0")} ${h < 12 ? "am" : "pm"}`; };
   const minOfDay = (iso: string) => { const [h, m] = new Date(iso).toLocaleTimeString("en-GB", { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit" }).split(":").map(Number); return h * 60 + m; };
   const med = (xs: number[]) => { const s = [...xs].sort((a, b) => a - b); return s[Math.floor(s.length / 2)]; };
   const out: Person[] = [];
-  for (const [who, list] of by) {
+  for (const [key, raw] of by) {
+    const list = raw.sort((a, b) => a.at.localeCompare(b.at));
     const grid = Array.from({ length: 7 }, () => new Array(24).fill(0)), hours = new Array(24).fill(0);
-    const perDay = new Map<string, number[]>(), acts = new Map<string, number>();
+    const perDay = new Map<string, number[]>(), acts = new Map<string, number>(), cats = new Map<string, number>(), slots = new Set<string>();
     let bursts = 0;
     list.forEach((x, i) => {
       const h = etHour(x.at), d = etDay(x.at), wd = (new Date(`${d}T12:00:00Z`).getUTCDay() + 6) % 7;
-      grid[wd][h]++; hours[h]++;
+      grid[wd][h]++; hours[h]++; slots.add(`${d}|${h}`);
       perDay.set(d, [...(perDay.get(d) || []), minOfDay(x.at)]);
-      acts.set(x.action, (acts.get(x.action) || 0) + 1);
+      acts.set(x.action, (acts.get(x.action) || 0) + 1); cats.set(catOf(x.action), (cats.get(catOf(x.action)) || 0) + 1);
       if (i && Date.parse(x.at) - Date.parse(list[i - 1].at) <= 10000) bursts++;
     });
     const late = hours.slice(20).reduce((a, b) => a + b, 0) + hours.slice(0, 6).reduce((a, b) => a + b, 0);
-    const mine = ((hs || []) as { property: string; by_user: string | null }[]).filter((x) => (x.by_user || "").toLowerCase().includes(who.toLowerCase()));
+    // HubSpot: what they logged there themselves (notes, calls, emails, tasks, meetings), live, and deal fields they changed
+    const names = ALIAS[key] || [key];
+    const owner = owners.find((o) => names.includes((o.email || "").split("@")[0].toLowerCase())) || owners.find((o) => names.some((n) => o.name.toLowerCase().startsWith(n)));
+    const hub: Person["hub"] = { found: !!owner, owner: owner?.name, total: 0, notes: 0, calls: 0, emails: 0, tasks: 0, meetings: 0, hours: new Array(24).fill(0), changes: 0, changed: [] };
+    const hubDay = new Map<string, number>();
+    if (owner) {
+      const a = await ownerActivity(owner.id, f, t).catch(() => null);
+      if (a) for (const type of ["notes", "calls", "emails", "tasks", "meetings"] as const) { hub[type] = a[type].length; for (const ts of a[type]) { hub.total++; hub.hours[etHour(ts)]++; hubDay.set(etDay(ts), (hubDay.get(etDay(ts)) || 0) + 1); } }
+    }
+    const mine = ((hsRows || []) as { property: string; by_user: string | null }[]).filter((x) => names.some((n) => (x.by_user || "").toLowerCase().includes(n)));
     const props = new Map<string, number>(); for (const x of mine) props.set(x.property, (props.get(x.property) || 0) + 1);
-    out.push({ who, total: list.length, days: perDay.size, burstPct: Math.round((bursts / list.length) * 100), lateNightPct: Math.round((late / list.length) * 100), busiest: hours.indexOf(Math.max(...hours)), grid,
-      span: perDay.size ? { first: hhmm(med([...perDay.values()].map((v) => Math.min(...v)))), last: hhmm(med([...perDay.values()].map((v) => Math.max(...v)))) } : null,
-      top: [...acts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([action, n]) => ({ action, n })),
-      hubspot: { n: mine.length, top: [...props.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4).map(([p, n]) => `${p.replace(/_/g, " ")} ${n}`) },
-      daily: [...perDay.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([day, v]) => ({ day, n: v.length })) });
+    hub.changes = mine.length; hub.changed = [...props.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4).map(([p, n]) => `${p.replace(/_/g, " ")} ${n}`);
+    const allDays = [...new Set([...perDay.keys(), ...hubDay.keys()])].sort();
+    out.push({ who: owner?.name.split(" ")[0] && key !== owner.name.split(" ")[0].toLowerCase() ? `${nice(key)} (${owner.name.split(" ")[0]})` : nice(key),
+      total: list.length, days: perDay.size, burstPct: Math.round((bursts / list.length) * 100), lateNightPct: Math.round((late / list.length) * 100), busiest: hours.indexOf(Math.max(...hours)), activeHours: slots.size, grid,
+      span: perDay.size >= 3 ? { first: hhmm(med([...perDay.values()].map((v) => Math.min(...v)))), last: hhmm(med([...perDay.values()].map((v) => Math.max(...v)))) } : null,
+      cats: [...cats.entries()].sort((a, b) => b[1] - a[1]).map(([name, n]) => ({ name, n })),
+      top: [...acts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([action, n]) => ({ action, n })), hub,
+      daily: allDays.map((day) => ({ day, app: (perDay.get(day) || []).length, hubspot: hubDay.get(day) || 0 })) });
   }
-  return out.sort((a, b) => b.total - a.total);
+  return out.sort((a, b) => b.total + b.hub.total - (a.total + a.hub.total));
 }
