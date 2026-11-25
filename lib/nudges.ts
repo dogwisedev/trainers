@@ -1,3 +1,4 @@
+import { bankMessage, bankTurn } from "./messageBank";
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { serviceClient } from "./supabase";
@@ -67,7 +68,9 @@ async function claim(sb: SupabaseClient, rows: Partial<Nudge>[]): Promise<Nudge[
  *  are in the app (and in the phone notification); a text listing late forms and waiting clients read as harsh, and several
  *  a day was too many. */
 const TEXT_GAP_HOURS = 12;
-const nudgeText = (name: string) => `Hi ${first(name)}, a quick nudge from Dogwise 🐾 You've got a few things waiting in the app when you get a sec: ${site()}/t`;
+// Worded 75 ways (lib/messageBank.ts): a trainer never gets the same one twice running
+const nudgeLine = (t: { id: string; name: string }) => bankMessage("nudge", bankTurn(t.id), { first: first(t.name) });
+const nudgeText = (t: { id: string; name: string }) => `${nudgeLine(t)} ${site()}/t`;
 async function textedRecently(trainerId: string): Promise<boolean> {
   const since = new Date(Date.now() - TEXT_GAP_HOURS * 3600e3).toISOString();
   const { data } = await serviceClient().from("nudges").select("id").eq("trainer_id", trainerId).contains("channels", ["text"]).gte("sent_at", since).limit(1);
@@ -84,15 +87,15 @@ async function deliver(t: Trainer, m: { title: string; body: string; url: string
   const link = `${site()}${m.url}`;
   if (quoConfigured() && toE164(t.phone)) {
     if (await textedRecently(t.id).catch(() => false)) return { channels, error: null }; // they had a nudge in the last 12 hours: the app has the rest
-    const r = await sendText(t.phone!, nudgeText(t.name), fromFor(t.poc, nums).from); // from their POC's own Quo number when it's set
+    const r = await sendText(t.phone!, nudgeText(t), fromFor(t.poc, nums).from); // from their POC's own Quo number when it's set
     if (r.ok) channels.push("text"); else errs.push(`text: ${r.error}`);
   }
   const to = t.email || t.dogwise_email;
   if (!channels.includes("text") && to && mailConfigured()) {
     try {
       await sendMail({
-        to, subject: "A few things waiting in the Dogwise app", text: `Hi ${first(t.name)},\n\nA quick nudge: you've got a few things waiting in the app when you get a sec.\n\nOpen the app: ${link}`,
-        html: `<div style="background:#f4f5f8;padding:24px 12px;font-family:Arial,sans-serif"><div style="max-width:520px;margin:0 auto;background:#fff;border:1px solid #E7E3F3;border-radius:16px;padding:24px"><img src="cid:dogwise-logo" width="130" alt="Dogwise Academy" style="display:block;margin-bottom:14px"><p style="font-size:16px;font-weight:bold;color:#281870;margin:0 0 8px">Hi ${esc(first(t.name))} 🐾</p><p style="font-size:15px;color:#333;line-height:1.5;margin:0 0 18px">A quick nudge: you've got a few things waiting in the app when you get a sec.</p><a href="${link}" style="background:#281870;color:#fff;padding:11px 20px;border-radius:9px;text-decoration:none;font-weight:bold;display:inline-block">Open the app</a></div></div>`,
+        to, subject: "A few things waiting in the Dogwise app", text: `${nudgeLine(t)}\n\n${link}`,
+        html: `<div style="background:#f4f5f8;padding:24px 12px;font-family:Arial,sans-serif"><div style="max-width:520px;margin:0 auto;background:#fff;border:1px solid #E7E3F3;border-radius:16px;padding:24px"><img src="cid:dogwise-logo" width="130" alt="Dogwise Academy" style="display:block;margin-bottom:14px"><p style="font-size:15px;color:#333;line-height:1.5;margin:0 0 18px">${esc(nudgeLine(t).replace(/:$/, "."))}</p><a href="${link}" style="background:#281870;color:#fff;padding:11px 20px;border-radius:9px;text-decoration:none;font-weight:bold;display:inline-block">Open the app</a></div></div>`,
         attachments: [{ filename: "dogwise.png", content: Buffer.from(BRAND_LOGO_PNG_BASE64, "base64"), contentType: "image/png", cid: "dogwise-logo" }]
       });
       channels.push("email");
@@ -315,10 +318,11 @@ export function historyLines(rows: Nudge[]): string[] {
 }
 /** What the office could send the trainer. A person edits it before sending; whether they did is recorded. */
 export function suggestCheckIn(kind: NudgeKind, o: { trainer: string; dog: string; client: string; since?: string; hours?: number; form?: string }): string {
-  const hi = `Hi ${first(o.trainer)}`;
-  if (kind === "update_due") return `${hi}, ${o.client} hasn't had an update on ${o.dog} since ${o.since || "a couple of days ago"}. Could you post a photo or video in ${o.dog}'s chat today? Thanks!`;
-  if (kind === "client_waiting") return `${hi}, ${o.client} has been waiting${o.hours ? ` about ${o.hours} hours` : ""} for a reply about ${o.dog}. Could you answer in ${o.dog}'s chat now? Thanks!`;
-  return `${hi}, ${o.form || "a form"} for ${o.dog} is late. Could you send it today? Thanks!`;
+  // Worded 75 ways each (lib/messageBank.ts). The same item reads the same all day (so it doesn't change under the person
+  // about to send it), and differently the next day or for the next dog.
+  const turn = bankTurn(`${o.trainer}|${o.dog}|${kind}`, new Date(), 24);
+  const vars = { first: first(o.trainer), dog: o.dog, client: o.client, since: o.since || "a couple of days ago", wait: o.hours ? `about ${o.hours} hours` : "a while", form: o.form || "a form" };
+  return bankMessage(kind === "update_due" ? "update_due" : kind === "client_waiting" ? "client_waiting" : "form_late", turn, vars);
 }
 /** Open nudges by ref and by chat, for To do. */
 export async function openNudges(sb: SupabaseClient = serviceClient()): Promise<Nudge[]> {

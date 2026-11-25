@@ -9,6 +9,7 @@ import { FormUpload } from "@/components/FormUpload";
 import { Answers, Field, HANDOVER_AFTER, HANDOVER_ROUTE, HANDOVER_SIMPLE, INTAKE_SECTIONS, Item, Kind, MEDIA_ADVICE, MediaItem, Status, WEEKLY_SECTIONS, arr, deadlineHint, hasTrainerPhoto, raw, rawItems, s, validate } from "@/lib/reports";
 import { buildReport, reportHtml } from "@/lib/reportDoc";
 import { WaiveButton } from "@/components/WaiveButton";
+import { ACK_MIN, formFlags, unacked } from "@/lib/formFlags";
 import { VoiceButton, type VoiceResult } from "@/components/VoiceButton";
 
 type Props = {
@@ -116,7 +117,15 @@ export function ReportForm(p: Props) {
       .catch(() => ({ tips: [] as string[] }))
       .then((r) => { setChecking(false); if (r.tips.length) setTips(r.tips); else if (window.confirm("Looks good. Send it to the office?")) send(); });
   };
-  const approve = () => { if (missing.length) { setShowMissing(true); window.scrollTo({ top: 0, behavior: "smooth" }); return; } if (p.kind !== "handover" || window.confirm(`Send this ${p.status === "approved" ? "corrected " : ""}report to ${s(answers.clientEmail)}?`)) run(() => approveReportAction(p.id, answers, media), (r) => { if (r.ok) { setEditing(false); router.push(r.nextId ? `/a/reports/${r.nextId}` : "/a"); router.refresh(); } else { window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" }); router.refresh(); } }); };
+  // Flagged parts (the app's check, health answers that aren't "all fine"): each needs a tick and what was done, or it can't be approved
+  const [acks, setAcks] = useState<Record<string, { done: boolean; note: string }>>({});
+  const flagBox = useRef<HTMLDivElement>(null);
+  const flags = useMemo(() => (p.mode === "admin" && p.status !== "approved" ? formFlags(p.kind, answers, p.status === "submitted" ? p.aiCheck : null) : []), [p.mode, p.status, p.kind, p.aiCheck, answers]);
+  const ackList = flags.filter((f) => acks[f.key]?.done).map((f) => ({ key: f.key, note: acks[f.key].note }));
+  const flagsLeft = unacked(flags, ackList);
+  const approve = () => { if (missing.length) { setShowMissing(true); window.scrollTo({ top: 0, behavior: "smooth" }); return; }
+    if (flagsLeft.length) { setRes({ ok: false, message: `${flagsLeft.length} flagged part${flagsLeft.length > 1 ? "s" : ""} still to act on: tick ${flagsLeft.length > 1 ? "each one" : "it"} and write what you did.` }); flagBox.current?.scrollIntoView({ behavior: "smooth", block: "center" }); return; }
+    if (p.kind !== "handover" || window.confirm(`Send this ${p.status === "approved" ? "corrected " : ""}report to ${s(answers.clientEmail)}?`)) run(() => approveReportAction(p.id, answers, media, ackList), (r) => { if (r.ok) { setEditing(false); router.push(r.nextId ? `/a/reports/${r.nextId}` : "/a"); router.refresh(); } else { window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" }); router.refresh(); } }); };
 
   const ro = !editable;
   const view = useMemo(() => buildReport(p.kind, answers, media, { startDate: p.startDate, endDate: p.endDate, submittedAt: p.submittedAt }), [p.kind, answers, media, p.startDate, p.endDate, p.submittedAt]);
@@ -184,6 +193,22 @@ export function ReportForm(p: Props) {
           <ul className="mt-1.5 space-y-2">{p.aiCheck.points.map((x, i) => <li key={i}>{x.point}{x.quote && <span className="mt-0.5 block border-l-2 border-biscuit pl-2 text-small italic">&ldquo;{x.quote}&rdquo;</span>}</li>)}</ul>
         </div>
       ))}
+      {flags.length > 0 && (
+        <div ref={flagBox} className="rounded-[18px] border-2 border-heart bg-white p-4 text-body">
+          <p className="font-bold text-heart">Flagged: act on {flags.length > 1 ? `these ${flags.length}` : "this"} before you approve</p>
+          <p className="mt-0.5 text-small text-ink-soft">Check each one with the trainer or in the chat. Tick it and write what you did: your name, the time and your note are kept with this form.</p>
+          <ul className="mt-3 space-y-3">{flags.map((f) => { const k = acks[f.key] || { done: false, note: "" }, short = k.done && k.note.trim().length < ACK_MIN; return (
+            <li key={f.key} className="rounded-xl border border-line p-3">
+              <label className="flex items-start gap-2.5">
+                <input type="checkbox" className="mt-1 h-5 w-5 shrink-0" checked={k.done} onChange={(e) => setAcks((x) => ({ ...x, [f.key]: { ...k, done: e.target.checked } }))} />
+                <span><span className="font-semibold">{f.source === "health" ? "Health check: " : ""}{f.text}</span>{f.quote && <span className="mt-0.5 block border-l-2 border-biscuit pl-2 text-small italic">&ldquo;{f.quote}&rdquo;</span>}<span className="mt-0.5 block text-small text-ink-soft">I looked at this and acted on it</span></span>
+              </label>
+              <label className="sr-only" htmlFor={`ack-${f.key}`}>What you did about it</label>
+              <input id={`ack-${f.key}`} className="field mt-2" maxLength={1000} placeholder="What did you do about it? e.g. Asked Sam, vet visit booked Tuesday" value={k.note} onChange={(e) => setAcks((x) => ({ ...x, [f.key]: { ...k, note: e.target.value } }))} />
+              {short && <p className="mt-1 text-caption text-heart">Write what you did (a few words).</p>}
+            </li>); })}</ul>
+        </div>
+      )}
       {drafted.length > 0 && editable && (
         <div className="rounded-[18px] bg-mint-wash p-4 text-body text-fern">
           <p className="font-bold">We filled in what we could, but it isn&apos;t finished</p>

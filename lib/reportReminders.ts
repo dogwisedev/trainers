@@ -1,3 +1,4 @@
+import { bankMessage, bankTurn } from "./messageBank";
 import "server-only";
 import { pushToTrainer } from "./push";
 import { serviceClient } from "./supabase";
@@ -56,8 +57,8 @@ export async function runReportReminders(now = new Date()) {
       await pushToTrainer(t.id, { title: subject, body: [...due, ...open].map(line).join(" · ").slice(0, 170), url: "/t/reports", tag: "forms" });
       await sendMail({
         to, subject,
-        text: `Hi ${first},\n${due.length ? `\nDue today:\n${due.map(line).join("\n")}\n` : ""}${open.length ? `\nNow open:\n${open.map(line).join("\n")}\n` : ""}\n${penalty}\nOpen your forms: ${link}`,
-        html: `<div style="background:#f4f5f8;padding:24px 12px;font-family:Arial,sans-serif"><div style="max-width:520px;margin:0 auto;background:#fff;border:1px solid #E7E3F3;border-radius:16px;padding:24px"><img src="cid:dogwise-logo" width="130" alt="Dogwise Academy" style="display:block;margin-bottom:14px"><p style="font-size:16px;font-weight:bold;color:#281870;margin:0 0 10px">Hi ${esc(first)}, ${due.length ? "something is due today" : "a form is ready for you"}</p>
+        text: `${due.length ? `Hi ${first},` : bankMessage("form_ready", bankTurn(t.id, new Date(), 24), { first })}\n${due.length ? `\nDue today:\n${due.map(line).join("\n")}\n` : ""}${open.length ? `\nNow open:\n${open.map(line).join("\n")}\n` : ""}\n${penalty}\nOpen your forms: ${link}`,
+        html: `<div style="background:#f4f5f8;padding:24px 12px;font-family:Arial,sans-serif"><div style="max-width:520px;margin:0 auto;background:#fff;border:1px solid #E7E3F3;border-radius:16px;padding:24px"><img src="cid:dogwise-logo" width="130" alt="Dogwise Academy" style="display:block;margin-bottom:14px"><p style="font-size:16px;font-weight:bold;color:#281870;margin:0 0 10px">${esc(due.length ? `Hi ${first}, something is due today` : bankMessage("form_ready", bankTurn(t.id, new Date(), 24), { first }))}</p>
           ${due.length ? `<p style="font-size:14px;font-weight:bold;color:#C2415D;margin:0 0 4px">Due today</p>${due.map((i) => `<p style="font-size:15px;margin:0 0 6px">${esc(line(i))}</p>`).join("")}` : ""}
           ${open.length ? `<p style="font-size:14px;font-weight:bold;color:#281870;margin:12px 0 4px">Now open</p>${open.map((i) => `<p style="font-size:15px;margin:0 0 6px">${esc(line(i))}</p>`).join("")}` : ""}
           ${penalty ? `<p style="font-size:13px;color:#6B6880;margin:14px 0 0">${esc(penalty)}</p>` : ""}

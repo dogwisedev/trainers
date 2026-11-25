@@ -366,3 +366,12 @@ To do is sorted by whose move it is:
 
 **Park** = "I've done my bit, check back in…": two taps (what you did; in 4 hours, tomorrow 9 AM Eastern, or in 2 days). The item comes back by itself when the time is up, saying what was done ("Back: Anita called the trainer on Sun 5:00 PM. It's still open."), or disappears if the trainer or client acts first. **Three parks at most**: the third button reads "Final park"; after it the item can't be parked again and stays in Needs you until it's dealt with. A client who has waited over 24 hours can't be parked, only answered; a form to review can't be parked. Parked items aren't counted in the menu badge, the office brief or Pulse's "waiting on the office". Every park is kept in `todo_parks` (who, what, when, about which trainer).
 Rows are slimmer: the main action and Park as buttons, Dog and HubSpot as links, and "What the app already did" folded away. The client's wait is worked out live.
+
+## Flagged forms must be acted on (migration 069)
+A form the app's check flagged ("look at this first"), or with a health answer that isn't "all fine", can't be approved until every flag is ticked with a note of what was done (`lib/formFlags.ts`; the server refuses it otherwise). Each one is kept in `report_flag_acks` with who and when (before the migration is run: in the activity log). Sending a form back needs no ticks.
+
+## Messages to trainers, said 75 ways (`lib/messageBank.ts`)
+The app's nudge (text and email), the office's three suggested check-ins (no update, client waiting, late form) and the form reminder's greeting each have 75 wordings: 5 openers × 5 asks × 3 sign-offs, written by hand. A trainer's place in the rotation moves on each time, so two in a row never match. Edit the lists to change the wording.
+
+## Smaller fixes (Nov 25)
+Next.js 14.2.35 and nodemailer 10.6. Saving a payslip writes the new lines before removing the old ones, so a failed save can't empty it. "Stop these emails" now asks on a page with a button (mail scanners opening the link used to switch the emails off). Setup: after `schema.sql`, run every file in `supabase/migrations` in number order.

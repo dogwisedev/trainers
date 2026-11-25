@@ -49,13 +49,17 @@ async function saveDraft(id: string, edit: { lines: EditLine[]; adjustments: num
     if (!now) skip.add(lineKey(p));                                       // deleted: don't bring it back
     else if (lineSig(now) !== lineSig(p)) now.auto = false;               // changed: keep it as they made it
   }
-  await sb.from("payslip_lines").delete().eq("payslip_id", id);
+  // The new lines go in first and the old ones are removed only once they are saved: a failed save can never leave the payslip empty
+  const { data: oldRows, error: oldErr } = await sb.from("payslip_lines").select("id").eq("payslip_id", id);
+  if (oldErr) throw new Error(oldErr.message);
+  const oldIds = ((oldRows || []) as { id: string }[]).map((r) => r.id);
   const rows = edit.lines.map((l, i) => ({
     payslip_id: id, kind: l.kind, booking_id: l.booking_id || null, weeks_completed: l.weeks_completed ?? null, days: l.days ?? null, week_from: l.week_from ?? null,
     pct: l.pct ?? null, client: l.client || null, dog: l.dog || null, program: l.program || null, description: l.description || null,
     amount: Math.round(Number(l.amount || 0) * 100) / 100, auto: !!l.auto, sort: i
   }));
   if (rows.length) { const { error } = await sb.from("payslip_lines").insert(rows); if (error) throw new Error(error.message); }
+  if (oldIds.length) { const { error } = await sb.from("payslip_lines").delete().in("id", oldIds); if (error) throw new Error(`The new lines were saved but the old ones couldn't be removed (${error.message}). Open the payslip and check for doubled lines.`); }
   // Hand edits are remembered line by line; new bookings still appear on the next refresh
   await sb.from("payslips").update({ adjustments: Math.round(Number(edit.adjustments || 0) * 100) / 100, notes: edit.notes?.trim() || null, skip_keys: [...skip], hand_edited: false }).eq("id", id);
   await recalc(sb, id);

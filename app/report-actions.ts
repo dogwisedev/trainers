@@ -1,6 +1,8 @@
 "use server";
 import { confirmMove } from "@/lib/pickup";
-import { coachForm, noteCheckOutcome, noteCoachOutcome } from "@/lib/formCheck";
+import { coachForm, latestCheck, noteCheckOutcome, noteCoachOutcome } from "@/lib/formCheck";
+import { ACK_MIN, formFlags, unacked, type FlagAck } from "@/lib/formFlags";
+import { auditSystem } from "@/lib/audit";
 import { logReason } from "@/lib/work";
 import { answersChange } from "@/lib/aiChange";
 import { draftResult, type HandoverDraft } from "@/lib/handoverDraft";
@@ -149,8 +151,8 @@ async function deliver(id: string, corrected: boolean): Promise<ReportResult> {
   }
 }
 
-export async function approveReportAction(id: string, answers: Answers, media: MediaItem[]): Promise<ReportResult> {
-  return audited("approveReportAction", { id, answers, media }, async () => {
+export async function approveReportAction(id: string, answers: Answers, media: MediaItem[], acks: FlagAck[] = []): Promise<ReportResult> {
+  return audited("approveReportAction", { id, answers, media, acks }, async () => {
   if (isDemo()) return DEMO;
   try {
     const v = await who();
@@ -162,6 +164,19 @@ export async function approveReportAction(id: string, answers: Answers, media: M
     const missing = validate(b.report.kind, a, m, { skip: ["mileage"] }); // forms sent before miles were asked can still be approved
     if (missing.length) return { ok: false, message: b.report.kind === "handover" ? "A few things are still needed before it can go to the client." : "A few things are still needed.", missing };
     const sb = serverClient();
+    // Flagged (by the app's check, or a health answer that isn't "all fine"): every flag needs a tick and what was done about
+    // it, checked here so it can't be skipped. Kept in report_flag_acks (migration 069); before that migration, in the activity log.
+    if (!corrected) {
+      const check = b.report.status === "submitted" ? await latestCheck(serviceClient(), id, b.report.submitted_at).catch(() => null) : null;
+      const flags = formFlags(b.report.kind, a, check), left = unacked(flags, acks);
+      if (left.length) return { ok: false, message: `This form is flagged. Tick each flagged part and write what you did about it (at least ${ACK_MIN} letters) before you approve: ${left.map((f) => f.text).join("; ").slice(0, 400)}` };
+      if (flags.length) {
+        const note = new Map(acks.map((x) => [x.key, String(x.note || "").trim().slice(0, 1000)]));
+        const { error: ackErr } = await serviceClient().from("report_flag_acks").insert(flags.map((f) => ({ report_id: id, booking_id: b.booking.id, trainer_id: b.trainer.id, source: f.source, flag: f.text.slice(0, 500), quote: f.quote?.slice(0, 500) || null, note: note.get(f.key)!, by_user: v.userId, by_name: v.name })));
+        if (ackErr && !/report_flag_acks|schema cache|does not exist/i.test(ackErr.message)) return { ok: false, message: `Couldn't save what you did about the flags, so it isn't approved yet: ${ackErr.message}` };
+        if (ackErr) await auditSystem("Flagged form: flags acknowledged", `${v.name}, ${b.booking.dog_name || "dog"} ${kindName(b.report.kind).toLowerCase()}: ${flags.map((f) => `${f.text} → ${note.get(f.key)}`).join(" | ")}`, { link: `/a/reports/${id}` }).catch(() => null);
+      }
+    }
     const { error } = await sb.from("reports").update({
       answers: a, media: m, status: "approved", approved_by: v.userId, approved_by_name: v.name, approved_at: new Date().toISOString(),
       submitted_at: b.report.submitted_at || new Date().toISOString(), review_note: null
