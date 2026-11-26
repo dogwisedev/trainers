@@ -237,7 +237,7 @@ export const hasTrainerPhoto = (media: MediaItem[]) => media.some((m) => m.slot 
 /** What each form asks for in photos and videos. They're added on the form and posted in the dog's chat too (components/FormUpload.tsx). */
 export const MEDIA_ADVICE: Record<Kind, string> = {
   intake: "Add the pickup photos and a video (show any injuries, cuts, scars or missing parts clearly).",
-  weekly: "Add this week's photos and videos.",
+  weekly: "Add this week's snout to tail photos and videos: the whole dog, nose to tail.",
   handover: "Add a photo of you with the dog, or pick one that's already in the chat."
 };
 

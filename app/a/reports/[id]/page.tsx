@@ -37,7 +37,7 @@ export default async function AdminReport({ params }: { params: { id: string } }
       )}
       <ReportForm aiCheck={check ? { verdict: check.verdict, points: check.points } : null} id={r.id} kind={r.kind} mode="admin" status={r.status} bookingId={booking.id} week={r.week_number} initialAnswers={r.answers} initialMedia={r.media}
         startDate={booking.start_date} endDate={booking.end_date} submittedAt={r.submitted_at} reviewNote={r.review_note} due={r.due_by} late={b.late} demo={isDemo()} chatId={b.chat?.id ?? null}
-        meta={{ approvedBy: r.approved_by_name, approvedAt: r.approved_at, sentTo: r.sent_to, sentAt: r.sent_at, error: r.send_error, byAdmin: r.by_admin, waivedBy: r.waived_by, waivedAt: r.waived_at }} />
+        meta={{ approvedBy: r.approved_by_name, approvedAt: r.approved_at, sentTo: r.sent_to, sentAt: r.sent_at, error: r.send_error, byAdmin: r.by_admin, waivedBy: r.waived_by, waivedAt: r.waived_at, mediaSentAt: (r as { media_sent_at?: string | null }).media_sent_at || null }} />
     </>
   );
 }

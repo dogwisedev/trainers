@@ -1,5 +1,6 @@
 "use server";
 import { confirmMove } from "@/lib/pickup";
+import { notifyMessage } from "@/lib/chatNotify";
 import { coachForm, latestCheck, noteCheckOutcome, noteCoachOutcome } from "@/lib/formCheck";
 import { ACK_MIN, formFlags, unacked, type FlagAck } from "@/lib/formFlags";
 import { auditSystem } from "@/lib/audit";
@@ -151,7 +152,44 @@ async function deliver(id: string, corrected: boolean): Promise<ReportResult> {
   }
 }
 
-export async function approveReportAction(id: string, answers: Answers, media: MediaItem[], acks: FlagAck[] = []): Promise<ReportResult> {
+/** Weekly health check media ("Snout to tail") waits with the form; this posts it in the dog's chat, once, from the office.
+ *  Only after the form is approved (migration 071). */
+const SNOUT = "Snout to tail";
+async function sendHeldMedia(id: string, by: string): Promise<ReportResult> {
+  const b = await getReport(id);
+  if (!b) return { ok: false, message: "Report not found." };
+  if (b.report.kind !== "weekly") return { ok: false, message: "Only weekly health checks hold their photos and videos." };
+  if (b.report.status !== "approved") return { ok: false, message: "Approve the form first: its photos and videos only go to the chat after that." };
+  const items = (b.report.media || []).filter((m) => m.slot === "health");
+  if (!items.length) return { ok: false, message: "This form has no photos or videos." };
+  if (!b.chat?.id) return { ok: false, message: "This dog has no open chat to send them to." };
+  const sb = serverClient(), svc = serviceClient();
+  // Claimed first, so two people pressing at once can't send it twice
+  const { data: claimed, error: cErr } = await svc.from("reports").update({ media_sent_at: new Date().toISOString(), media_sent_by: by }).eq("id", id).is("media_sent_at", null).select("id");
+  if (cErr) return { ok: false, message: /media_sent|schema cache/i.test(cErr.message) ? "Run migration 071 in Supabase first." : cErr.message };
+  if (!claimed?.length) return { ok: false, message: "These were already sent to the chat." };
+  const msgId = crypto.randomUUID();
+  const { error } = await sb.from("chat_messages").insert({ id: msgId, chat_id: b.chat.id, kind: "media", body: SNOUT, media: items.map((m) => ({ id: m.id, name: m.name, kind: m.kind, size: m.size })) });
+  if (error) {
+    await svc.from("reports").update({ media_sent_at: null, media_sent_by: null }).eq("id", id);
+    return { ok: false, message: `Couldn't post them in the chat: ${error.message}` };
+  }
+  await notifyMessage(msgId, undefined, { fromSender: true }).catch(() => false);
+  revalidatePath("/", "layout");
+  return { ok: true, message: `${items.length} ${SNOUT.toLowerCase()} photo${items.length > 1 ? "s/videos" : " or video"} sent to the chat.` };
+}
+export async function sendFormMediaAction(id: string): Promise<ReportResult> {
+  return audited("sendFormMediaAction", { id }, async () => {
+    if (isDemo()) return DEMO;
+    try {
+      const v = await who();
+      if (v.role !== "admin") return { ok: false, message: "Admins only." };
+      return await sendHeldMedia(id, v.name);
+    } catch (e) { return { ok: false, message: (e as Error).message }; }
+  });
+}
+
+export async function approveReportAction(id: string, answers: Answers, media: MediaItem[], acks: FlagAck[] = [], sendMedia = false): Promise<ReportResult> {
   return audited("approveReportAction", { id, answers, media, acks }, async () => {
   if (isDemo()) return DEMO;
   try {
@@ -190,7 +228,9 @@ export async function approveReportAction(id: string, answers: Answers, media: M
       // Intake forms and weekly health checks stay internal: "approve" just means an admin has looked at it.
       const { data: nxt } = await sb.from("reports").select("id").eq("status", "submitted").neq("id", id).order("submitted_at", { ascending: true }).limit(1);
       revalidatePath("/", "layout");
-      return { ok: true, message: "Marked as reviewed.", nextId: nxt?.[0]?.id || null };
+      // "Send media in chat when I approve": only now, after the approval is saved
+      const sentMedia = sendMedia && !corrected && b.report.kind === "weekly" ? await sendHeldMedia(id, v.name) : null;
+      return { ok: true, message: `Marked as reviewed.${sentMedia ? ` ${sentMedia.ok ? sentMedia.message : `The photos and videos were NOT sent: ${sentMedia.message}`}` : ""}`, nextId: nxt?.[0]?.id || null };
     }
     if (s(a.clientEmail) && s(a.clientEmail) !== (b.booking.client_email || "")) await sb.from("bookings").update({ client_email: s(a.clientEmail) }).eq("id", b.booking.id);
     await resolveIncidents({ kinds: ["handover_photo_missing"], reportId: id }, v.name, hasTrainerPhoto(m) ? "Photo added" : "Approved without the photo");

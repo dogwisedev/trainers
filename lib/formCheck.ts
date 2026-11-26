@@ -71,7 +71,7 @@ export async function checkForm(reportId: string, sb: SupabaseClient = serviceCl
     if (!aiOn()) return null;
     const cfg = await aiSettings(sb);
     if (cfg.formCheck === "off") return null;
-    const { data: r } = await sb.from("reports").select("id, booking_id, trainer_id, kind, week_number, status, answers, submitted_at").eq("id", reportId).maybeSingle();
+    const { data: r } = await sb.from("reports").select("id, booking_id, trainer_id, kind, week_number, status, answers, submitted_at, media").eq("id", reportId).maybeSingle();
     const rep = r as Report | null;
     if (!rep || rep.status !== "submitted") return null;
     const had = await latestCheck(sb, rep.id, rep.submitted_at);
@@ -89,7 +89,8 @@ export async function checkForm(reportId: string, sb: SupabaseClient = serviceCl
     const { data: row, error } = await sb.from("ai_form_checks").insert({ report_id: rep.id, kind: rep.kind, trainer_id: rep.trainer_id, verdict, points: verdict === "ok" ? [] : points, model: writerModel() }).select("id, verdict, points, created_at, outcome").single();
     if (error || !row) return null;
     // Approve it itself? Only what stays internal, only when there is nothing at all to look at
-    if (cfg.formCheck === "auto" && verdict === "ok" && rep.kind !== "handover" && !healthFlags(rep.kind, a).length && !isSpotCheck(rep.id)) {
+    if (cfg.formCheck === "auto" && verdict === "ok" && rep.kind !== "handover" && !healthFlags(rep.kind, a).length && !isSpotCheck(rep.id)
+      && !(Array.isArray((rep as unknown as { media?: unknown[] }).media) && (rep as unknown as { media: unknown[] }).media.length)) { // photos or videos waiting with the form: a person watches them first
       const { data: inc } = await sb.from("chat_incidents").select("id").eq("report_id", rep.id).neq("status", "resolved").limit(1);
       if (!inc?.length) {
         const now = new Date().toISOString();
@@ -157,7 +158,7 @@ const COACH = `You help a dog trainer at Dogwise Academy (a dog board-and-train 
 
 List at most 3 things the trainer should add or fix, the most important first. Write to the trainer: "you", friendly, one short sentence each, saying exactly what is missing and where. For example: "You said yes to skin, but not where or since when." or "Bradley asked about door manners: there's no item for it yet."
 Never write their answers for them and never suggest the words to use: say what is missing, they write it.
-If something sounds like a health or welfare worry (not eating, weight loss, diarrhea, a wound, limping, a bite), end that tip with "and tell the office in the chat".
+If something sounds like a health or welfare worry (not eating, weight loss, diarrhea, a wound, limping, a bite), end that tip with "and message the Dogwise team about it" (their own thread with the office, never the dog's chat, which the owner reads).
 Do not nitpick style, spelling or length when the meaning is clear. If the form is good, return no tips.
 
 Answer with JSON only: {"tips":["..."]}`;

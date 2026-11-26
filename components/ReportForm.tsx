@@ -3,9 +3,12 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Plus } from "lucide-react";
-import { approveReportAction, coachReportAction, resendReportAction, saveReportAction, sendBackAction, submitReportAction, ReportResult } from "@/app/report-actions";
+import { approveReportAction, sendFormMediaAction, coachReportAction, resendReportAction, saveReportAction, sendBackAction, submitReportAction, ReportResult } from "@/app/report-actions";
 import { MediaPicker } from "@/components/MediaPicker";
 import { FormUpload } from "@/components/FormUpload";
+import { FormHeldUpload } from "@/components/FormHeldUpload";
+import { MediaCard, MediaViewer } from "@/components/MediaViewer";
+import type { MediaRef } from "@/lib/chatTypes";
 import { Answers, Field, HANDOVER_AFTER, HANDOVER_ROUTE, HANDOVER_SIMPLE, INTAKE_SECTIONS, Item, Kind, MEDIA_ADVICE, MediaItem, Status, WEEKLY_SECTIONS, arr, deadlineHint, hasTrainerPhoto, raw, rawItems, s, validate } from "@/lib/reports";
 import { buildReport, reportHtml } from "@/lib/reportDoc";
 import { WaiveButton } from "@/components/WaiveButton";
@@ -19,7 +22,7 @@ type Props = {
   /** Admin: the app's check of this submitted form. Trainer: the handover the app drafted from the chat. */
   aiCheck?: { verdict: "ok" | "check"; points: { point: string; quote?: string }[] } | null;
   aiDraft?: { fields?: Record<string, unknown>; missing?: string[]; thin?: boolean } | null;
-  meta: { approvedBy: string | null; approvedAt: string | null; sentTo: string | null; sentAt: string | null; error: string | null; byAdmin: boolean; waivedBy?: string | null; waivedAt?: string | null };
+  meta: { approvedBy: string | null; approvedAt: string | null; sentTo: string | null; sentAt: string | null; error: string | null; byAdmin: boolean; waivedBy?: string | null; waivedAt?: string | null; mediaSentAt?: string | null };
 };
 
 function Chips({ name, options, value, multi, onChange }: { name: string; options: string[]; value: string[]; multi: boolean; onChange: (v: string[]) => void }) {
@@ -117,6 +120,13 @@ export function ReportForm(p: Props) {
       .catch(() => ({ tips: [] as string[] }))
       .then((r) => { setChecking(false); if (r.tips.length) setTips(r.tips); else if (window.confirm("Looks good. Send it to the office?")) send(); });
   };
+  // Weekly health check media ("Snout to tail"): kept with the form, sent to the chat by the office after approval
+  const SNOUT = "Snout to tail";
+  const snout = p.kind === "weekly" ? media.filter((m) => m.slot === "health") : [];
+  const attachSnout = (items: Omit<MediaItem, "slot" | "description">[]) => { setMedia((cur) => [...cur, ...items.filter((i) => !cur.some((m) => m.id === i.id)).map((i) => ({ ...i, slot: "health" as const, description: SNOUT }))]); setDirty(true); };
+  const [viewing, setViewing] = useState<MediaRef | null>(null);
+  const [sendMedia, setSendMedia] = useState(false);
+  const [mediaSent, setMediaSent] = useState<string | null>(p.meta.mediaSentAt || null);
   // Flagged parts (the app's check, health answers that aren't "all fine"): each needs a tick and what was done, or it can't be approved
   const [acks, setAcks] = useState<Record<string, { done: boolean; note: string }>>({});
   const flagBox = useRef<HTMLDivElement>(null);
@@ -125,7 +135,7 @@ export function ReportForm(p: Props) {
   const flagsLeft = unacked(flags, ackList);
   const approve = () => { if (missing.length) { setShowMissing(true); window.scrollTo({ top: 0, behavior: "smooth" }); return; }
     if (flagsLeft.length) { setRes({ ok: false, message: `${flagsLeft.length} flagged part${flagsLeft.length > 1 ? "s" : ""} still to act on: tick ${flagsLeft.length > 1 ? "each one" : "it"} and write what you did.` }); flagBox.current?.scrollIntoView({ behavior: "smooth", block: "center" }); return; }
-    if (p.kind !== "handover" || window.confirm(`Send this ${p.status === "approved" ? "corrected " : ""}report to ${s(answers.clientEmail)}?`)) run(() => approveReportAction(p.id, answers, media, ackList), (r) => { if (r.ok) { setEditing(false); router.push(r.nextId ? `/a/reports/${r.nextId}` : "/a"); router.refresh(); } else { window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" }); router.refresh(); } }); };
+    if (p.kind !== "handover" || window.confirm(`Send this ${p.status === "approved" ? "corrected " : ""}report to ${s(answers.clientEmail)}?`)) run(() => approveReportAction(p.id, answers, media, ackList, sendMedia && snout.length > 0), (r) => { if (r.ok) { setEditing(false); router.push(r.nextId ? `/a/reports/${r.nextId}` : "/a"); router.refresh(); } else { window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" }); router.refresh(); } }); };
 
   const ro = !editable;
   const view = useMemo(() => buildReport(p.kind, answers, media, { startDate: p.startDate, endDate: p.endDate, submittedAt: p.submittedAt }), [p.kind, answers, media, p.startDate, p.endDate, p.submittedAt]);
@@ -193,6 +203,20 @@ export function ReportForm(p: Props) {
           <ul className="mt-1.5 space-y-2">{p.aiCheck.points.map((x, i) => <li key={i}>{x.point}{x.quote && <span className="mt-0.5 block border-l-2 border-biscuit pl-2 text-small italic">&ldquo;{x.quote}&rdquo;</span>}</li>)}</ul>
         </div>
       ))}
+      {p.mode === "admin" && snout.length > 0 && (
+        <div className="rounded-[18px] border border-line bg-white p-4 text-body">
+          <p className="font-bold">{SNOUT} photos and videos: {mediaSent ? `sent to the chat ${new Date(mediaSent).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : "not in the chat yet"}</p>
+          {!mediaSent && <p className="mt-0.5 text-small text-ink-soft">The client can&apos;t see these. Watch them first. If there&apos;s anything a client could worry about, explain it in the chat before you send them.</p>}
+          {!mediaSent && p.status !== "approved" && (
+            <label className="mt-3 flex min-h-[44px] cursor-pointer items-center gap-2.5 rounded-xl border border-line px-3"><input type="checkbox" className="h-5 w-5" checked={sendMedia} onChange={(e) => setSendMedia(e.target.checked)} /><span>Send media in chat when I approve</span></label>
+          )}
+          {!mediaSent && p.status === "approved" && !editing && (
+            <button type="button" className="btn-ink mt-3" disabled={pending} onClick={() => { if (window.confirm(`Send ${snout.length} ${SNOUT.toLowerCase()} photo${snout.length > 1 ? "s/videos" : " or video"} to the client's chat now?`)) run(() => sendFormMediaAction(p.id), (r) => { if (r.ok) { setMediaSent(new Date().toISOString()); router.refresh(); } }); }}>{pending ? "Sending…" : "Send media in chat"}</button>
+          )}
+          {!mediaSent && p.status !== "approved" && <p className="mt-2 text-small text-ink-soft">Or approve without sending: the button to send them stays here afterwards.</p>}
+        </div>
+      )}
+      <MediaViewer m={viewing} onClose={() => setViewing(null)} />
       {flags.length > 0 && (
         <div ref={flagBox} className="rounded-[18px] border-2 border-heart bg-white p-4 text-body">
           <p className="font-bold text-heart">Flagged: act on {flags.length > 1 ? `these ${flags.length}` : "this"} before you approve</p>
@@ -248,9 +272,24 @@ export function ReportForm(p: Props) {
               {p.kind !== "handover" && (
                 <div className="space-y-2">
                   <p className={`rounded-xl p-3 text-body ${p.kind === "intake" ? "bg-biscuit-wash font-semibold text-warn" : "bg-paper"}`}>{MEDIA_ADVICE[p.kind]} {chatHref && <Link prefetch={false} href={chatHref} className="font-normal underline">Open the chat</Link>}</p>
-                  {/* Only posts to the chat (the form isn't changed), so it stays available after the form is sent in */}
-                  {!waived && <FormUpload chatId={p.chatId} bookingId={p.bookingId} demo={p.demo} label="Add photos or videos"
-                    caption={p.kind === "intake" ? `Pickup photos and video of ${s(answers.dogName) || "the dog"}` : `Week ${p.week ?? ""} health check`.replace("  ", " ")} />}
+                  {/* Intake: posts to the chat (the form isn't changed), so it stays available after the form is sent in */}
+                  {!waived && p.kind === "intake" && <FormUpload chatId={p.chatId} bookingId={p.bookingId} demo={p.demo} label="Add photos or videos"
+                    caption={`Pickup photos and video of ${s(answers.dogName) || "the dog"}`} />}
+                  {/* Weekly health check: "Snout to tail". Kept with the form; the office sends it to the chat after approving (migration 071) */}
+                  {p.kind === "weekly" && (
+                    <div className="space-y-2">
+                      {p.mode === "trainer" && <div className="rounded-xl border-2 border-heart bg-heart-wash p-3 text-body"><p className="font-extrabold text-heart">This will be shown to the customer.</p><p className="mt-0.5">Film it as if the owner is standing next to you. If there&apos;s anything to see (a scratch, a cut, a sore spot), say on the video what it is and what you did about it, and write it in the form.</p></div>}
+                      {editable && !waived && <FormHeldUpload bookingId={p.bookingId} demo={p.demo} label="Add snout to tail photos or videos" onAdded={attachSnout} />}
+                      {snout.length > 0 && (
+                        <div>
+                          <p className="text-small font-semibold">{SNOUT}: {snout.length} added</p>
+                          <div className="mt-1.5 flex flex-wrap gap-2">{snout.map((m) => (
+                            <span key={m.id} className="relative"><MediaCard m={m as MediaRef} onOpen={setViewing} />
+                              {editable && <button type="button" className="absolute right-1 top-1 rounded-full bg-white/90 px-2 text-small font-bold text-heart" aria-label={`Remove ${m.name}`} onClick={() => setM(media.filter((x) => x.id !== m.id))}>×</button>}</span>))}</div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
               {p.kind === "handover" && (

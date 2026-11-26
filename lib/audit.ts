@@ -22,7 +22,7 @@ const LABEL: Record<string, string> = {
   sendSummaryAgainAction: "Re-sent a chat summary", setClientEmailsAction: "Changed client chat emails", savePayslipAction: "Edited a payslip",
   approveAndSendAction: "Approved and sent a payslip", approveAction: "Approved a payslip", approveManyAction: "Approved several payslips",
   correctAndResendAction: "Corrected and re-sent a payslip", resendAction: "Re-sent a payslip", reopenAction: "Reopened a payslip", saveRatesAction: "Saved pay rates",
-  submitReportAction: "Submitted a form", approveReportAction: "Approved a form", sendBackAction: "Sent a form back", resendReportAction: "Re-sent a form to the client",
+  submitReportAction: "Submitted a form", approveReportAction: "Approved a form", sendFormMediaAction: "Sent a health check's photos and videos to the chat", sendBackAction: "Sent a form back", resendReportAction: "Re-sent a form to the client",
   setReportsEnabledAction: "Turned forms on/off for a dog", waiveReportAction: "Marked a form not needed", unwaiveReportAction: "Brought back a form",
   saveProfileAction: "Edited before-training answers", reviewVaccinesAction: "Checked vaccines", setClearedAction: "Changed 'OK to start'", setSlotAction: "Changed which dog is which on a deal",
   signInPassword: "Signed in with their password", signInFailed: "Tried to sign in: wrong email or password", signInLinkSent: "Asked for a sign-in link by email",
