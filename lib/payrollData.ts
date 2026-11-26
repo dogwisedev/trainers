@@ -56,6 +56,19 @@ export async function getRates(trainerId: string): Promise<Rates> {
   return data ? { ...EMPTY_RATES, ...data, report_deduction: Number(data.report_deduction ?? 100) } as Rates : EMPTY_RATES;
 }
 
+// Bookings for pay between two days: every live one, and those cancelled mid-program with "pay the days with the trainer"
+// (migration 070). Before that migration is run, the same as it always was.
+const PAY_COLS = "id, trainer_id, client_name, dog_name, start_date, end_date, weeks, extra_days, rehab, status";
+async function payBookings(sb: SupabaseClient, from: string, to: string, trainerId?: string): Promise<BookingLike[]> {
+  let q = sb.from("bookings").select(`${PAY_COLS}, left_on, end_pay, unpaid_days`).or("status.neq.cancelled,end_pay.eq.days").lte("start_date", to).gte("end_date", from);
+  if (trainerId) q = q.eq("trainer_id", trainerId);
+  const r = await q;
+  if (!r.error) return (r.data || []) as BookingLike[];
+  let old = sb.from("bookings").select(PAY_COLS).neq("status", "cancelled").lte("start_date", to).gte("end_date", from);
+  if (trainerId) old = old.eq("trainer_id", trainerId);
+  return ((await old).data || []) as BookingLike[];
+}
+
 // ── Building drafts ─────────────────────────────────────────────────────
 /** Creates the run if needed and (re)builds every draft from bookings. Approved payslips are never touched; manual lines are kept. */
 /** Rebuilds the run's draft payslips from bookings, trips and follow-ups (hand edits kept, approved ones left alone). `onlyTrainer`: just that trainer's payslip. */
@@ -72,9 +85,9 @@ export async function buildDrafts(sb: SupabaseClient, submitDate: string, onlyTr
   // key, whoever asked for the rebuild. Read as the signed-in admin (the Payslips list, Refresh drafts, opening a payslip)
   // they came back empty, and every refresh dropped the mileage and follow-up session lines the Monday job had added.
   const svc = isDemo() ? sb : serviceClient();
-  const [{ data: trainers }, { data: bookings }, { data: rateRows }, { data: existing }, { data: tripRows }, { data: fupRows }] = await Promise.all([
+  const bookings = await payBookings(sb, r.weeks[0], lastDay);
+  const [{ data: trainers }, { data: rateRows }, { data: existing }, { data: tripRows }, { data: fupRows }] = await Promise.all([
     sb.from("trainers").select("id, name, address, probation, probation_release_run, probation_release_amount"),
-    sb.from("bookings").select("id, trainer_id, client_name, dog_name, start_date, end_date, weeks, extra_days, rehab, status").neq("status", "cancelled").lte("start_date", lastDay).gte("end_date", r.weeks[0]),
     sb.from("trainer_rates").select("*"),
     sb.from("payslips").select("id, trainer_id, status, adjustments, total, hand_edited, skip_keys, payslip_lines(id, booking_id, kind, auto, days, weeks_completed, amount, program, client, dog)").eq("pay_run_id", run.id),
     // Trips in these two weeks (pickups, drop-offs, follow-up sessions), for mileage pay. No table yet = no mileage lines.
@@ -213,10 +226,7 @@ export async function getPayslip(id: string) {
     sb.from("trainers").select("*").eq("id", slip.trainer_id).maybeSingle()
   ]);
   const r = run as Run;
-  const [{ data: bookings }, rates] = await Promise.all([
-    sb.from("bookings").select("id, trainer_id, client_name, dog_name, start_date, end_date, weeks, extra_days, rehab, status").eq("trainer_id", slip.trainer_id).neq("status", "cancelled").lte("start_date", addDays(r.period_start, 13)).gte("end_date", addDays(r.period_start, -21)),
-    getRates(slip.trainer_id)
-  ]);
+  const [bookings, rates] = await Promise.all([payBookings(sb, addDays(r.period_start, -21), addDays(r.period_start, 13), slip.trainer_id), getRates(slip.trainer_id)]);
   const followupOnly = await followupOnlyIds(sb);
   return { slip: slip as Slip, run: r, lines: (lines || []) as Line[], trainer: trainer as Trainer | null, rates, bookings: ((bookings || []) as BookingLike[]).filter((b) => !followupOnly.has(b.id)) };
 }

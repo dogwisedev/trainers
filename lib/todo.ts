@@ -202,6 +202,8 @@ async function buildTodoUncached(): Promise<TodoData> {
       case "booking_cancelled": {
         // Postponed (on standby, waiting for new dates): the dog's POC follows it up, nothing to refund. A real cancellation: Sean decides.
         if (/\bpostponed\b/i.test(i.detail || "")) { add({ group: "now", tone: "biscuit", text: `${dog}'s training is postponed: on standby until new dates`, primary: deal ? { label: "HubSpot deal", href: deal, external: true } : undefined }); break; }
+        // Cancelled mid-program (migration 070): the trainer's pay was chosen when it was cancelled, so only the client's refund is Sean's
+        if (/Trainer pay:/.test(i.detail || "")) { add({ group: "now", tone: "heart", decision: true, poc: moneyOwner, text: `Money ask (Sean decides): ${dog}'s training was cancelled mid-program, refund for the client?`, primary: deal ? { label: "HubSpot deal", href: deal, external: true } : undefined }); break; }
         add({ group: "now", tone: "heart", decision: true, poc: moneyOwner, text: `Money ask (Sean decides): ${dog}'s training was cancelled, refund or partial pay?`, primary: deal ? { label: "HubSpot deal", href: deal, external: true } : undefined }); break;
       }
       case "hubspot_problem":

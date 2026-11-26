@@ -11,6 +11,7 @@ export type BookingStatus = "pending" | "confirmed" | "in_training" | "completed
 export type Booking = {
   id: string; trainer_id: string; client_name: string; dog_name: string | null; program: string | null;
   start_date: string; end_date: string; weeks: number | null; status: BookingStatus; notes: string | null; hubspot_deal_id: string | null; source?: string | null; rehab?: boolean | null; extra_days?: number | null; client_email?: string | null; reports_enabled?: boolean | null; drive_folder_url?: string | null; notified_at?: string | null;
+  left_on?: string | null; end_kind?: "cancelled_mid" | "finished_early" | null; end_pay?: "days" | "none" | null; unpaid_days?: number | null; // ending early and pro bono days (migration 070)
 };
 export type TimeOff = { id: string; trainer_id: string; start_date: string; end_date: string; slots_blocked: number | null; reason: string; note: string | null };
 export type Message = { id: string; trainer_id: string; sender_role: "admin" | "trainer"; sender_name: string | null; body: string; created_at: string; read_at: string | null };

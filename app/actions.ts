@@ -321,6 +321,11 @@ export async function saveBooking(_: Result | null, f: FormData): Promise<Result
   const twice = dogs.filter((d) => liveRows.some((b) => sameDog(b.dog_name, d)));
   if (twice.length) return { ok: false, message: `${twice.join(" & ")} ${twice.length > 1 ? "are" : "is"} already booked on this deal (with ${liveRows[0]?.trainers?.name || "a trainer"}). Change that booking instead.` };
 
+  // The same deal already booked with ANOTHER trainer is nearly always the same program booked twice (a dog's name typed
+  // differently gets past the check above). "Book anyway" is for the rare deal whose dogs really go to different trainers.
+  const elsewhere = liveRows.filter((b) => b.trainer_id !== trainerId);
+  if (elsewhere.length && f.get("force") !== "on") return { ok: false, message: `This deal is already booked with ${elsewhere[0].trainers?.name || "another trainer"} (${elsewhere.map((b) => b.dog_name || "a dog").join(" & ")}). Moving the program to a different trainer? Open that booking and use "Change trainer". If this really is another dog going to a different trainer, tick "Book anyway".` };
+
   const { data: t } = await sb.from("trainers").select("*").eq("id", trainerId).maybeSingle();
   if (!t || !t.active) return { ok: false, message: "That trainer isn't active in the app." };
   const rows = dogs.map((dog) => ({
@@ -518,8 +523,9 @@ export async function setBookingStatus(id: string, status: string): Promise<Resu
  * calendar cancellation, the office gets a "Training cancelled" alert (refund or partial pay), and the kennel frees up.
  * The reason goes to the office alert and the booking, not to the trainer's email.
  */
-export async function cancelTrainingAction(id: string, reason: string, note: string): Promise<Result> {
-  return audited("cancelTrainingAction", { id, reason, note }, async () => {
+/** `mid` (migration 070): cancelled after pickup. The day the dog left, and whether the trainer is paid for the days with them. */
+export async function cancelTrainingAction(id: string, reason: string, note: string, mid?: { leftOn: string; pay: "days" | "none" }): Promise<Result> {
+  return audited("cancelTrainingAction", { id, reason, note, ...(mid ? { leftOn: mid.leftOn, trainerPay: mid.pay } : {}) }, async () => {
   if (isDemo()) return DEMO;
   const v = await viewerOrThrow();
   if (v.role !== "admin") return { ok: false, message: "Admins only." };
@@ -530,6 +536,18 @@ export async function cancelTrainingAction(id: string, reason: string, note: str
   const { data: before } = await sb.from("bookings").select("status, dog_name, client_name, start_date, end_date, trainer_id, hubspot_deal_id, trainers(name)").eq("id", id).maybeSingle();
   if (!before) return { ok: false, message: "Booking not found." };
   if (before.status === "cancelled") return { ok: false, message: "It's already cancelled." };
+  // Cancelled mid-program: the admin says when the dog left and whether the days with the trainer are paid. The payslip follows.
+  const started = before.start_date <= todayIso();
+  if (started && !mid) return { ok: false, message: "This training has started: say when the dog left and whether the trainer is paid for the days." };
+  let payNote = "";
+  if (mid && started) {
+    if (mid.pay !== "days" && mid.pay !== "none") return { ok: false, message: "Choose whether the trainer is paid for the days." };
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(mid.leftOn) || mid.leftOn < before.start_date || mid.leftOn > before.end_date || mid.leftOn > addDays(todayIso(), 1)) return { ok: false, message: `The day the dog left must be between ${short(before.start_date)} and today.` };
+    const { error: e070 } = await sb.from("bookings").update({ left_on: mid.leftOn, end_kind: "cancelled_mid", end_pay: mid.pay, ended_by: v.name, ended_at: new Date().toISOString() }).eq("id", id);
+    if (e070) return { ok: false, message: /left_on|end_kind|end_pay|ended_|schema cache/i.test(e070.message) ? "Run migration 070 in Supabase first (cancelling mid-program)." : e070.message };
+    const n = daysBetween(before.start_date, mid.leftOn);
+    payNote = ` Trainer pay: ${mid.pay === "days" ? `paid for the ${n} day${n === 1 ? "" : "s"} with them (to ${short(mid.leftOn)})` : "no payment for the days with them"}, chosen by ${v.name}.`;
+  }
   let { error } = await sb.from("bookings").update({ status: "cancelled", cancel_reason: why, cancel_note: more || null, cancelled_at: new Date().toISOString(), cancelled_by: v.name }).eq("id", id);
   let unsaved = "";
   if (error && /cancel_reason|cancel_note|cancelled_at|cancelled_by|column|schema cache/i.test(error.message)) {
@@ -543,14 +561,14 @@ export async function cancelTrainingAction(id: string, reason: string, note: str
   await raiseIncident({
     kind: "booking_cancelled", office: true, ref: `booking:${id}`, bookingId: id,
     title: `${b.dog_name || "Dog"} (${b.client_name}), ${b.trainers?.name || "trainer"}`,
-    detail: `${v.name} cancelled ${b.dog_name || "the dog"}'s training in the app (${short(b.start_date)} to ${short(b.end_date)}). Why: ${why}${more ? `: ${more}` : ""}.${b.hubspot_deal_id ? " Update the HubSpot deal too." : ""}`,
+    detail: `${v.name} cancelled ${b.dog_name || "the dog"}'s training in the app (${short(b.start_date)} to ${short(b.end_date)}). Why: ${why}${more ? `: ${more}` : ""}.${payNote}${b.hubspot_deal_id ? " Update the HubSpot deal too." : ""}`,
     link: b.hubspot_deal_id ? `https://app.hubspot.com/contacts/21869370/record/0-3/${b.hubspot_deal_id}` : `${site}/a/trainers/${b.trainer_id}`
   });
   const sentNote = notifySummary(await notifyBookings(sb, [id], "cancelled"));
   // HubSpot: Client Status = Cancelled, with HubSpot's Cancellation Reason and the note as Cancellation Info
   let hsNote = "";
   if (b.hubspot_deal_id) { try { await hubspotCancelled(b.hubspot_deal_id, why, more); hsNote = " HubSpot updated."; } catch (e) { hsNote = ` HubSpot wasn't updated (${(e as Error).message}): set Client Status to Cancelled there.`; } }
-  return { ok: true, message: `Training cancelled.${sentNote}${unsaved}${hsNote}` };
+  return { ok: true, message: `Training cancelled.${payNote}${sentNote}${unsaved}${hsNote}` };
 });
 }
 

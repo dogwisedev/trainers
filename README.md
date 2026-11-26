@@ -375,3 +375,10 @@ The app's nudge (text and email), the office's three suggested check-ins (no upd
 
 ## Smaller fixes (Nov 25)
 Next.js 14.2.35 and nodemailer 10.6. Saving a payslip writes the new lines before removing the old ones, so a failed save can't empty it. "Stop these emails" now asks on a page with a button (mail scanners opening the link used to switch the emails off). Setup: after `schema.sql`, run every file in `supabase/migrations` in number order.
+
+## Ending a stay, extending it, and pro bono days (migration 070)
+All on the dog page, admins only. Pay follows by itself (`lib/payroll.ts`, `draftLines`); payslips already approved are never touched, and the person is told when one covers days that changed.
+- **Cancel training**, once the training has started, asks "Is this a mid-training cancel?". **Yes**: cancelled as before (HubSpot Client Status, the trainer's calendar), plus the day the dog left and "pay the days with the trainer" or "no payment"; only the client's refund goes to Sean. **No, finished early**: the program ends on the day the dog left, the new end date goes to HubSpot, and nothing goes to Sean. Same pay question.
+- **Extend**: a new drop-off date, written to HubSpot (the deal's end is the last dog's). Paid at the trainer's usual day rate, or **Pro bono**: the kennel stays taken and the dog is tracked, but the added days aren't on the payslip (`bookings.unpaid_days`, the last days of the stay).
+- **Booked by mistake? Remove it** (before pickup): deletes the booking quietly. Nothing to HubSpot, the client or Sean; the deal's chat moves to the trainer who still has the dog; the other trainer's calendar is cleared if the box is ticked. Kept in the activity log.
+- Booking a deal that is already booked with another trainer is refused ("use Change trainer") unless "Book anyway" is ticked.

@@ -7,7 +7,7 @@ import { dealKey } from "@/lib/chatTypes";
 import type { ChatRow } from "@/lib/chatTypes";
 import type { Booking } from "@/lib/types";
 import { etParts, INCIDENT_LABEL, IncidentKind } from "@/lib/chatRules";
-import { daysBetween, short } from "@/lib/dates";
+import { addDays, daysBetween, short } from "@/lib/dates";
 import { beforeApp, expectedReports, kindName, Kind, Status } from "@/lib/reports";
 import { datesFromHubspot } from "@/lib/hubspot";
 import { loadProfile, readinessFor } from "@/lib/pretraining";
@@ -22,6 +22,7 @@ import { dealTraining } from "@/lib/training";
 import { PROGRAMS, programFor } from "@/lib/programs";
 import { emailTrainerAboutBooking } from "@/app/actions";
 import { CancelTraining } from "@/components/CancelTraining";
+import { ExtendStay, RemoveMistake } from "@/components/StayActions";
 import { PostponeTraining } from "@/components/PostponeTraining";
 import { MarkMove } from "@/components/BookingDecision";
 import { CONFIRM_FROM, droppedOff, pickedUp } from "@/lib/moveRules";
@@ -202,7 +203,12 @@ export default async function DogPageView({ params, searchParams }: { params: { 
                 {b.status !== "cancelled" && !(b as { picked_up_at?: string | null }).picked_up_at && b.start_date >= CONFIRM_FROM && <MarkMove bookingId={b.id} move="pickup" />}
                 {b.status !== "cancelled" && !!(b as { picked_up_at?: string | null }).picked_up_at && !(b as { dropped_off_at?: string | null }).dropped_off_at && b.end_date >= CONFIRM_FROM && <MarkMove bookingId={b.id} move="dropoff" />}
                 {b.status !== "cancelled" && b.hubspot_deal_id && <PostponeTraining bookingId={b.id} dog={b.dog_name || "the dog"} />}
-                {b.status !== "cancelled" && <CancelTraining bookingId={b.id} dog={b.dog_name || "the dog"} trainer={b.trainers?.name || "The trainer"} />}
+                {b.status !== "cancelled" && b.end_date >= today && <ExtendStay bookingId={b.id} dog={b.dog_name || "the dog"} trainer={b.trainers?.name || "The trainer"} end={b.end_date} maxEnd={addDays(b.start_date, (b.weeks || 1) * 7 + 42)} />}
+                {b.status !== "cancelled" && <CancelTraining bookingId={b.id} dog={b.dog_name || "the dog"} trainer={b.trainers?.name || "The trainer"} started={b.start_date <= today} start={b.start_date} end={b.end_date} today={today} />}
+              </div>
+              {(() => { const e = (b as { unpaid_days?: number | null; end_kind?: string | null; end_pay?: string | null; picked_up_at?: string | null }); return (e.unpaid_days || e.end_kind) ? <p className="text-small font-semibold text-ink">{e.unpaid_days ? `${e.unpaid_days} pro bono day${e.unpaid_days === 1 ? "" : "s"} at the end: tracked, not paid. ` : ""}{e.end_kind === "finished_early" ? `Finished early: ${e.end_pay === "none" ? "no payment for the days with the trainer" : "paid for the days with the trainer"}.` : e.end_kind === "cancelled_mid" ? `Cancelled mid-program: ${e.end_pay === "none" ? "no payment for the days with the trainer" : "paid for the days with the trainer"}.` : ""}</p> : null; })()}
+              <div className="flex flex-wrap items-center gap-2">
+                {b.status !== "cancelled" && b.start_date > today && !(b as { unpaid_days?: number | null; end_kind?: string | null; end_pay?: string | null; picked_up_at?: string | null }).picked_up_at && <RemoveMistake bookingId={b.id} dog={b.dog_name || "the dog"} trainer={b.trainers?.name || "The trainer"} after={`/a/trainers/${b.trainer_id}`} />}
               </div>
               <p className="text-small text-ink-soft">{b.notified_at ? `Trainer emailed ${new Date(b.notified_at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}.` : "The trainer hasn't been emailed about this booking yet."}</p>
               <div className="flex flex-wrap items-center gap-4 border-t border-line pt-3 text-body">

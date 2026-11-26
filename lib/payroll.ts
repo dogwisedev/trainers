@@ -71,7 +71,12 @@ export function payForDays(rates: Rates, programWeeks: number, rehab: boolean, f
 }
 
 // ── Building a draft from bookings ──────────────────────────────────────
-export type BookingLike = { id: string; trainer_id: string; client_name: string; dog_name: string | null; start_date: string; end_date: string; weeks: number | null; extra_days?: number | null; rehab?: boolean | null; status: string };
+// Ending a stay and free days (migration 070):
+//  left_on      the day the dog left the trainer, when a training was cancelled mid-program or finished early (not a paid day)
+//  end_pay      what the admin chose then: "days" = pay the days with the trainer, "none" = no payment for them
+//  unpaid_days  pro bono days at the END of the stay: the dog is tracked and the kennel is taken, but they aren't paid
+export type BookingLike = { id: string; trainer_id: string; client_name: string; dog_name: string | null; start_date: string; end_date: string; weeks: number | null; extra_days?: number | null; rehab?: boolean | null; status: string;
+  left_on?: string | null; end_pay?: "days" | "none" | string | null; unpaid_days?: number | null };
 export type DraftLine = { kind: "training"; booking_id: string; weeks_completed: number | null; days: number | null; week_from: number | null; client: string; dog: string; program: string; amount: number; missingRate: boolean };
 
 export function programLabel(weeks: number, rehab: boolean, extraDays = 0) {
@@ -86,11 +91,20 @@ export function draftLines(bookings: BookingLike[], rates: Rates, runWeeks: stri
   const out: DraftLine[] = [];
   const periodStart = runWeeks[0], periodEnd = addDays(runWeeks[runWeeks.length - 1], 6); // 14 days, Sunday to Saturday
   for (const b of bookings) {
-    if (b.status === "cancelled") continue;
-    // Paid days run from pickup to the night before drop-off (end_date is the drop-off day, not paid)
-    const care = daysBetween(b.start_date, b.end_date), last = care > 0 ? addDays(b.end_date, -1) : b.end_date;
+    // Cancelled: nothing, unless it was cancelled mid-program and the admin chose to pay the days with the trainer
+    const cancelledMid = b.status === "cancelled" && b.end_pay === "days" && !!b.left_on && b.left_on > b.start_date;
+    if (b.status === "cancelled" && !cancelledMid) continue;
+    if (b.end_pay === "none") continue; // ended early with "no payment for the days with the trainer"
+    // Paid days run from pickup to the night before the dog left (end_date / left_on is the drop-off day, not paid)
+    const endDay = cancelledMid && b.left_on! < b.end_date ? b.left_on! : b.end_date;
+    const care = daysBetween(b.start_date, endDay);
+    // Pro bono days are the last days of the stay: in care, not paid
+    const unpaid = cancelledMid ? 0 : Math.min(Math.max(0, Math.round(Number(b.unpaid_days) || 0)), Math.max(0, care));
+    if (unpaid > 0 && unpaid >= care) continue;
+    const last = care > 0 ? addDays(endDay, -1 - unpaid) : endDay;
     const programWeeks = b.weeks || Math.max(1, Math.floor(Math.max(1, care) / 7));
-    const extra = Math.max(0, b.extra_days ?? (care - programWeeks * 7));
+    const extra = Math.max(0, cancelledMid ? care - programWeeks * 7 : (b.extra_days ?? care - programWeeks * 7) - unpaid);
+    const tag = cancelledMid ? " (cancelled, days with the trainer)" : unpaid ? ` (+ ${unpaid} pro bono day${unpaid === 1 ? "" : "s"}, not paid)` : "";
     const from = b.start_date > periodStart ? b.start_date : periodStart;
     const to = last < periodEnd ? last : periodEnd;
     if (from > to) continue;
@@ -98,7 +112,7 @@ export function draftLines(bookings: BookingLike[], rates: Rates, runWeeks: stri
     const amount = payForDays(rates, programWeeks, !!b.rehab, fromDay, days);
     out.push({
       kind: "training", booking_id: b.id, weeks_completed: days % 7 === 0 ? days / 7 : null, days, week_from: Math.floor(fromDay / 7) + 1,
-      client: b.client_name, dog: b.dog_name || "", program: programLabel(programWeeks, !!b.rehab, extra), amount: amount ?? 0, missingRate: amount == null
+      client: b.client_name, dog: b.dog_name || "", program: programLabel(programWeeks, !!b.rehab, extra) + tag, amount: amount ?? 0, missingRate: amount == null
     });
   }
   return out.sort((a, b) => a.client.localeCompare(b.client));
