@@ -17,16 +17,19 @@ function Thumb({ id, local, alt, className, onGiveUp }: { id: string; local?: st
   if (gone) return null;
   const src = local || `${driveThumb(id, 800)}${attempt ? `&r=${attempt}` : ""}`;
   return (
-    <>
+    // The picture stays lazy (fetched only when scrolled into view), so it has to keep a place on the page while it loads:
+    // a lazy image that is display:none is never fetched at all, and the grey box stayed for good. It sits invisible over
+    // the placeholder until it has loaded.
+    <span className="relative block">
       {!loaded && <div className={`skeleton ${className}`} aria-hidden />}
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img key={src} src={src} alt={alt} loading="lazy" referrerPolicy="no-referrer" className={`${className} ${loaded ? "" : "hidden"}`}
+      <img key={src} src={src} alt={alt} loading="lazy" referrerPolicy="no-referrer" className={loaded ? className : "absolute inset-0 h-full w-full opacity-0"}
         onLoad={() => setLoaded(true)}
         onError={() => {
           if (local || attempt >= RETRY_MS.length) { setGone(true); onGiveUp?.(); return; }
           timer.current = setTimeout(() => setAttempt((a) => a + 1), RETRY_MS[attempt]);
         }} />
-    </>
+    </span>
   );
 }
 
