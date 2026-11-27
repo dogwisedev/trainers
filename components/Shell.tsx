@@ -46,7 +46,7 @@ export function Shell({ nav, who, children, demo, accountHref, needsPassword, he
 
       <div className="min-w-0 flex-1">
         {/* Mobile top bar */}
-        <header className="sticky top-0 z-20 flex items-center justify-between border-b border-line/70 bg-white/85 px-4 pb-2 pt-[max(8px,env(safe-area-inset-top))] backdrop-blur-md md:hidden">
+        <header data-app-bar className="sticky top-0 z-20 flex items-center justify-between border-b border-line/70 bg-white/85 px-4 pb-2 pt-[max(8px,env(safe-area-inset-top))] backdrop-blur-md md:hidden">
           <Brand small />
           {headerActions && (
             <div className="flex items-center">

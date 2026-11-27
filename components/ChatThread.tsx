@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createBrowserClient } from "@supabase/ssr";
-import { FolderOpen, Paperclip, SendHorizontal, Sparkles, X } from "lucide-react";
+import { FolderOpen, Paperclip, SendHorizontal, Sparkles, X, ArrowDown } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { ScheduleButton, ScheduledStrip, type ScheduledLite } from "@/components/ScheduleMessage";
 import { deleteMessageAction } from "@/app/chat-actions";
@@ -184,17 +184,35 @@ export function ChatThread(p: { chatId: string; me: Me; initial: ChatMsg[]; hasM
     return () => window.removeEventListener("beforeunload", warn);
   }, [busy]);
 
+  // A chat opens at its newest message and stays there while photos load and messages arrive. Scrolling up lets go of the
+  // bottom (nothing drags you back down while you read); "Latest" brings you back. nearBottom starts true: the page opens
+  // at the top, and measuring there said "not at the bottom", which is why chats used to open at their oldest message.
+  const list = useRef<HTMLDivElement>(null), lastId = useRef(p.initial[p.initial.length - 1]?.id || "");
+  const [away, setAway] = useState(false), [fresh, setFresh] = useState(false);
+  // The very bottom of the page, not just the last message: the message box sits over the bottom of the screen, and
+  // stopping at the last message left it hidden behind the box
+  const toEnd = useCallback((smooth = false) => { window.scrollTo({ top: document.documentElement.scrollHeight, behavior: smooth ? "smooth" : "auto" }); }, []);
   useEffect(() => {
-    const onScroll = () => { nearBottom.current = window.innerHeight + window.scrollY > document.body.scrollHeight - 220; };
-    window.addEventListener("scroll", onScroll, { passive: true }); onScroll();
-    return () => window.removeEventListener("scroll", onScroll);
-  }, []);
+    const onScroll = () => {
+      const near = window.innerHeight + window.scrollY > document.documentElement.scrollHeight - 220;
+      nearBottom.current = near; setAway(!near); if (near) setFresh(false);
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    // Thumbnails and late messages change the height after the first paint: follow them while still at the bottom
+    const ro = typeof ResizeObserver !== "undefined" && list.current ? new ResizeObserver(() => { if (nearBottom.current) toEnd(); }) : null;
+    if (ro && list.current) ro.observe(list.current);
+    toEnd();
+    return () => { window.removeEventListener("scroll", onScroll); ro?.disconnect(); };
+  }, [toEnd]);
   useEffect(() => {
     const last = msgs[msgs.length - 1];
-    if (nearBottom.current || last?.sender_id === me.userId || last?.local) end.current?.scrollIntoView({ block: "end" });
-  }, [msgs, me.userId]);
+    const isNew = !!last && last.id !== lastId.current; // not just older messages loaded in above
+    lastId.current = last?.id || "";
+    if (nearBottom.current || last?.sender_id === me.userId || last?.local) toEnd();
+    else if (isNew) setFresh(true);
+  }, [msgs, me.userId, toEnd]);
   // The message box grows with what's typed (up to a limit), so long messages are easy to check before sending
-  useEffect(() => { const el = box.current; if (el) { el.style.height = "auto"; el.style.height = `${Math.min(el.scrollHeight, 180)}px`; } }, [text]);
+  useEffect(() => { const el = box.current; if (el) { el.style.height = "auto"; el.style.height = `${Math.min(el.scrollHeight, 180)}px`; } if (nearBottom.current) toEnd(); }, [text, toEnd]); // and the newest message stays in view above it
 
   const loadEarlier = async () => {
     if (!sb || !msgs.length) return;
@@ -202,7 +220,10 @@ export function ChatThread(p: { chatId: string; me: Me; initial: ChatMsg[]; hasM
     const { data } = await sb.from("chat_messages").select("*").eq("chat_id", chatId).lt("created_at", first || new Date().toISOString()).order("created_at", { ascending: false }).limit(101);
     const rows = (data || []) as Local[];
     setMore(rows.length > 100);
+    // Older messages go in above: stay on the message you were reading
+    const before = document.documentElement.scrollHeight;
     setMsgs((cur) => merge(cur, rows.slice(0, 100)));
+    requestAnimationFrame(() => window.scrollBy(0, document.documentElement.scrollHeight - before));
   };
 
   const send = () => {
@@ -302,7 +323,7 @@ export function ChatThread(p: { chatId: string; me: Me; initial: ChatMsg[]; hasM
         {folder && <a href={folder} target="_blank" rel="noopener" className="btn-ghost h-9 min-h-0 shrink-0 px-3 text-small"><FolderOpen size={15} />All media</a>}
       </div>
       {adminNote && <p role="alert" className="mb-3 rounded-xl bg-biscuit-wash px-3 py-2 text-small text-warn">{adminNote}</p>}
-      <div className="flex-1 space-y-2">
+      <div ref={list} className="flex-1 space-y-2">
         {more && <div className="text-center"><button type="button" onClick={loadEarlier} className="text-small font-semibold underline">Load earlier messages</button></div>}
         {msgs.length === 0 && <p className="py-12 text-center text-body text-ink-faint">No messages yet. Say hello.</p>}
         {msgs.map((m) => {
@@ -370,7 +391,14 @@ export function ChatThread(p: { chatId: string; me: Me; initial: ChatMsg[]; hasM
         </p>
       )}
       {p.open ? (
-        <div data-tour="composer" className={`sticky z-10 mt-4 flex items-end gap-1.5 rounded-[22px] border border-line bg-white p-2 shadow-card ${p.withBottomNav ? "bottom-[calc(76px+env(safe-area-inset-bottom))] md:bottom-4" : "bottom-3"}`}>
+        <div className={`sticky z-10 mt-4 ${p.withBottomNav ? "bottom-[calc(76px+env(safe-area-inset-bottom))] md:bottom-4" : "bottom-3"}`}>
+        {away && (
+          <button type="button" onClick={() => toEnd(true)} className={`absolute -top-12 right-1 flex h-10 items-center gap-1.5 rounded-full border px-3.5 text-small font-semibold shadow-card ${fresh ? "border-ink bg-ink text-white" : "border-line bg-white text-ink"}`}>
+            <ArrowDown size={16} />{fresh ? "New message" : "Latest"}
+          </button>
+        )}
+        {/* One row while empty. Once there's text the box takes the full width and the buttons drop under it, so there's room to write (phones; wide screens stay one row) */}
+        <div data-tour="composer" className="flex flex-wrap items-end gap-1 rounded-[22px] border border-line bg-white p-1.5 shadow-card">
           <label data-tour="attach" className={`grid h-11 w-11 shrink-0 cursor-pointer place-items-center rounded-full text-ink-soft hover:bg-paper ${demo ? "opacity-40" : ""}`} aria-label="Add photo, video or PDF">
             <Paperclip size={20} />
             <input type="file" accept="image/*,video/*,application/pdf,.heic,.heif,.mov,.pdf" multiple className="sr-only" disabled={demo} onChange={(e) => { attach(e.target.files); e.target.value = ""; }} />
@@ -378,7 +406,8 @@ export function ChatThread(p: { chatId: string; me: Me; initial: ChatMsg[]; hasM
           <label className="sr-only" htmlFor="chat-msg">Message</label>
           <textarea ref={box} id="chat-msg" rows={1} value={text} onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && !coarse) { e.preventDefault(); send(); } }}
-            placeholder="Write a message" className="max-h-[180px] min-h-[44px] flex-1 resize-none bg-transparent px-1.5 py-2.5 text-input focus:outline-none md:text-body" />
+            placeholder="Message" className={`max-h-[180px] min-h-[44px] resize-none bg-transparent py-2.5 text-input placeholder:text-ink-faint focus:outline-none md:order-none md:min-w-0 md:flex-1 md:basis-0 md:px-1.5 md:text-body ${text ? "order-first basis-full px-3" : "min-w-0 flex-1 px-1.5"}`} />
+          {text && <span className="flex-1 md:hidden" aria-hidden />}
           {p.me.role !== "client" && !demo && !text.trim() && (
             <VoiceButton mode="chat" chatId={p.chatId} onResult={(r) => { setCap({ voiceId: r.voiceId, words: r.heard, spoken: true, raw: r.tidied === false, why: r.why }); setCapMsg(""); setText(r.text || r.heard); box.current?.focus(); }} />
           )}
@@ -389,6 +418,7 @@ export function ChatThread(p: { chatId: string; me: Me; initial: ChatMsg[]; hasM
           )}
           {p.me.role !== "client" && <ScheduleButton chatId={p.chatId} text={text} disabled={demo} onScheduled={() => { setText(""); store.set(draftKey, ""); router.refresh(); }} />}
           <button type="button" onClick={send} disabled={!text.trim()} className="btn-ink h-11 w-11 shrink-0 rounded-full p-0" aria-label="Send"><SendHorizontal size={18} /></button>
+        </div>
         </div>
       ) : <p className="mt-4 rounded-2xl bg-paper p-4 text-center text-body text-ink-soft">This chat is closed. Everything was sent to the client, and the client can start a fresh chat any time.</p>}
 
