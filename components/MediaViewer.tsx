@@ -63,6 +63,7 @@ export function MediaCard({ m, local, onOpen, dark = false }: { m: MediaRef; loc
 /** Full-screen viewer: photos large, videos and PDFs in Drive's player. Close with X or Escape. */
 export function MediaViewer({ m, onClose }: { m: MediaRef | null; onClose: () => void }) {
   const [photoFailed, setPhotoFailed] = useState(false);
+  const closeBtn = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (!m) return;
     setPhotoFailed(false);
@@ -70,7 +71,15 @@ export function MediaViewer({ m, onClose }: { m: MediaRef | null; onClose: () =>
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     window.addEventListener("keydown", key);
-    return () => { document.body.style.overflow = prev; window.removeEventListener("keydown", key); };
+    // Videos and PDFs play inside Google's own player (a frame from drive.google.com). A click on it (to press play) moves
+    // the keyboard into Google's frame, and no page may listen to keys in another site's frame, so Escape stopped working
+    // after the first click. A moment after each click the keyboard comes back to this page (the Close button): the click
+    // still lands in the player, the video keeps playing, and Escape closes it. The player's own keyboard shortcuts
+    // (space, arrows) don't work in here because of it; its on-screen controls do.
+    const back = () => { timer = setTimeout(() => { if (document.activeElement?.tagName === "IFRAME") closeBtn.current?.focus({ preventScroll: true }); }, 300); };
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    window.addEventListener("blur", back);
+    return () => { document.body.style.overflow = prev; window.removeEventListener("keydown", key); window.removeEventListener("blur", back); clearTimeout(timer); };
   }, [m, onClose]);
   if (!m) return null;
   const photo = m.kind === "photo" && !photoFailed;
@@ -80,7 +89,7 @@ export function MediaViewer({ m, onClose }: { m: MediaRef | null; onClose: () =>
         <p className="min-w-0 flex-1 truncate text-body font-semibold">{m.name}</p>
         <a href={driveDownload(m.id)} className="grid h-11 w-11 place-items-center rounded-full hover:bg-[rgb(255_255_255/0.1)]" aria-label="Download"><Download size={20} /></a>
         <a href={driveView(m.id)} target="_blank" rel="noopener" className="grid h-11 w-11 place-items-center rounded-full hover:bg-[rgb(255_255_255/0.1)]" aria-label="Open in Google Drive"><ExternalLink size={19} /></a>
-        <button type="button" onClick={onClose} className="grid h-11 w-11 place-items-center rounded-full bg-[rgb(255_255_255/0.1)] hover:bg-[rgb(255_255_255/0.2)]" aria-label="Close"><X size={22} /></button>
+        <button ref={closeBtn} type="button" onClick={onClose} className="grid h-11 w-11 place-items-center rounded-full bg-[rgb(255_255_255/0.1)] hover:bg-[rgb(255_255_255/0.2)]" aria-label="Close" title="Close (Esc)"><X size={22} /></button>
       </div>
       <div className="relative min-h-0 flex-1 px-2 pb-[max(12px,env(safe-area-inset-bottom))]">
         {photo ? (
