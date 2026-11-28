@@ -233,6 +233,28 @@ export async function approveManyQuietAction(ids: string[]): Promise<Result> {
   return bad.length ? { ok: n > 0, message: `Approved ${n}. Not approved: ${bad.join("; ")}` } : { ok: true, message: `Approved ${n} without emailing.` };
 }
 
+/** Admin: the dates printed on a pay run's payslips. The paid date is the run's paid date everywhere (emails, the trainer's
+ *  Pay page); the submitted date only changes what the payslip says, never which run it is. */
+export async function setRunDatesAction(run: string, submitted: string, paid: string): Promise<Result> {
+  return audited("setRunDatesAction", { run, submitted, paid }, async () => {
+  if (isDemo()) return DEMO;
+  await admin();
+  const iso = /^\d{4}-\d{2}-\d{2}$/;
+  if (!iso.test(run) || !iso.test(submitted) || !iso.test(paid)) return { ok: false, message: "Pick both dates." };
+  const far = (a: string, b: string) => Math.abs(Date.parse(a) - Date.parse(b)) > 62 * 86400000;
+  if (far(submitted, run) || far(paid, run)) return { ok: false, message: "Those dates are more than two months from this pay run. Check the year." };
+  const sb = serviceClient();
+  const { data: row } = await sb.from("pay_runs").select("id").eq("submit_date", run).maybeSingle();
+  if (!row) return { ok: false, message: "This pay run has no payslips yet: open it once so they're made, then set the dates." };
+  const { error: e1 } = await sb.from("pay_runs").update({ paid_date: paid }).eq("id", row.id);
+  if (e1) return { ok: false, message: e1.message };
+  const { error: e2 } = await sb.from("pay_runs").update({ shown_submit_date: submitted === run ? null : submitted }).eq("id", row.id);
+  revalidatePath("/a/trainers"); revalidatePath("/a/payroll");
+  if (e2) return { ok: /shown_submit_date|schema cache/i.test(e2.message) && submitted === run, message: /shown_submit_date|schema cache/i.test(e2.message) ? "The paid date is saved. For the submitted date, run migration 072 in Supabase first." : e2.message };
+  return { ok: true, message: "Saved. Payslips for this pay run show these dates from now on. Ones already emailed aren't sent again: use Email again on a payslip if a trainer needs the new copy." };
+});
+}
+
 /** Admin: the pay run was entered and submitted in Gusto. */
 export async function markGustoPaidAction(submitDate: string): Promise<Result> {
   return audited("markGustoPaidAction", { run: submitDate }, async () => {

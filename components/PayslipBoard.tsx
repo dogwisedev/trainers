@@ -70,7 +70,7 @@ export function PayslipBoard({ slips: initial, submit, label, paid, demo }: { sl
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="text-h3 font-extrabold">{label}</p>
-          <p className="text-small text-ink-soft">Paid Fri {paid}. {money(total)} across {slips.length} trainers.</p>
+          <p className="text-small text-ink-soft">Paid {paid}. {money(total)} across {slips.length} trainers.</p>
         </div>
         <span className="flex gap-4"><Link prefetch={false} href="/a/payroll" className="text-body font-semibold underline">Past pay runs</Link><Link prefetch={false} href={`/a/payroll/gusto?run=${submit}`} className="text-body font-semibold underline">Gusto list</Link></span>
       </div>

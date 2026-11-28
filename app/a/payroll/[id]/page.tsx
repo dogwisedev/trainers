@@ -72,7 +72,7 @@ export default async function PayslipPage({ params, searchParams }: { params: { 
         initial={p.lines.map((l) => ({ kind: l.kind, booking_id: l.booking_id, weeks_completed: l.weeks_completed, days: l.days ?? null, week_from: l.week_from, pct: l.pct, client: l.client, dog: l.dog, program: l.program, description: l.description, amount: Number(l.amount), auto: l.auto }))}
         adjustments={Number(p.slip.adjustments)} notes={p.slip.notes || ""} rates={p.rates}
         bookings={p.bookings.map((b) => ({ id: b.id, client: b.client_name, dog: b.dog_name || "" }))}
-        doc={{ trainer_name: name, trainer_address: p.slip.trainer_address ?? p.trainer?.address ?? null, submit_date: p.run.submit_date, paid_date: p.run.paid_date, period_start: p.run.period_start, period_end: p.run.period_end }}
+        doc={{ trainer_name: name, trainer_address: p.slip.trainer_address ?? p.trainer?.address ?? null, submit_date: p.run.shown_submit_date || p.run.submit_date, paid_date: p.run.paid_date, period_start: p.run.period_start, period_end: p.run.period_end }}
         startEditing={searchParams.edit === "1"}
         status={{ approvedBy: p.slip.approved_by_name, approvedAt: p.slip.approved_at, sentTo: p.slip.sent_to, sentAt: p.slip.sent_at, error: p.slip.send_error }}
       />

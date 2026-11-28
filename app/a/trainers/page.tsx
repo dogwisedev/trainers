@@ -1,3 +1,4 @@
+import { PayRunDates } from "@/components/PayRunDates";
 import Link from "next/link";
 import { UserPlus } from "lucide-react";
 import { listBookings, listTimeOff, listTrainers, requireRole } from "@/lib/data";
@@ -58,7 +59,8 @@ export default async function Trainers({ searchParams }: { searchParams: { view?
       <>
         {header}
         {refreshError && <p role="alert" className="mb-3 rounded-xl bg-heart-wash px-3 py-2 text-body text-heart">Couldn&apos;t update the payslips from bookings and trips: {refreshError}. What&apos;s below may be out of date; press Refresh drafts to try again.</p>}
-        <PayslipBoard key={submit} submit={submit} demo={isDemo()} label={periodLabel(d.period_start, d.period_end)} paid={usDate(d.paid_date)}
+        {pay.run && <PayRunDates key={`${submit}-${d.paid_date}-${(d as { shown_submit_date?: string | null }).shown_submit_date || ""}`} run={submit} submitted={(d as { shown_submit_date?: string | null }).shown_submit_date || d.submit_date} paid={d.paid_date} demo={isDemo()} />}
+        <PayslipBoard key={submit} submit={submit} demo={isDemo()} label={periodLabel(d.period_start, d.period_end)} paid={`${new Date(`${d.paid_date}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" })} ${usDate(d.paid_date)}`}
           slips={pay.slips.map((x) => ({ id: x.id, name: x.name, status: x.status, total: Number(x.total), notes: x.notes, sent_at: x.sent_at, send_error: x.send_error, missing: x.missing, miles: miles.get(x.trainer_id) || 0, lines: x.lines }))} />
       </>
     );

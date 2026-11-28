@@ -1,4 +1,5 @@
 "use server";
+import { teamName } from "@/lib/teamName";
 import { logReason } from "@/lib/work";
 import { audited } from "@/lib/audit";
 import { revalidatePath } from "next/cache";
@@ -227,7 +228,7 @@ export async function scheduleMessageAction(chatId: string, body: string, media:
     if (isNaN(when.getTime())) return { ok: false, message: "Pick a date and time." };
     if (when.getTime() < Date.now() + 5 * 60000) return { ok: false, message: "Pick a time at least 5 minutes from now (or just send it)." };
     if (when.getTime() > Date.now() + 30 * 86400000) return { ok: false, message: "Up to 30 days ahead." };
-    const { error } = await sb.from("scheduled_messages").insert({ chat_id: chatId, created_by: v.userId, sender_role: v.role, sender_name: v.name, body: text || null, media, send_at: when.toISOString() });
+    const { error } = await sb.from("scheduled_messages").insert({ chat_id: chatId, created_by: v.userId, sender_role: v.role, sender_name: v.role === "admin" ? teamName(v.name) : v.name, body: text || null, media, send_at: when.toISOString() });
     if (error) return { ok: false, message: /scheduled_messages|schema cache/i.test(error.message) ? "Scheduling isn't switched on yet (migration 041)." : error.message };
     revalidatePath(`/a/chats/${chatId}`); revalidatePath(`/t/chats/${chatId}`);
     return { ok: true, message: `Scheduled for ${when.toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "America/New_York" })} ET.`, chatId };

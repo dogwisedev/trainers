@@ -1,4 +1,5 @@
 "use server";
+import { teamName } from "@/lib/teamName";
 import { revalidatePath } from "next/cache";
 import { getViewer } from "@/lib/data";
 import { audited } from "@/lib/audit";
@@ -48,7 +49,7 @@ export async function checkInAction(c: CheckIn, channel: "app" | "text", text: s
       const r = await sendText(t.phone, `Dogwise: ${body}`, fromFor(t.poc, await loadPocNumbers(sb)).from); // from their POC's own Quo number when it's set
       if (!r.ok) return { ok: false, message: `The text didn't go: ${r.error}` };
     } else {
-      const { error } = await serverClient().from("messages").insert({ trainer_id: t.id, sender_id: v.userId, sender_role: "admin", sender_name: "Dogwise team", body: body.slice(0, 4000) });
+      const { error } = await serverClient().from("messages").insert({ trainer_id: t.id, sender_id: v.userId, sender_role: "admin", sender_name: teamName(v.name), body: body.slice(0, 4000) });
       if (error) return { ok: false, message: error.message };
       await pushToTrainer(t.id, { title: "Message from the Dogwise team", body, url: "/t/messages", tag: "team" });
     }

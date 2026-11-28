@@ -14,7 +14,7 @@ export type Slip = {
   subtotal: number; total: number; trainer_name: string | null; trainer_address: string | null;
   approved_by_name: string | null; approved_at: string | null; sent_at: string | null; sent_to: string | null; send_error: string | null;
 };
-export type Run = { id: string; submit_date: string; period_start: string; period_end: string; paid_date: string };
+export type Run = { id: string; submit_date: string; period_start: string; period_end: string; paid_date: string; shown_submit_date?: string | null };
 
 /** Run on screen when nothing is chosen: the oldest run that still has payslips waiting for approval;
  *  once every payslip in it is approved it's archived and the next pay Monday's run takes its place. */
@@ -234,7 +234,8 @@ export async function getPayslip(id: string) {
 export function toSlipData(slip: Slip, run: Run, lines: SlipLine[], trainer?: Trainer | null): SlipData {
   return {
     trainer_name: slip.trainer_name || trainer?.name || "", trainer_address: slip.trainer_address ?? trainer?.address ?? null,
-    submit_date: run.submit_date, paid_date: run.paid_date, period_start: run.period_start, period_end: run.period_end,
+    // the dates printed can be chosen per pay run (migration 072)
+    submit_date: run.shown_submit_date || run.submit_date, paid_date: run.paid_date, period_start: run.period_start, period_end: run.period_end,
     lines, subtotal: slip.subtotal, adjustments: slip.adjustments, total: slip.total, notes: slip.notes
   };
 }

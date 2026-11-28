@@ -385,3 +385,8 @@ All on the dog page, admins only. Pay follows by itself (`lib/payroll.ts`, `draf
 
 ## Snout to tail: health check media waits for the office (migration 071)
 Photos and videos added on a weekly health check are called **Snout to tail** and no longer go into the dog's chat when the trainer adds them. They are saved with the form (the booking's Drive folder, not the chat's "All media" folder). The office watches them on the form; a form with media is never approved automatically. They reach the client only through **Send media in chat**: a tick when approving, or the button on the approved form afterwards. Sent once, as the office, logged. The trainer's form says in red "This will be shown to the customer". Intake (pickup) and handover media are unchanged. The trainer's pre-send tips now say "message the Dogwise team" for a health worry, never "the chat".
+
+## Payslip dates, who wrote a message, follow-up trainers' chats (migration 072)
+- **Dates on these payslips** (Payslips, above the list): the Submitted and Paid dates printed on that pay run's payslips. The paid date is the run's paid date everywhere; the submitted date only changes what the payslip says (`pay_runs.shown_submit_date`), never which run it is.
+- A message from the office says who wrote it: "Anita, Dogwise team" (first name from their profile; a profile with no real name stays "Dogwise team"). Chats (the database stamps it), the trainer's team thread, office check-ins and scheduled messages. The app's own automatic posts stay "Dogwise team".
+- A trainer added to a chat for the follow-ups now has that chat in their Chats list (it only opened from the notification before).

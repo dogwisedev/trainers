@@ -13,7 +13,8 @@ export default async function TrainerChats({ searchParams }: { searchParams: { q
   const v = await requireRole("trainer");
   const q = (searchParams.q || "").trim();
   const [chats, reads, team, hits] = await Promise.all([listChats(), chatReads(v.userId), v.trainerId ? unreadForTrainer(v.trainerId) : 0, q ? searchChatMessages(q) : Promise.resolve(new Map<string, string>())]);
-  const mine = chats.filter((c) => c.trainer_id === v.trainerId && c.status === "open");
+  // Theirs, or one they were added to (the follow-up trainer, migration 046): those opened from the notification but were never in this list
+  const mine = chats.filter((c) => c.status === "open" && (c.trainer_id === v.trainerId || (!!v.trainerId && ((c as { extra_trainer_ids?: string[] | null }).extra_trainer_ids || []).includes(v.trainerId))));
   const shown = mine.filter((c) => !q || nameMatches(c, q) || hits.has(c.id));
   const placed = orderChats(shown, await chatSpans(shown.map((c) => c.deal_key)), etParts(new Date()).date);
   return (

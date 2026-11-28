@@ -1,4 +1,5 @@
 "use server";
+import { teamName } from "@/lib/teamName";
 import { availability } from "@/lib/availability";
 import { clientPlace, zipIn } from "@/lib/mileageCheck";
 import { isCancelReason, POSTPONE_BY } from "@/lib/cancelReasons";
@@ -582,7 +583,7 @@ export async function sendMessage(trainerId: string, body: string): Promise<Resu
   if (v.role === "client") return { ok: false, message: "Use your chat instead." };
   if (v.role === "trainer" && v.trainerId !== trainerId) return { ok: false, message: "You can only message the Dogwise team." };
   const { error } = await serverClient().from("messages").insert({
-    trainer_id: trainerId, sender_id: v.userId, sender_role: v.role, sender_name: v.role === "admin" ? "Dogwise team" : v.name, body: text.slice(0, 4000)
+    trainer_id: trainerId, sender_id: v.userId, sender_role: v.role, sender_name: v.role === "admin" ? teamName(v.name) : v.name, body: text.slice(0, 4000)
   });
   if (error) return { ok: false, message: error.message };
   // Phone notification to the other side (one per conversation on the lock screen)
